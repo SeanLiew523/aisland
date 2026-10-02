@@ -22,7 +22,7 @@
   <a href="https://aisland.brianliew.chatgpt.site/"><img src="docs/images/aisland-demo.gif" alt="AIsland native English UI: idle, thinking, permission requests, answers, sessions and completion." width="100%"></a>
 </p>
 
-<p align="center"><sub>20-second English native capture · Example sessions · Original macOS wallpaper composite<br>Click for the full-resolution demo and brand motion.</sub></p>
+<p align="center"><sub>20-second English native capture · Example sessions · Original macOS wallpaper composite<br><a href="docs/images/readme/native-demo-en.mp4">Full-resolution English video</a> · <a href="https://aisland.brianliew.chatgpt.site/">Explore the website and brand motion</a></sub></p>
 
 ## A little expression. A clear next step.
 

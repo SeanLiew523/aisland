@@ -32,11 +32,20 @@ views and existing English localization, with example sessions supplied through
 the app's snapshot API. It does not record a live permission decision or a
 session jump. Apple’s original Ventura wallpaper is a composited background.
 
+`native-demo-zh.mp4` is exported from the original Chinese RGBA native recording
+at app commit `111b21950f2319213432e4464c3f6ee6862ff95b`, using the repository's
+existing `aisland-website/media/compose.py` and `demo-edit.json`. The export uses
+3072 × 1984 with a 1024-pixel native panel, matching the English master's layout.
+It starts from the original native frames, never a resized old GIF. The Chinese
+README's stills reference the existing `native-sessions.png`,
+`native-approval.png` and `native-complete.png` captures in the website assets.
+
 `capture-provenance.json` preserves the original recording configuration,
 native-view hashes, source commit and wallpaper attribution. `provenance.json`
 contains this presentation's input hashes and export settings.
+`capture-provenance-zh.json` records the Chinese capture and HD export.
 
-The 20-second GIF uses the same recording at its original speed. It crops the
+Each 20-second GIF uses its language's recording at its original speed. It crops the
 desktop around the native panel for readability, adds a small display border,
 and fades only the lower display into paper. It does not redraw, interpolate or
 recolor the application interface. It loops at 15 fps; the website retains the
@@ -45,7 +54,8 @@ full-resolution 30 fps video and playback controls.
 With FFmpeg installed:
 
 ```sh
-sh scripts/export-readme-demo.sh
+sh scripts/export-readme-demo.sh en
+sh scripts/export-readme-demo.sh zh
 ```
 
 The four 64-pixel state previews reference the existing high-resolution native

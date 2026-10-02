@@ -19,10 +19,10 @@
 </p>
 
 <p align="center">
-  <a href="https://aisland.brianliew.chatgpt.site/"><img src="docs/images/aisland-demo.gif" alt="AIsland 原生英文界面：空闲、思考、权限请求、回答、会话与完成。" width="100%"></a>
+  <a href="https://aisland.brianliew.chatgpt.site/"><img src="docs/images/aisland-demo-zh.gif" alt="AIsland 原生中文界面：空闲、思考、权限请求、回答、会话与完成。" width="100%"></a>
 </p>
 
-<p align="center"><sub>20 秒英文原生界面录制 · 示例会话 · 原版 macOS 壁纸合成背景<br>点击观看高清演示与完整品牌动效。</sub></p>
+<p align="center"><sub>20 秒中文原生界面录制 · 示例会话 · 原版 macOS 壁纸合成背景<br><a href="docs/images/readme/native-demo-zh.mp4">高清中文演示视频</a> · <a href="https://aisland.brianliew.chatgpt.site/">探索官网与品牌动效</a></sub></p>
 
 ## 状态有了表情。下一步，一眼明白。
 
@@ -56,19 +56,19 @@
 - **03 / 返回 — 从状态，回到现场。** 从会话入口回到对应终端、IDE 或桌面应用。可用动作随接入方式而不同。
 
 <details>
-<summary>查看原生英文界面截图</summary>
+<summary>查看原生中文界面截图</summary>
 
 ### 会话总览
 
-<img src="docs/images/readme/native-sessions-en.png" alt="原生英文界面：三个示例会话，两个运行中，一个已完成。" width="760">
+<img src="aisland-website/dist/assets/native-sessions.png" alt="原生中文界面：三个示例会话，两个运行中，一个已完成。" width="760">
 
 ### 权限请求
 
-<img src="docs/images/readme/native-approval-en.png" alt="原生英文界面的示例工具权限请求，含允许和拒绝按钮。" width="760">
+<img src="aisland-website/dist/assets/native-approval.png" alt="原生中文界面的示例工具权限请求，含允许和拒绝按钮。" width="760">
 
 ### 完成状态
 
-<img src="docs/images/readme/native-complete-en.png" alt="原生英文界面的示例会话完成消息。截图不演示跳回操作。" width="760">
+<img src="aisland-website/dist/assets/native-complete.png" alt="原生中文界面的示例会话完成消息。截图不演示跳回操作。" width="760">
 
 </details>
 

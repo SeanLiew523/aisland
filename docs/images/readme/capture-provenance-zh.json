@@ -1,0 +1,98 @@
+{
+  "source_repository": "https://github.com/SeanLiew523/aisland",
+  "recording_configuration": {
+    "bundle_name": "Alsland",
+    "live_bloub_style": true,
+    "bridge_started": false,
+    "session_data": "examples",
+    "source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b"
+  },
+  "native_frames": 829,
+  "recorded_seconds": 34,
+  "published_seconds": 20.0,
+  "video_fps": 30,
+  "interface": "Native AppKit/SwiftUI views, shapes, and animations; the status renderer is included in this source distribution",
+  "sessions": "Example data supplied to the app's existing debug snapshot API",
+  "desktop": {
+    "type": "Original Apple macOS wallpapers composited behind native UI",
+    "wallpapers": {
+      "spectrum": {
+        "name": "Ventura",
+        "appearance": "light",
+        "asset": "Ventura Graphic",
+        "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/f6c545d6b10bb0210fff16d65aa64c27e7ad834c.zip",
+        "heic_frame": 0,
+        "file": "wallpapers/ventura.jpg",
+        "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
+        "source_archive_sha1": "2be4b1cfe2d066e0408b7d54b415843a542ea266"
+      }
+    }
+  },
+  "external_actions": "No permissions were sent and no session jumps were simulated",
+  "edit": {
+    "playback_speed": 1,
+    "clips": [
+      {
+        "scene": "idle",
+        "start": 0.4,
+        "end": 1.8,
+        "chapter": -1
+      },
+      {
+        "scene": "thinking",
+        "start": 3.0,
+        "end": 5.7,
+        "chapter": 0
+      },
+      {
+        "scene": "approval-collapsed",
+        "start": 7.0,
+        "end": 9.4,
+        "chapter": 1
+      },
+      {
+        "scene": "approval-expanded",
+        "start": 13.4,
+        "end": 15.9,
+        "chapter": 1
+      },
+      {
+        "scene": "answer-collapsed",
+        "start": 16.0,
+        "end": 18.4,
+        "chapter": 2
+      },
+      {
+        "scene": "answer-expanded",
+        "start": 22.4,
+        "end": 24.9,
+        "chapter": 2
+      },
+      {
+        "scene": "sessions",
+        "start": 25.0,
+        "end": 27.5,
+        "chapter": 3
+      },
+      {
+        "scene": "completion",
+        "start": 28.0,
+        "end": 30.4,
+        "chapter": 4
+      },
+      {
+        "scene": "idle-outro",
+        "start": 30.4,
+        "end": 31.6,
+        "chapter": -1
+      }
+    ]
+  },
+  "recorded_source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+  "interface_language": "zh-CN",
+  "export_size": [
+    3072,
+    1984
+  ],
+  "note": "Original Chinese RGBA native recordings, sampled with the existing edit at original speed. HD export uses the existing compose.py at 3072x1984 with a 1024px native panel; no resized prior GIF is used."
+}

@@ -1,53 +1,30 @@
 {
   "source_repository": "https://github.com/SeanLiew523/aisland",
+  "source_commit": "1145e9146e9e3fa3b4080f0efc8e70ff5f5302e8",
+  "recorded_source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
   "recording_configuration": {
+    "bundle_name": "AIsland",
     "live_bloub_style": true,
     "bridge_started": false,
-    "session_data": "examples",
-    "runtime": "Native status renderer with live bloub style"
+    "session_data": "English examples",
+    "language": "en",
+    "language_selection": "Existing production LanguageManager, volatile argument defaults only",
+    "source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b"
   },
-  "native_frames": 829,
   "recorded_seconds": 34,
+  "interface_language": "en",
+  "interface": "Unmodified native app views, shapes, animations, and existing English localization",
+  "sessions": "English example data supplied to the app's existing debug snapshot API",
+  "external_actions": "No permissions were sent and no session jumps were simulated",
+  "note": "Fresh English recording from the original pinned native UI branch; public-source equivalence mapping retained from the original demonstration.",
+  "export_size": [
+    3072,
+    1984
+  ],
+  "native_panel_width": 1024,
+  "native_frames": 780,
   "published_seconds": 20.0,
   "video_fps": 30,
-  "interface": "Native AppKit/SwiftUI views, shapes, and animations; the status renderer is included in this source distribution",
-  "sessions": "Example data supplied to the app's existing debug snapshot API",
-  "desktop": {
-    "type": "Original Apple macOS wallpapers composited behind native UI",
-    "wallpapers": {
-      "signal": {
-        "name": "Big Sur",
-        "appearance": "light",
-        "asset": "Big Sur Graphic",
-        "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/2d33861f84f21757db8d5cc656ae09b1143a2c73.zip",
-        "heic_frame": 0,
-        "file": "wallpapers/big-sur.jpg",
-        "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
-        "source_archive_sha1": "8170efe31bd7732c36a9220b67e1f60a8ea31779"
-      },
-      "matrix": {
-        "name": "Sonoma",
-        "appearance": "light",
-        "asset": "Sonoma",
-        "source": "/System/Library/Desktop Pictures/Sonoma.heic",
-        "heic_frame": 0,
-        "file": "wallpapers/sonoma.jpg",
-        "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
-        "source_heic_sha256": "49abdac0cdd3aaebdc98f1e1be9b837bb625c22d9b35f5bafe48e12c8f4a64f2"
-      },
-      "spectrum": {
-        "name": "Ventura",
-        "appearance": "light",
-        "asset": "Ventura Graphic",
-        "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/f6c545d6b10bb0210fff16d65aa64c27e7ad834c.zip",
-        "heic_frame": 0,
-        "file": "wallpapers/ventura.jpg",
-        "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
-        "source_archive_sha1": "2be4b1cfe2d066e0408b7d54b415843a542ea266"
-      }
-    }
-  },
-  "external_actions": "No permissions were sent and no session jumps were simulated",
   "edit": {
     "playback_speed": 1,
     "clips": [
@@ -107,15 +84,36 @@
       }
     ]
   },
-  "readme_preview": {
-    "format": "GIF",
-    "size": [
-      960,
-      680
+  "desktop": {
+    "type": "Original Apple macOS wallpapers composited behind native UI",
+    "wallpapers": {
+      "spectrum": {
+        "name": "Ventura",
+        "appearance": "light",
+        "asset": "Ventura Graphic",
+        "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/f6c545d6b10bb0210fff16d65aa64c27e7ad834c.zip",
+        "heic_frame": 0,
+        "file": "wallpapers/ventura.jpg",
+        "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
+        "source_archive_sha1": "2be4b1cfe2d066e0408b7d54b415843a542ea266"
+      }
+    }
+  },
+  "production_view_verification": {
+    "recorded_source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+    "production_views_verified": 6,
+    "changed_source": [
+      "Sources/OpenIslandApp/OpenIslandApp.swift"
     ],
-    "fps": 15,
-    "published_seconds": 20.0,
-    "native_width": 900,
-    "presentation": "Native close-up; same clips at recorded speed; Sonoma background"
-  }
+    "changes": "Recording scheduling and volatile English language selection only",
+    "view_sha256": {
+      "Sources/OpenIslandApp/Views/AppearanceSettingsPane.swift": "b7040ba69fb41ca00131e69bc3acccf0d6f6ad9029f222927edc4993fc93dbe3",
+      "Sources/OpenIslandApp/Views/BloubStatusGlyph.swift": "2d15238dad69f0bc492d6d4a4a473f1d50fbba27df130c9eb21d6849b2014da2",
+      "Sources/OpenIslandApp/Views/IslandPanelView.swift": "fad584f8a577f156db44a5ba9cad488dee923d2d8896dca6bdd061f4f236b392",
+      "Sources/OpenIslandApp/Views/SettingsView.swift": "4b2d6e7b783a4fbe89a28fb655275ea6d1cde31aebfc843467ed639956340bb4",
+      "Sources/OpenIslandApp/Views/UnifiedBars.swift": "1eae65bd6ecc4a9a16fa8ffaa9e6133f620a9cfffcf2f00ac6521009a68c5c41",
+      "Sources/OpenIslandApp/Views/V6NotchContent.swift": "b861979a4a30acb2bcb769d7edabd520fe42b84d061ce738669057daa8e82a82"
+    }
+  },
+  "capture_harness": "media/NativeDemoCapture.swift"
 }

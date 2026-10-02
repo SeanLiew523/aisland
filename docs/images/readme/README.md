@@ -45,9 +45,12 @@ native-view hashes, source commit and wallpaper attribution. `provenance.json`
 contains this presentation's input hashes and export settings.
 `capture-provenance-zh.json` records the Chinese capture and HD export.
 
-Each 20-second GIF uses its language's recording at its original speed. It crops the
-desktop around the native panel for readability, adds a small display border,
-and fades only the lower display into paper. It does not redraw, interpolate or
+Each 20-second GIF uses its language's recording at its original speed. It crops
+the 3072 × 1984 desktop to 1440 × 900, starting at (816, 0), then scales that
+region to 928 × 580 inside a 960 × 612 display frame. The wider, taller crop
+preserves the full answer panel, including its input, submit button and session
+footer. A 16-pixel opaque border works in both GitHub themes. There is no fade
+or color overlay across the recording. It does not redraw, interpolate or
 recolor the application interface. It loops at 15 fps; the website retains the
 full-resolution 30 fps video and playback controls.
 

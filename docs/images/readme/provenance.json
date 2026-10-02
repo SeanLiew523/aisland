@@ -27,21 +27,21 @@
       "fps": 15,
       "size": [
         960,
-        520
+        612
       ],
       "loop": true,
       "crop": [
-        936,
+        816,
         0,
-        1200,
-        640
+        1440,
+        900
       ],
       "resize": [
         928,
-        494
+        580
       ],
-      "presentation": "16px hardware border; fade starts below Y=440 of 520; native panel unaffected; recorded speed retained",
-      "sha256": "1fe506c134213563f8448a494eaf6f888cd2845c55debf76dffdb4c43bcc9513",
+      "presentation": "16px opaque display border; full expanded answer panel with lower clearance; no fade or color overlay; recorded speed retained",
+      "sha256": "3c624b974c8fb022dd24aaa70d00dea00a8ec2062566ad6a35b6125e11e9296c",
       "file": "../aisland-demo.gif"
     },
     "zh": {
@@ -50,21 +50,21 @@
       "fps": 15,
       "size": [
         960,
-        520
+        612
       ],
       "loop": true,
       "crop": [
-        936,
+        816,
         0,
-        1200,
-        640
+        1440,
+        900
       ],
       "resize": [
         928,
-        494
+        580
       ],
-      "presentation": "16px hardware border; fade starts below Y=440 of 520; native panel unaffected; recorded speed retained",
-      "sha256": "8b93aaf1207d4cd2158a1a7f75898c2d518d95f7ced9a6bf89888bd55f4eccb1",
+      "presentation": "16px opaque display border; full expanded answer panel with lower clearance; no fade or color overlay; recorded speed retained",
+      "sha256": "dc9ec9eadf74f558e7b41c0c21d0f2ba2f55a89bf2be3ad6cc1c7c7af9cad1a9",
       "file": "../aisland-demo-zh.gif"
     }
   }

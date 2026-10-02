@@ -1,0 +1,16 @@
+[
+  {
+    "family": "BarlowCondensed-ExtraLight",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/BarlowCondensed-ExtraLight.ttf",
+    "license": "https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/OFL.txt",
+    "sha256": "19e3c4a81dc7fcee8c38ab6be3819fcc45d3f3822f011ac7b4bd550e6502b80f",
+    "modified": false
+  },
+  {
+    "family": "BarlowCondensed-Light",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/BarlowCondensed-Light.ttf",
+    "license": "https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/OFL.txt",
+    "sha256": "2c37e1e6b5feb71d38a42e6180d2e2f4ca1aad22cfecbd017430f3863deba67d",
+    "modified": false
+  }
+]

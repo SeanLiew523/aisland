@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/jeremy-prt/bloub",
+  "commit": "b4bb3c1b5f93c7b87a2e8d620f667c4093d97749",
+  "files": {
+    "face.ts": "f9ddf7f750b101dbf6fa29acc95fe5fbdeec41c96b2873b1a844df2b5c1bd8c8",
+    "profiles.ts": "62dc55bc860b9e2b1f7a43168cee8738b68b42bf4d07f668d32984ee886f02d3",
+    "skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
+    "states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
+    "decor.ts": "6c300f8aaa7d2f95c13b35993753b0542779528d16bd8e1d01507e467fe52d04",
+    "math.ts": "736be559b961109c3ca2a4c88d7992e99ceaff46450a522d47e596c1def99c0f",
+    "shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
+    "engine.ts": "d824c715b6ec38b241fc61ae2ac516d7c1623f9603f88942b4585cdd9307e638",
+    "cycles.ts": "7567aaecf000fa8dce5900617ec64a4537520a3329c62a67c81526d4e25ed86c",
+    "expressions.ts": "66c5562afcf376c7fde0c83b6c9cc953f1313d9e2f910e2b94fd24098aa52ae5",
+    "eyefit.ts": "8da411d7643c24f383d2d994a4668e43292c9810a6f63c257dbfd13f61284e9b",
+    "repere.ts": "2f74419387868a13c2f887a714c7442b130753d938732d91f39905f39ab2030e"
+  }
+}

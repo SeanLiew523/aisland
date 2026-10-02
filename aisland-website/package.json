@@ -1,0 +1,12 @@
+{
+  "name": "aisland-motion-demos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/integrated-motion.ts --bundle --format=esm --target=es2022 --outfile=dist/motion.js",
+    "preview": "python3 tools/preview.py --port 4325"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.11"
+  }
+}

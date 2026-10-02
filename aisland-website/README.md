@@ -1,72 +1,83 @@
-# AIsland native-motion website
+# AIsland website
 
-The AIsland website accompanies the independent public repository
-https://github.com/SeanLiew523/aisland. Its public GitHub Pages address is
-https://seanliew523.github.io/aisland/. The existing Sites deployment retains its
-own audience and is updated from the same static output.
+GitHub Pages at https://seanliew523.github.io/aisland/ serves the same reviewed
+product homepage as https://aisland.brianliew.chatgpt.site/. It stays on the
+GitHub Pages address rather than redirecting or embedding the other host.
 
-## Source and demonstration
+## Published source
 
-The C1 / Curious Gaze icon matches the shipped application. Native footage was
-captured from the previous Alsland bundle before public AIsland naming, using
-production views, geometry and Core Animation presentation layers with example
-sessions. The new public application retains those animations. Recording
-provenance preserves the original source commit and identifies equivalent code
-in this repository; sample approvals and navigation are not live-agent claims.
+This snapshot matches Sites version 2, published from commit
+`51812cf5dc08f8cb9ee8fcb22e7a83655e150537`. `site-source.json` records that
+source and the SHA-256 of every imported file. The static output is copied
+unchanged; all asset paths are relative, including fonts, native video, status
+previews and the bundled animation runtimes, so they resolve under `/aisland/`.
 
-The 20-second video covers idle, thinking, approvals, answers, sessions and
-completion. `media/demo-edit.json` removes long holds while preserving native
-transitions and animation speed. It generates the video and player chapter times
-together. The repository READMEs use separate English and Chinese native
-recordings as looping 960 × 520 close-up GIFs; clicking them opens
-https://aisland.brianliew.chatgpt.site/. The original recording and repeatable
-export are documented in [README visual assets](../docs/images/readme/README.md).
-Four native close-ups render `BloubLayerView` at 192 points / 384
-pixels. Timing, colors and paths come from the production component; the footage
-has no invented UI interpolation. Reduced Motion uses static status frames and
-stops decorative animation. Apple wallpapers are composited behind native pixels;
-source and export metadata live under `dist/assets/`.
+The page uses the single cobalt direction with warm paper feature sections,
+light Barlow Condensed typography and GitHub icon links. Chinese and English
+page copy share the genuine English native recording. The native demo moves
+and enlarges toward the center on desktop scroll, without changing its
+playback time. The brand chapter loops scattered agents → orbit → one island
+at the approved 1.5× rate, beginning when it enters view and pausing offscreen.
+There are no theme selectors or pricing sections. Reduced Motion disables
+scroll pinning and decorative animation, and uses static status previews.
 
-## Download
+GitHub Pages and Sites are separate deployments. This repository's workflow
+publishes `dist` whenever its files change on `main`. Future Sites changes
+need a new reviewed snapshot here; this update does not create an automatic
+cross-host sync or alter the Sites deployment.
 
-Every download button points to:
+## Product and media
+
+The C1 logo, native status previews, 20-second English video, three English
+feature images and their provenance match the accepted Site. The recording
+uses production AppKit/SwiftUI views at pinned app commit
+`111b21950f2319213432e4464c3f6ee6862ff95b`, with example sessions supplied by
+the existing debug snapshot API. Apple’s original Ventura wallpaper is
+composited behind native pixels. The footage does not represent live
+permissions or session jumps. See `dist/assets/capture-provenance.json` and
+`dist/assets/status-provenance.json`.
+
+The three original Chinese `native-*.png` captures are retained only for
+`README.zh-CN.md`; the website uses the imported English `native-*-en.png`
+files. The repository READMEs retain their separate English and Chinese
+recordings and complete 960 × 612 GIFs. Their masters and exports are
+documented in [README visual assets](../docs/images/readme/README.md).
+
+The native status character and brand chapter adapt
+[bloub](https://github.com/jeremy-prt/bloub) under the retained MIT license.
+The brand engine's source and original attribution are in `src/vendor/bloub/`.
+Fonts and GSAP / ScrollTrigger keep their original licenses and source notices
+in `dist/assets/fonts/` and `dist/assets/vendor/`.
+
+Every download button points to the current AIsland release asset:
 
 https://github.com/SeanLiew523/aisland/releases/latest/download/AIsland.dmg
 
-The release contains **AIsland.app**, with bundle ID `dev.aisland.app`, the C1
-icon and live bloub style. It requires macOS 14+ and supports Apple Silicon and
-Intel. The initial release is ad-hoc signed, not Apple-notarized. ZIP, checksums
-and exact-source metadata are published beside the DMG. Binary packages are not
-embedded in website source, so redeploying the site cannot serve an old trial
-bundle; subsequent AIsland releases retain the same asset name.
+The project icon links open https://github.com/SeanLiew523/aisland. The app
+requires macOS 14+, supports Apple Silicon and Intel, and the initial
+development release is not Apple-notarized. Binary packages are served from
+GitHub Releases rather than embedded in the website.
 
-## Reproduce media
+## Preview and build
 
-With Swift, Python/Pillow and FFmpeg on a MacBook with a built-in notch:
+The checked-in page needs no build to preview:
 
 ```sh
-python3 media/capture.py /path/to/aisland /path/to/recording --bundle-plist /path/to/AIsland.app/Contents/Info.plist
-python3 media/compose.py /path/to/recording dist/assets
-python3 media/extract-status.py /path/to/aisland /path/to/status-export dist/assets
+python3 aisland-website/media/preview.py --port 4327
 ```
 
-Temporary native capture packages do not replace installed applications or
-modify hook settings. The recorder uses example snapshots with bridge/discovery
-disabled and sends no permission responses or session jumps.
+Open http://127.0.0.1:4327/. The preview server supports video byte ranges.
 
-To regenerate the current README GIFs from their committed masters, run
-`sh scripts/export-readme-demo.sh en` and `sh scripts/export-readme-demo.sh zh`
-from the repository root. The legacy
-`compose.py --readme-gif` option generates the older Sonoma demonstration and
-should not replace the approved English README recording.
+To rebuild the brand chapter from its included TypeScript source:
 
-## Preview and publishing
+```sh
+cd aisland-website
+npm ci
+npm run build
+```
 
-Run `python3 media/preview.py` and open http://127.0.0.1:4319/?style=matrix.
-Use `--port` to choose another local preview port.
-All three visual directions preserve playback position when switched. The
-server supports video byte ranges. GitHub Pages deploys `aisland-website/dist`
-from `main`; `.openai/hosting.json` identifies the separate existing Site.
-
-The status component adapts [bloub](https://github.com/jeremy-prt/bloub) under
-its included MIT notice. The tagline remains **All agents. One island.**
+The historical native capture scripts in `media/` are retained as capture
+reference; they do not rebuild the currently published English master.
+To regenerate the README GIFs from their committed, language-specific masters,
+run `sh scripts/export-readme-demo.sh en` and
+`sh scripts/export-readme-demo.sh zh` from the repository root.

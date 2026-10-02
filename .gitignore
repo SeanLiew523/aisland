@@ -26,6 +26,9 @@ output/
 .worktrees/
 .air/
 
+# Static website build dependencies
+aisland-website/node_modules/
+
 # Binary releases belong in GitHub Releases, not website source
 aisland-website/dist/assets/*.dmg
 aisland-website/dist/assets/download-provenance.json

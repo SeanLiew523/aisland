@@ -33,6 +33,7 @@ This index is the repository map for humans and coding agents. Read these files 
 
 - [docs/aisland-local-app.md](./aisland-local-app.md) for the selected C1 icon and live AIsland bundle
 - [docs/bloub-status-experiment.md](./bloub-status-experiment.md) for the native status character, motion lifecycle, and bloub attribution
+- [docs/images/readme/README.md](./images/readme/README.md) for README artwork, English and Chinese native recordings, licenses, and repeatable exports
 - [docs/notch-surface-model.md](./notch-surface-model.md) for the island surface routing model and debug harness intent
 - [docs/app-ghostty-codex-chain.md](./app-ghostty-codex-chain.md) for terminal environment findings across the current supported chain
 

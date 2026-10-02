@@ -1,0 +1,35 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build-and-release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tagged source belongs to main
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Install packaging dependencies
+        run: brew install create-dmg
+      - name: Build AIsland Universal package
+        env:
+          OPEN_ISLAND_VERSION: ${{ github.ref_name }}
+          OPEN_ISLAND_BUILD_NUMBER: ${{ github.run_number }}
+        run: OPEN_ISLAND_VERSION="${OPEN_ISLAND_VERSION#v}" zsh scripts/package-aisland.sh
+      - name: Verify artifacts and write checksums
+        run: python3 scripts/verify-aisland-package.py output/aisland
+      - name: Publish AIsland release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets=(output/aisland/AIsland.dmg output/aisland/AIsland.zip output/aisland/SHA256SUMS.txt output/aisland/release-metadata.json)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber "${assets[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "AIsland $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md "${assets[@]}"
+          fi

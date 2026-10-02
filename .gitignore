@@ -1,0 +1,31 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Xcode
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Local tooling artifacts
+.claude/
+.playwright-mcp/
+output/
+
+# Logs and temp files
+*.log
+*.tmp
+.worktrees/
+.air/
+
+# Binary releases belong in GitHub Releases, not website source
+aisland-website/dist/assets/*.dmg
+aisland-website/dist/assets/download-provenance.json

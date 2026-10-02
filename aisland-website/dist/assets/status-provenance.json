@@ -1,0 +1,27 @@
+{
+  "source_commit": "1145e9146e9e3fa3b4080f0efc8e70ff5f5302e8",
+  "component_sha256": {
+    "BloubStatusGlyph.swift": "2d15238dad69f0bc492d6d4a4a473f1d50fbba27df130c9eb21d6849b2014da2",
+    "UnifiedBars.swift": "1eae65bd6ecc4a9a16fa8ffaa9e6133f620a9cfffcf2f00ac6521009a68c5c41"
+  },
+  "upstream": "https://github.com/jeremy-prt/bloub",
+  "upstream_port_commit": "b4bb3c1b5f93c7b87a2e8d620f667c4093d97749",
+  "rendering": "Unchanged BloubLayerView, 192-point bounds, 384-pixel presentation-layer capture; no raster enlargement",
+  "fps": 20,
+  "period_seconds": {
+    "idle": 12,
+    "thinking": 1.5,
+    "approval": 25,
+    "answer": 25
+  },
+  "waiting_motion": "alive",
+  "colors": {
+    "idle": "paper",
+    "thinking": "paper",
+    "approval": "approval",
+    "answer": "answer"
+  },
+  "scope": "The four states implemented by the installed app; no additional upstream expressions",
+  "recorded_source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+  "source_repository": "https://github.com/SeanLiew523/aisland"
+}

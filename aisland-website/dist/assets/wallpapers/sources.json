@@ -1,0 +1,32 @@
+{
+  "signal": {
+    "name": "Big Sur",
+    "appearance": "light",
+    "asset": "Big Sur Graphic",
+    "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/2d33861f84f21757db8d5cc656ae09b1143a2c73.zip",
+    "heic_frame": 0,
+    "file": "wallpapers/big-sur.jpg",
+    "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
+    "source_archive_sha1": "8170efe31bd7732c36a9220b67e1f60a8ea31779"
+  },
+  "matrix": {
+    "name": "Sonoma",
+    "appearance": "light",
+    "asset": "Sonoma",
+    "source": "/System/Library/Desktop Pictures/Sonoma.heic",
+    "heic_frame": 0,
+    "file": "wallpapers/sonoma.jpg",
+    "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
+    "source_heic_sha256": "49abdac0cdd3aaebdc98f1e1be9b837bb625c22d9b35f5bafe48e12c8f4a64f2"
+  },
+  "spectrum": {
+    "name": "Ventura",
+    "appearance": "light",
+    "asset": "Ventura Graphic",
+    "source": "https://updates.cdn-apple.com/2025/mobileassets/072-29818/74AF556A-DC02-429B-894B-23AB61E2A5F9/com_apple_MobileAsset_DesktopPicture/f6c545d6b10bb0210fff16d65aa64c27e7ad834c.zip",
+    "heic_frame": 0,
+    "file": "wallpapers/ventura.jpg",
+    "processing": "Centered crop and resize to 1536 x 992; JPEG compression; no recoloring",
+    "source_archive_sha1": "2be4b1cfe2d066e0408b7d54b415843a542ea266"
+  }
+}

@@ -1,90 +1,80 @@
 <p align="center">
-  <img src="docs/images/readme-banner.svg" alt="AIsland — 菜单栏里的 Agent 控制台" width="760">
+  <a href="https://aisland.brianliew.chatgpt.site/"><img src="docs/images/readme-banner.svg" alt="AIsland — All agents. One island. Native macOS, local first, open source." width="100%"></a>
 </p>
 
-<h1 align="center">AIsland</h1>
+<p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 
 <p align="center">
-  <strong>本地优先的 macOS AI 编程 Agent 控制台。</strong>
-  <br>
-  监控会话、处理审批，并精确跳回对应终端或桌面端对话。
-  <br><br>
-  <strong>中文</strong> | <a href="README.md">English</a>
+  <strong>AIsland，把 Agent 的每一步放进 Mac 的刘海。</strong><br>查看状态，接住请求，回到现场。把注意力留给眼前的工作。
 </p>
 
 <p align="center">
-  <a href="https://github.com/SeanLiew523/aisland/releases/latest"><img src="https://img.shields.io/github/v/release/SeanLiew523/aisland?style=flat-square&label=release&color=blue" alt="最新版本"></a>
-  <a href="https://github.com/SeanLiew523/aisland/stargazers"><img src="https://img.shields.io/github/stars/SeanLiew523/aisland?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL%20v3-green?style=flat-square" alt="许可证：GPL v3"></a>
+  <a href="https://github.com/SeanLiew523/aisland/releases/latest/download/AIsland.dmg"><strong>下载 Mac 版 ↗</strong></a> &nbsp; · &nbsp; <a href="https://aisland.brianliew.chatgpt.site/"><strong>探索官网 ↗</strong></a> &nbsp; · &nbsp; <a href="#快速开始">快速开始</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/SeanLiew523/aisland/releases/latest/download/AIsland.dmg">下载 DMG</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="docs/index.md">文档</a> ·
-  <a href="docs/product.md">产品范围</a> ·
-  <a href="CONTRIBUTING.zh-CN.md">参与贡献</a>
+  <a href="https://github.com/SeanLiew523/aisland/releases/latest"><img src="https://img.shields.io/github/v/release/SeanLiew523/aisland?style=flat-square&amp;label=release&amp;color=0808f2" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-0808f2?style=flat-square" alt="macOS 14 or later">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL%20v3-0808f2?style=flat-square" alt="GPL v3"></a>
 </p>
 
 <p align="center">
-  <a href="https://seanliew523.github.io/aisland/"><img src="docs/images/aisland-demo.gif" alt="AIsland 原生动态演示：空闲、思考、审批、回答、会话与完成" width="720"></a>
+  <a href="https://aisland.brianliew.chatgpt.site/"><img src="docs/images/aisland-demo.gif" alt="AIsland 原生英文界面：空闲、思考、权限请求、回答、会话与完成。" width="100%"></a>
 </p>
 
-<p align="center">20 秒原生演示 · 示例会话 · 点击观看完整演示</p>
+<p align="center"><sub>20 秒英文原生界面录制 · 示例会话 · 原版 macOS 壁纸合成背景<br>点击观看高清演示与完整品牌动效。</sub></p>
 
-> AIsland 是基于 [Open Island](https://github.com/Octane0411/open-vibe-island) 开发的独立项目，沿用 GPL-3.0 许可证，并拥有独立的产品路线与发布节奏。详见[与上游的关系](docs/upstream.md)。
+## 状态有了表情。下一步，一眼明白。
 
-## AIsland 是什么？
+思考时轻轻脉冲，等待时柔和眨眼。下面是应用的真实状态动效。
 
-AIsland 驻留在 Mac 刘海或顶部栏，为本地 AI 编程 Agent 提供一个轻量控制面板：查看会话状态、处理权限请求和问题、接收完成事件，并一键回到对应终端、IDE 或桌面 Agent 对话。
+<table>
+  <tr>
+    <td align="center" width="210">
+      <img src="aisland-website/dist/assets/status-idle-hd.webp" width="64" height="64" alt="空闲: 轻轻注视"><br>
+      <strong>空闲</strong><br><sub>轻轻注视</sub>
+    </td>
+    <td align="center" width="210">
+      <img src="aisland-website/dist/assets/status-thinking-hd.webp" width="64" height="64" alt="思考: 三点脉冲"><br>
+      <strong>思考</strong><br><sub>三点脉冲</sub>
+    </td>
+    <td align="center" width="210">
+      <img src="aisland-website/dist/assets/status-approval-hd.webp" width="64" height="64" alt="等待授权: 粉色提醒"><br>
+      <strong>等待授权</strong><br><sub>粉色提醒</sub>
+    </td>
+    <td align="center" width="210">
+      <img src="aisland-website/dist/assets/status-answer-hd.webp" width="64" height="64" alt="等待回答: 暖黄色提醒"><br>
+      <strong>等待回答</strong><br><sub>暖黄色提醒</sub>
+    </td>
+  </tr>
+</table>
 
-所有数据都在本机处理：不需要 AIsland 账号，没有服务端、分析 SDK 或遥测。
+<p align="center"><img src="docs/images/readme/workflow.svg" alt="In sync with you. Observe / Decide / Return." width="100%"></p>
 
-观看[原生动效演示](https://seanliew523.github.io/aisland/)，了解当前 C1 图标与状态表情。
+- **01 / 观察 — 多个 Agent，一眼看清。** 把运行、等待输入与完成的会话聚在一起，知道谁需要你。
+- **02 / 决定 — 需要决定，就在此刻。** 查看支持的权限请求，允许、拒绝或回答 Agent 的问题。
+- **03 / 返回 — 从状态，回到现场。** 从会话入口回到对应终端、IDE 或桌面应用。可用动作随接入方式而不同。
 
-## 核心特点
+<details>
+<summary>查看原生英文界面截图</summary>
 
-- **状态表情**：空闲时轻微眼神移动，思考时三点依次跳动，审批粉色、回答暖黄色；等待状态约每五秒眨眼一次
-- **原生 macOS**：SwiftUI + AppKit，不是 Electron 套壳
-- **本地优先**：使用本地 socket、转录文件和进程发现
-- **多 Agent**：支持 Claude Code、Codex、ZCode、WorkBuddy、Cursor、Gemini CLI、OpenCode 等
-- **精确跳回**：除终端定位外，还支持精确打开 ZCode、WorkBuddy 对话
-- **可交互控制**：对支持的 Agent 执行允许/拒绝和问题回答
-- **Fail open**：AIsland 不可用时，不阻塞 Agent 继续运行
-- **中英双语界面**
+### 会话总览
 
-## 支持的 Agent
+<img src="docs/images/readme/native-sessions-en.png" alt="原生英文界面：三个示例会话，两个运行中，一个已完成。" width="760">
 
-| Agent | 当前集成能力 |
-|---|---|
-| **Claude Code** | Hooks、转录发现、权限/问题交互、状态栏用量桥接 |
-| **Codex CLI 与桌面端** | 低噪声 Hooks、本地用量、app-server 生命周期、桌面端精确深链跳转 |
-| **OpenCode** | 内置插件、生命周期、权限与问题事件 |
-| **Qoder** | `~/.qoder/settings.json` 中的 Claude 格式 Hooks |
-| **Qwen Code** | `~/.qwen/settings.json` 中的 Claude 格式 Hooks |
-| **Factory** | `~/.factory/settings.json` 中的 Claude 格式 Hooks |
-| **CodeBuddy** | `~/.codebuddy/settings.json` 中的 Claude 格式 Hooks |
-| **ZCode** | 七类 Hook、交互式权限决策、桌面端存活检测，以及通过本地任务索引和 macOS 辅助功能精确定位对话 |
-| **WorkBuddy** | 九类 Hook、桌面端存活检测，以及通过 `workbuddy://chat/<session-id>` 精确跳回任务对话 |
-| **Cursor** | Hook 集成、会话追踪、工作区跳转 |
-| **Gemini CLI** | 生命周期 Hooks 和 fire-and-forget 会话更新 |
-| **Kimi CLI** | TOML Hook 安装、生命周期和权限交互 |
-| **Grok Build** | 受管 Hook 文件、生命周期与终端跳回 |
-| **Pi** | 内置 TypeScript 扩展、生命周期与终端信息 |
-| **Oh My Pi** | 内置扩展及同等生命周期覆盖 |
+### 权限请求
 
-详细事件合同和兼容边界见 [docs/hooks.md](docs/hooks.md)。
+<img src="docs/images/readme/native-approval-en.png" alt="原生英文界面的示例工具权限请求，含允许和拒绝按钮。" width="760">
 
-## 支持的终端和 IDE
+### 完成状态
 
-Terminal.app、Ghostty、iTerm2、WezTerm、Warp、cmux、Kaku、tmux、Zellij 支持精确跳回。VS Code、Cursor、Windsurf、Trae、Zed 和 JetBrains IDE 支持工作区级激活。
+<img src="docs/images/readme/native-complete-en.png" alt="原生英文界面的示例会话完成消息。截图不演示跳回操作。" width="760">
 
-## ZCode 与 WorkBuddy
+</details>
 
-这两个集成是 AIsland 的一等功能：
+**原生、本地、开放。** SwiftUI + AppKit；适配刘海屏、非刘海屏和外接显示器。无需 AIsland 账号，没有服务端或遥测。界面支持英文与简体中文。
 
-- **ZCode** 的配置位于 `~/.zcode/cli/config.json`。AIsland 保存稳定的会话 ID，只读查询 `~/.zcode/v2/tasks-index.sqlite`，通过辅助功能选择对应侧栏对话，并核对最终页面标题。精确定位不可用时，会安全降级到工作区窗口或应用激活。
-- **WorkBuddy** 使用 `~/.workbuddy/settings.json` 中的 Claude 兼容 Hooks。AIsland 跟随桌面应用存活状态，并使用 WorkBuddy 自己的 `workbuddy://chat/<session-id>` 路由打开对应任务对话。
+支持 Claude Code、Codex CLI 与桌面端、ZCode、WorkBuddy、Cursor、Gemini CLI、OpenCode 等。具体事件与交互能力依接入方式而异，详见[产品范围](docs/product.md)与 [Hooks 合同](docs/hooks.md)。AIsland 不可用时，受管 Agent 继续运行。
 
 ## 快速开始
 
@@ -123,6 +113,51 @@ OPEN_ISLAND_VERSION=0.1.0 zsh scripts/package-aisland.sh
 
 AIsland 沿用 OpenIsland 本机桥接协议。启动前请退出 Agent Island 或 Alsland；旧应用和偏好设置不会自动迁移。
 
+## 继续探索
+
+[文档入口](docs/index.md) · [产品范围](docs/product.md) · [Hooks](docs/hooks.md) · [架构](docs/architecture.md) · [打包](docs/packaging.md)
+
+<details>
+<summary><strong>Agent、终端与桌面会话集成细节</strong></summary>
+
+## 支持的 Agent
+
+| Agent | 当前集成能力 |
+|---|---|
+| **Claude Code** | Hooks、转录发现、权限/问题交互、状态栏用量桥接 |
+| **Codex CLI 与桌面端** | 低噪声 Hooks、本地用量、app-server 生命周期、桌面端精确深链跳转 |
+| **OpenCode** | 内置插件、生命周期、权限与问题事件 |
+| **Qoder** | `~/.qoder/settings.json` 中的 Claude 格式 Hooks |
+| **Qwen Code** | `~/.qwen/settings.json` 中的 Claude 格式 Hooks |
+| **Factory** | `~/.factory/settings.json` 中的 Claude 格式 Hooks |
+| **CodeBuddy** | `~/.codebuddy/settings.json` 中的 Claude 格式 Hooks |
+| **ZCode** | 七类 Hook、交互式权限决策、桌面端存活检测，以及通过本地任务索引和 macOS 辅助功能精确定位对话 |
+| **WorkBuddy** | 九类 Hook、桌面端存活检测，以及通过 `workbuddy://chat/<session-id>` 精确跳回任务对话 |
+| **Cursor** | Hook 集成、会话追踪、工作区跳转 |
+| **Gemini CLI** | 生命周期 Hooks 和 fire-and-forget 会话更新 |
+| **Kimi CLI** | TOML Hook 安装、生命周期和权限交互 |
+| **Grok Build** | 受管 Hook 文件、生命周期与终端跳回 |
+| **Pi** | 内置 TypeScript 扩展、生命周期与终端信息 |
+| **Oh My Pi** | 内置扩展及同等生命周期覆盖 |
+
+详细事件合同和兼容边界见 [docs/hooks.md](docs/hooks.md)。
+
+## 支持的终端和 IDE
+
+Terminal.app、Ghostty、iTerm2、WezTerm、Warp、cmux、Kaku、tmux、Zellij 支持精确跳回。VS Code、Cursor、Windsurf、Trae、Zed 和 JetBrains IDE 支持工作区级激活。
+
+## ZCode 与 WorkBuddy
+
+这两个集成是 AIsland 的一等功能：
+
+- **ZCode** 的配置位于 `~/.zcode/cli/config.json`。AIsland 保存稳定的会话 ID，只读查询 `~/.zcode/v2/tasks-index.sqlite`，通过辅助功能选择对应侧栏对话，并核对最终页面标题。精确定位不可用时，会安全降级到工作区窗口或应用激活。
+- **WorkBuddy** 使用 `~/.workbuddy/settings.json` 中的 Claude 兼容 Hooks。AIsland 跟随桌面应用存活状态，并使用 WorkBuddy 自己的 `workbuddy://chat/<session-id>` 路由打开对应任务对话。
+
+</details>
+
+<details>
+<summary><strong>本机桥接、架构与构建目标</strong></summary>
+
 ## 工作原理
 
 ```text
@@ -146,6 +181,11 @@ BridgeServer → 会话状态 → AIsland UI
 
 实现细节见[架构](docs/architecture.md)、[Hooks](docs/hooks.md)和[打包](docs/packaging.md)。
 
+</details>
+
+<details>
+<summary><strong>项目方向</strong></summary>
+
 ## 项目方向
 
 AIsland 不属于上游 fork network，并按自己的路线发展。当前重点包括：
@@ -156,9 +196,14 @@ AIsland 不属于上游 fork network，并按自己的路线发展。当前重�
 - 原生 macOS 交互和稳定的本地权限身份；
 - 不依赖云端、由使用者需求驱动的功能。
 
+</details>
+
 ## 参与贡献
 
 欢迎提交 Issue 和 Pull Request。请先阅读 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，并确保改动保持增量、可审查，同时在对应真实运行环境中完成验证。
+
+<details>
+<summary><strong>贡献者</strong></summary>
 
 ## Contributors · 贡献者
 
@@ -177,10 +222,14 @@ AIsland 不属于上游 fork network，并按自己的路线发展。当前重�
   </tr>
 </table>
 
+</details>
+
 ## 许可证与致谢
 
 AIsland 使用 [GNU General Public License v3.0](LICENSE) 发布。
 
-本项目派生自 [Open Island](https://github.com/Octane0411/open-vibe-island)，保留原有版权和许可证声明，并感谢上游作者的工作。截至 2026 年 10 月 2 日，AIsland 的独立适配包括 C1 品牌、原生状态角色及 ZCode / WorkBuddy 集成。AIsland 不是 Open Island 官方版本。
+本项目派生自 [Open Island](https://github.com/Octane0411/open-vibe-island)，保留原有版权和许可证声明，并感谢上游作者的工作。截至 2026 年 10 月 2 日，AIsland 的独立适配包括 C1 品牌、原生状态角色及 ZCode / WorkBuddy 集成。AIsland 不是 Open Island 官方版本。详见[与上游的关系](docs/upstream.md)。
 
 原生状态角色改编自 [bloub](https://github.com/jeremy-prt/bloub)，保留其 [MIT 许可证](docs/licenses/bloub-MIT.txt)。
+
+设计素材及录制说明见 [README 视觉素材](docs/images/readme/README.md)。

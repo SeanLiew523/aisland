@@ -17,8 +17,10 @@ in this repository; sample approvals and navigation are not live-agent claims.
 The 20-second video covers idle, thinking, approvals, answers, sessions and
 completion. `media/demo-edit.json` removes long holds while preserving native
 transitions and animation speed. It generates the video and player chapter times
-together. Both repository READMEs use the same edit as a looping 960 × 680 GIF,
-with the native panel enlarged for legibility; clicking it opens the full demo.
+together. The repository READMEs now use the approved website's English native
+recording as a looping 960 × 520 close-up GIF; clicking it opens
+https://aisland.brianliew.chatgpt.site/. The original recording and repeatable
+export are documented in [README visual assets](../docs/images/readme/README.md).
 Four native close-ups render `BloubLayerView` at 192 points / 384
 pixels. Timing, colors and paths come from the production component; the footage
 has no invented UI interpolation. Reduced Motion uses static status frames and
@@ -44,13 +46,18 @@ With Swift, Python/Pillow and FFmpeg on a MacBook with a built-in notch:
 
 ```sh
 python3 media/capture.py /path/to/aisland /path/to/recording --bundle-plist /path/to/AIsland.app/Contents/Info.plist
-python3 media/compose.py /path/to/recording dist/assets --readme-gif ../docs/images/aisland-demo.gif
+python3 media/compose.py /path/to/recording dist/assets
 python3 media/extract-status.py /path/to/aisland /path/to/status-export dist/assets
 ```
 
 Temporary native capture packages do not replace installed applications or
 modify hook settings. The recorder uses example snapshots with bridge/discovery
 disabled and sends no permission responses or session jumps.
+
+To regenerate the current README GIF from its committed English master, run
+`sh scripts/export-readme-demo.sh` from the repository root. The legacy
+`compose.py --readme-gif` option generates the older Sonoma demonstration and
+should not replace the approved English README recording.
 
 ## Preview and publishing
 

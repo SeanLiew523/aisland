@@ -1,0 +1,44 @@
+{
+  "website": "https://aisland.brianliew.chatgpt.site/",
+  "website_source_commit": "51812cf5dc08f8cb9ee8fcb22e7a83655e150537",
+  "recorded_app_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+  "files": {
+    "native-demo-en.mp4": "cd51aa90599f70dbb4ba4c5c00c856ed04860af6b0d47a4dc74c062a80d2bc4d",
+    "native-sessions-en.png": "7f69ecab7369439aa2cfbe552a705344dc95f43f3fd1ef4c08dd45d25d52f9c4",
+    "native-approval-en.png": "435f6433a6c67478403923a67df3a068fa324a993c910b44cbce40b42523a2cc",
+    "native-complete-en.png": "b0a2792968b88e4ab862e6b1a0c448678c781efd4840ccb53e5d289560536ae5",
+    "fonts/BarlowCondensed-ExtraLight.ttf": "19e3c4a81dc7fcee8c38ab6be3819fcc45d3f3822f011ac7b4bd550e6502b80f",
+    "fonts/BarlowCondensed-Light.ttf": "2c37e1e6b5feb71d38a42e6180d2e2f4ca1aad22cfecbd017430f3863deba67d"
+  },
+  "gif": {
+    "source": "native-demo-en.mp4",
+    "duration_seconds": 20,
+    "fps": 15,
+    "size": [
+      960,
+      520
+    ],
+    "loop": true,
+    "crop": [
+      936,
+      0,
+      1200,
+      640
+    ],
+    "resize": [
+      928,
+      494
+    ],
+    "presentation": "16px hardware border; fade starts below Y=440 of 520; native panel unaffected; recorded speed retained",
+    "sha256": "1fe506c134213563f8448a494eaf6f888cd2845c55debf76dffdb4c43bcc9513"
+  },
+  "banner": {
+    "palette": {
+      "cobalt": "#0808f2",
+      "paper": "#f4f4f0",
+      "ink": "#15116d"
+    },
+    "font": "Unmodified Barlow Condensed 200/300 glyph outlines, OFL-1.1",
+    "logo": "Original flat-top 160x64 C1 mark from scripts/generate-aisland-appicon.swift"
+  }
+}

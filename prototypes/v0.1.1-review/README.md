@@ -8,25 +8,26 @@
 python3 -m http.server 49161 --bind 127.0.0.1 --directory prototypes/v0.1.1-review
 ```
 
-打开 `http://127.0.0.1:49161/?revision=2#intro`。用户已选择 A 声音方向，本版只修订 A。点击“播放音画预览”；可全屏、跳过、静音、重播及减少动态效果；点击右侧阶段可静帧检查细节（不播放声音）。首次播放由点击激活浏览器音频。任务声音页支持三类独立导入 MP3、解码验证、完整试听、自动场景提示、替换和恢复默认草样。
+打开 `http://127.0.0.1:49161/?revision=5#intro`。用户已选择 A 声音方向，本版只修订 A。点击“播放音画预览”；可全屏、跳过、静音、重播及减少动态效果；点击右侧阶段可静帧检查细节（不播放声音）。首次播放由点击激活浏览器音频。任务声音页支持三类独立导入 MP3、解码验证、完整试听、自动场景提示、替换和恢复默认草样。
 
 ## 审阅范围
 
-- 约 28 秒的连续画面与原创合成声音节奏；A「温润共鸣」修订版。深蓝开场、明亮汇入、不同状态的深色场景，再返回工作桌面，均为连续过渡。
-- 开场使用低中频蓄势、共鸣落点、左右空气纹理，再留下静默；母线压缩限制叠加峰值。不是整体提高所有音量。三种事件保持相同音色家族。
-- 汇入模块有文档、代码和审核内容；回应阶段包含整理后的文件、具体审批修改和问题选项；返回阶段显示同一个页面修改演示任务。
-- 示例任务 A 完成、B 等待审批、C 等待回答；不会把同一完成任务接着变成审批或回答。
+- 约 22 秒音画；先展示独立的九个 Agent Logo 汇聚，再进入站点原生任务示例。
+- 开场共鸣保留；删除展开末尾、返回及收尾的多余重复声音。Logo 汇聚使用一次连续汇合声，任务汇入使用短促落位声；审批、回答和完成各提示一次；20.7 秒真实顶部落位处补一次短贴合声。
+- 审批、回答、会话、完成与归位直接使用站点原生录制；汇入增加应用原生组件离屏录制的 Claude / Codex / Gemini / WorkBuddy 四条示例，保留真实徽章和任务形式，只改变呈现布局与转场。素材来源与处理见 [assets/SOURCES.md](assets/SOURCES.md)。
+- 原生示例顺序为审批、回答、会话、完成；没有将已完成任务接着演成等待输入。
 - 默认声音仅为原创合成试听草样，不冒充 macOS Bottle。正式声音设置保留全部系统声音。
 - 自动提示长度可试 5 秒或完整音频；本页提议新提示替换上一条，主动试听不受自动静音或长度限制。等待用户确认后再落实原生策略。
-- 文件只在浏览器内存中解码，不上传、不持久化。正式版的受管理本地副本、重启恢复、迁移与系统音回退尚未实现。
-- 全屏收束到的是画布内顶部示意，尚未连接真实屏幕刘海；配置页只演示选择，不安装任何工具。
+- 文件只在浏览器内存中解码，不上传、不持久化。这些原生能力已完成第一轮代码整合，真实应用效果仍待验收。
+- 引导文字和任务示例支持中英文；浏览器初次按浏览器语言，原生审阅壳按 `Locale.preferredLanguages.first` 自动选择，右上角可临时切换。不读取或写入生产应用语言偏好。
+- 浏览器全屏收束到自身视口顶部；独立 [native-host](native-host/README.md) 才测量真实屏幕刘海。配置页只演示选择，不安装工具。
 - 不产生真实触控板触感。后续原生触感遵循 macOS 用户操作与硬件条件，单独真人验收。
 
 跳过、重播、静帧检查、离开页面、切换审阅页或关闭页面会取消尚未发生的声音节点；静音可立即停止声音，重新开声需重播，避免播放过期 cue。异步开启音频使用取消代次，防止跳过后残留调度。
 
 ## 实现与验证
 
-`intro-scene.js` 只负责示意画面；`review.js` 使用同一音频时钟编排声音和画面；静音时使用单调时间。对完整文件调用 `decodeAudioData`，验证成功后才替换当前类别选择；播放使用可停止的 source 节点。参考 [MDN 解码文档](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/decodeAudioData)、[音频恢复](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/resume)、[节点停止](https://developer.mozilla.org/en-US/docs/Web/API/AudioScheduledSourceNode/stop)。
+`intro-scene.js` 组合原生录制取样帧与独立品牌动效；`review.js` 使用同一音频时钟编排声音和画面；静音时使用单调时间。对完整文件调用 `decodeAudioData`，验证成功后才替换当前类别选择；播放使用可停止的 source 节点。参考 [MDN 解码文档](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/decodeAudioData)、[音频恢复](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/resume)、[节点停止](https://developer.mozilla.org/en-US/docs/Web/API/AudioScheduledSourceNode/stop)。
 
 静态检查：
 
@@ -37,4 +38,4 @@ zsh scripts/harness.sh docs
 git diff --check
 ```
 
-浏览器检查与未验证范围见 [阶段 1 记录](../../docs/exec-plans/active/aisland-v0.1.1-stage-1.md)及[引导第二版记录](../../docs/exec-plans/active/aisland-v0.1.1-intro-revision-2.md)。所有视听草样仍需用户实际观看试听，不能把原型可运行或波形存在记为效果通过。
+浏览器检查与未验证范围见 [阶段 1 记录](../../docs/exec-plans/active/aisland-v0.1.1-stage-1.md)及[引导第五版记录](../../docs/exec-plans/active/aisland-v0.1.1-intro-revision-5.md)。所有视听草样仍需用户实际观看试听，不能把原型可运行或波形存在记为效果通过。

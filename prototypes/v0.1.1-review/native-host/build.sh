@@ -6,7 +6,7 @@ HOST_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_REPO="${1:-$(cd "$HOST_DIR/../../.." && pwd)}"
 SOURCE_REPO="$(cd "$SOURCE_REPO" && pwd)"
 PROTOTYPE="$SOURCE_REPO/prototypes/v0.1.1-review"
-OUTPUT="$SOURCE_REPO/output/verification/v0.1.1-intro-revision-3"
+OUTPUT="$SOURCE_REPO/output/verification/v0.1.1-intro-revision-5"
 APP="$OUTPUT/AIsland Intro Review.app"
 mkdir -p "$OUTPUT"
 BUILD_DIR="$(mktemp -d "$OUTPUT-build.XXXXXX")"
@@ -21,7 +21,7 @@ xcrun swiftc -sdk "$SDK" -target "$(uname -m)-apple-macosx12.0" -O \
   "$HOST_DIR/main.swift" -o "$BUNDLE/Contents/MacOS/AIslandIntroReview"
 mkdir -p "$BUNDLE/Contents/Resources/prototype"
 # Copy page assets only; omit host source, generated output and all symlinks.
-/usr/bin/rsync -rt --exclude 'native-host/' --exclude 'output/' \
+/usr/bin/rsync -rt --exclude 'native-host/' --exclude 'native-capture/' --exclude 'output/' \
   "$PROTOTYPE/" "$BUNDLE/Contents/Resources/prototype/"
 cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -33,7 +33,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>AIsland Intro Review</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.1</string>
-  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleVersion</key><string>5</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

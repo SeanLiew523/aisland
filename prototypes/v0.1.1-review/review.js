@@ -2,6 +2,14 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const duration = AIslandIntroScene.duration;
+  const timeline = AIslandIntroScene.timeline;
+  const nativeReview = Boolean(window.AIslandReviewHost?.native);
+  const systemLanguage=window.AIslandReviewHost?.preferredLanguage||navigator.language||"en";
+  const defaultIntroLocale=/^zh/i.test(systemLanguage)?"zh":"en";
+  let introLocale=defaultIntroLocale;
+  const introText=()=>AIslandIntroText[introLocale];
+  const format=(template,values)=>template.replace(/\{(\w+)\}/g,(_,key)=>values[key]??"");
+  if(nativeReview)document.documentElement.dataset.nativeReview="true";
   const canvas = $("stage"), ctx = canvas.getContext("2d");
   const colors = {paper:"#f1ead9", blue:"#6ea7ff", approval:"#f4a4a4", answer:"#ffd58a", mint:"#9ad3ad"};
   const events = {completion:{title:"任务完成",caption:"文档已经整理好。",color:colors.mint}, approval:{title:"等待审批",caption:"这一步，需要你的许可。",color:colors.approval}, answer:{title:"等待回答",caption:"给一点方向，任务就能继续。",color:colors.answer}};
@@ -9,6 +17,7 @@
   let audioContext, master, activeSources = new Set(), playing = false, setup = false;
   let startClock = 0, clockUsesAudio = false, lastTime = 0, frame = 0, pendingCategory = null, importVersion = 0, soundGeneration = 0;
   let muted = false, reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stageWidth=0,stageHeight=0,copyIndex=-1,framePrevious=0,frameGaps=[];
   $("reduce-motion").checked = reduceMotion;
 
   async function ensureAudio() {
@@ -21,7 +30,7 @@
       master.connect(compressor); compressor.connect(audioContext.destination);
     }
     if (audioContext.state === "suspended") await audioContext.resume();
-    if (audioContext.state !== "running") throw new Error("浏览器未能开启声音，请重试。");
+    if (audioContext.state !== "running") throw new Error(introText().status.audioUnavailable);
     return audioContext;
   }
   function track(node) {
@@ -70,56 +79,106 @@
   }
   function eventSound(key,at) {
     if(key==="completion") { tone(392,at,.65,.14); tone(587.33,at+.14,.65,.1); }
-    if(key==="approval") { tone(293.66,at,.39,.12); tone(293.66,at+.24,.39,.09); }
-    if(key==="answer") { tone(329.63,at,.65,.12); tone(440,at+.13,.65,.1); }
+    if(key==="approval") { tone(246.94,at,.31,.12,"sine",220); }
+    if(key==="answer") { tone(329.63,at,.72,.1,"sine",392); tone(659.25,at,.48,.035); }
   }
   function scheduleIntro(base) {
     // Anticipation, a low/mid resonant arrival, then space. Impact is not a global volume increase.
-    swell(65.41,base+.08,1.57,.12,-.25);
-    swell(130.81,base+.2,1.42,.065,.25);
-    air(base+.28,1.36,.095,-.45);
-    tone(65.41,base+1.65,1.6,.23,"sine",49);
-    tone(130.81,base+1.65,1.2,.14,"sine",123.47);
-    tone(196,base+1.67,1.15,.075);
-    signature(base+1.65);
-    air(base+1.72,1.5,.038,.5);
-    air(base+4.3,1.05,.07,-.35);
-    [196,261.63,392].forEach((f,i)=>swell(f,base+4.5+i*.08,3.0,.022,i*.25-.25));
-    tone(164.81,base+8.6,.65,.12,"sine",130.81);
-    eventSound("completion",base+11.4);eventSound("approval",base+14);eventSound("answer",base+17);
-    tone(659.25,base+20,.15,.055);
-    air(base+20,.5,.035,.2);
-    air(base+23,1.35,.04,.35);
-    signature(base+26.4,.65);
+    swell(65.41,base+.08,1.27,.12,-.25);
+    swell(130.81,base+.2,1.12,.065,.25);
+    air(base+.28,1.06,.095,-.45);
+    tone(65.41,base+1.35,1.45,.23,"sine",49);
+    tone(130.81,base+1.35,1.1,.14,"sine",123.47);
+    tone(196,base+1.37,1,.075);
+    signature(base+1.35);
+    air(base+1.42,1.18,.038,.5);
+    // Each convergence has its own gesture; nine logos share one sound envelope.
+    // The rejected opening tail stays removed. This begins in the separate logo scene.
+    air(base+timeline.agents+.62,1.05,.08,-.3);
+    swell(174.61,base+timeline.agents+.83,.83,.085,.3);
+    tone(349.23,base+timeline.agents+1.47,.38,.065,"sine",261.63);
+    // Task rows arrive with a short, low landing rather than the opening motif.
+    tone(146.83,base+timeline.gather+.15,.23,.12,"sine",82.41);
+    air(base+timeline.gather+.08,.32,.045,.25);
+    tone(220,base+7.74,.24,.075,"sine",164.81);
+    // A quiet mechanical seating sound lands at the hardware notch, not another fanfare.
+    tone(110,base+timeline.settled,.2,.085,"sine",73.42);
+    air(base+timeline.settled,.13,.035);
+    eventSound("completion",base+timeline.completed);
+    eventSound("approval",base+timeline.approval);
+    eventSound("answer",base+timeline.answer);
   }
   const clamp=(x)=>Math.max(0,Math.min(1,x));
-  function fitCanvas() { const r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(r.width*d);canvas.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);draw(lastTime); }
+  function fitCanvas() { const r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);stageWidth=r.width;stageHeight=r.height;canvas.width=Math.round(r.width*d);canvas.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);draw(lastTime); }
   function draw(t) {
-    AIslandIntroScene.draw(ctx,canvas.clientWidth,canvas.clientHeight,t,{reduceMotion,setup});
-    $("stage-shell").dataset.surface=setup||t>=5&&t<10.75||t>=20.65?"light":"dark";
+    AIslandIntroScene.syncMedia(t,{reduceMotion,setup,playing});
+    AIslandIntroScene.draw(ctx,stageWidth,stageHeight,t,{reduceMotion,setup,playing,language:introLocale});
+    $("stage-shell").dataset.surface=setup||t>=timeline.gather+.7&&t<timeline.approval||t>=timeline.back+.7?"light":"dark";
   }
   function updateCopy(t) {
-    const scenes=t<4.3?["HELLO, AISLAND","让等待<br>有回应。","任务在继续，你可以做自己的事。"]:t<10?["ONE PLACE, MANY TASKS","把分散的任务，<br>汇到一起。","文档、页面、资料。各有进展，一眼可见。"]:t<11.4?["TASK 01 · DEMO","它们在忙，<br>你不必守着。","演示 · 整理文档，正在进行。"]:t<14?["TASK 01 · DEMO","完成了。","演示 · 12 份文档，目录与摘要已整理。"]:t<17?["TASK 02 · DEMO","这一步，<br>需要你点头。","演示 · 看清修改，再决定是否允许。"]:t<20?["TASK 03 · DEMO","给一点方向，<br>它就能继续。","演示 · 先核对数据，还是文档结论？"]:t<23?["BACK TO TASK 02 · DEMO","一点，<br>回到那个任务。","演示 · 返回修改页面，继续这次审批。"]:["ALWAYS WITHIN REACH","小小一座岛，<br>就在你眼前。","留在屏幕顶部，随时给你回应。"];
-    $("scene-kicker").textContent=scenes[0];$("scene-title").innerHTML=scenes[1];$("scene-caption").textContent=scenes[2];
-    const index=t<4.3?0:t<10?1:t<14?2:t<17?3:t<20?4:t<23?5:6;document.querySelectorAll(".scene-list li").forEach((el,i)=>el.classList.toggle("active",i===index));
-    $("progress-fill").style.width=`${clamp(t/duration)*100}%`;
-    $("play-state").textContent=playing?`${t.toFixed(1)} / ${duration} 秒${muted?" · 静音":""}`:"等待播放";
+    const index=t<timeline.agents?0:t<timeline.gather?1:t<timeline.approval?2:t<timeline.answer?3:t<timeline.back?4:t<timeline.completed?5:t<timeline.dock?6:7;
+    const scene=introText().scenes[index];
+    if(index!==copyIndex){
+      copyIndex=index;$("scene-kicker").textContent=scene.kicker;$("scene-title").innerHTML=scene.title;$("scene-caption").textContent=nativeReview&&scene.nativeCaption?scene.nativeCaption:scene.caption;
+      document.querySelectorAll(".scene-list li").forEach((el,i)=>el.classList.toggle("active",i===index));
+    }
+    $("progress-fill").style.transform=`scaleX(${clamp(t/duration)})`;
+    $("play-state").textContent=playing?format(introText().status.playing,{time:t.toFixed(1),duration,muted:muted?introText().status.mutedSuffix:""}):introText().status.waiting;
   }
-  function stopIntro() {playing=false;cancelAnimationFrame(frame);stopSounds();}
+  function applyIntroLanguage() {
+    const {page,controls,status,setup:copy,sceneList,description}=introText();
+    document.documentElement.lang=introLocale==="zh"?"zh-CN":"en";
+    document.documentElement.dataset.introLocale=introLocale;
+    document.documentElement.dataset.systemLanguage=systemLanguage;
+    document.title=page.title;
+    const set=(selector,value,html=false)=>{const el=document.querySelector(selector);if(el){if(html)el.innerHTML=value;else el.textContent=value;}};
+    set(".edition",page.edition);set("#intro .section-heading .eyebrow",page.eyebrow);
+    set("#intro-heading",page.heading);set("#intro .section-heading>p",page.previewDescription);
+    set(".curtain-label",page.curtainLabel);set("#start-curtain>p",page.curtainDescription);
+    set(".director-panel>h3",page.directorTitle);set(".direction-description",page.directorDescription,true);
+    set(".director-panel>.review-note",page.reviewNote);set("#language-note",description.languagePreview);
+    set("#play",`▶ ${controls.play}`);set("#replay",controls.replay);set("#skip",controls.skip);
+    set("#stage-mute",muted?controls.soundOff:controls.soundOn);
+    set("#fullscreen",nativeReview?controls.exitReview:document.fullscreenElement?controls.exitFullscreen:controls.fullscreen);
+    for(const [id,label] of [["intro-mute",controls.mute],["reduce-motion",controls.reduceMotion]]) {
+      const input=$(id);input.parentElement.lastChild.textContent=label;
+    }
+    $("intro-language").setAttribute("aria-label",controls.languageLabel);
+    $("intro-language").querySelector('[value="system"]').textContent=controls.followSystem;
+    $("stage").setAttribute("aria-label",page.canvasLabel);
+    document.querySelector(".brand").setAttribute("aria-label",page.brandLabel);
+    document.querySelector(".review-tabs").setAttribute("aria-label",page.tabsLabel);
+    for(const [id,label] of [["intro",page.introTab],["sound",page.soundTab],["sources",page.sourcesTab]])set(`[data-view="${id}"]`,label);
+    document.querySelectorAll("[data-inspect]").forEach((el,i)=>{
+      el.querySelector("span").textContent=sceneList[i].time;el.querySelector("b").textContent=sceneList[i].title;el.querySelector("small").textContent=sceneList[i].description;
+    });
+    set("#setup-preview>.eyebrow",copy.kicker);set("#setup-preview>h2",copy.title,true);
+    set("#setup-preview>p",copy.description);set("#setup-next",copy.next);set("#setup-preview>small",copy.hint);
+    document.querySelectorAll(".setup-options label").forEach((el,i)=>el.lastChild.textContent=copy.tools[i]);
+    const footer=document.querySelector("footer");footer.firstChild.textContent=page.footer;footer.querySelector("span").textContent=page.footerHint;
+    if($("native-review-exit")){$("native-review-exit").textContent=controls.nativeExit;$("native-review-exit").setAttribute("aria-label",controls.nativeExitLabel);}
+    $("play-state").textContent=setup?status.chooseTools:status.waiting;copyIndex=-1;
+  }
+  function stopIntro() {playing=false;cancelAnimationFrame(frame);stopSounds();AIslandIntroScene.stopMedia();}
   function finishIntro() {
-    stopIntro();setup=true;lastTime=duration;$("setup-preview").hidden=false;$("stage-copy").hidden=true;$("start-curtain").hidden=true;$("play-state").textContent="选择工具 · 流程演示";$("progress-fill").style.width="100%";draw(duration);
+    stopIntro();setup=true;lastTime=duration;$("setup-preview").hidden=false;$("stage-copy").hidden=true;$("start-curtain").hidden=true;$("play-state").textContent=introText().status.chooseTools;$("progress-fill").style.transform="scaleX(1)";draw(duration);
+    canvas.dataset.playbackMetrics=JSON.stringify({frames:frameGaps.length,maxGapMs:Math.max(0,...frameGaps.map(f=>f.gap)),gapsOver50:frameGaps.filter(f=>f.gap>50),transitions:frameGaps.filter(f=>[timeline.approval,timeline.answer].some(at=>Math.abs(f.at-at)<.3))});
   }
   function tick() {
     if(!playing)return;
+    const now=performance.now();if(framePrevious)frameGaps.push({at:lastTime,gap:Math.round((now-framePrevious)*10)/10});framePrevious=now;
     const time=clockUsesAudio?audioContext.currentTime-startClock:performance.now()/1000-startClock;
     lastTime=Math.max(0,time);draw(lastTime);updateCopy(lastTime);
     if(lastTime>=duration)finishIntro();else frame=requestAnimationFrame(tick);
   }
   async function playIntro() {
     stopIntro();setup=false;$("setup-preview").hidden=true;$("stage-copy").hidden=false;
+    copyIndex=-1;framePrevious=0;frameGaps=[];delete canvas.dataset.playbackMetrics;
     const generation=soundGeneration;
     $("play").disabled=true;
     try {
+      await AIslandIntroScene.ready;
+      if(generation!==soundGeneration||document.hidden)return;
       if(!muted) {await ensureAudio();if(generation!==soundGeneration||document.hidden)return;startClock=audioContext.currentTime+0.06;clockUsesAudio=true;scheduleIntro(startClock);}
       else {startClock=performance.now()/1000;clockUsesAudio=false;}
       playing=true;$("start-curtain").hidden=true;tick();
@@ -129,12 +188,12 @@
   function showView(id) {
     stopIntro();document.querySelectorAll(".view").forEach(el=>el.classList.toggle("active",el.id===id));
     document.querySelectorAll("[data-view]").forEach(el=>el.setAttribute("aria-pressed",String(el.dataset.view===id)));
-    if(id==="intro"&&!setup) {$("start-curtain").hidden=false;$("play-state").textContent="等待播放";}
+    if(id==="intro"&&!setup) {$("start-curtain").hidden=false;$("play-state").textContent=introText().status.waiting;}
     history.replaceState(null,"",`#${id}`);if(id==="intro")fitCanvas();
   }
   function setMuted(value) {
-    muted=value;$("intro-mute").checked=value;$("stage-mute").setAttribute("aria-pressed",String(value));$("stage-mute").textContent=value?"声音关闭":"声音开启";
-    if(playing) {stopSounds();if(!value){stopIntro();$("start-curtain").hidden=false;$("play-state").textContent="声音已开启 · 请从头播放";}}
+    muted=value;$("intro-mute").checked=value;$("stage-mute").setAttribute("aria-pressed",String(value));$("stage-mute").textContent=value?introText().controls.soundOff:introText().controls.soundOn;
+    if(playing) {stopSounds();if(!value){stopIntro();$("start-curtain").hidden=false;$("play-state").textContent=introText().status.soundEnabled;}}
   }
   function renderSoundRows() {
     $("sound-rows").replaceChildren();
@@ -176,19 +235,25 @@
   document.querySelectorAll("[data-inspect]").forEach(el=>el.addEventListener("click",()=>{
     stopIntro();setup=false;lastTime=Number(el.dataset.inspect);
     $("setup-preview").hidden=true;$("stage-copy").hidden=false;$("start-curtain").hidden=true;
-    draw(lastTime);updateCopy(lastTime);$("play-state").textContent=`静帧审阅 · ${lastTime.toFixed(1)} 秒 · 无声音`;
+    draw(lastTime);updateCopy(lastTime);$("play-state").textContent=format(introText().status.still,{time:lastTime.toFixed(1)});
   }));
   document.querySelectorAll("[data-event]").forEach(el=>el.addEventListener("click",()=>playEvent(el.dataset.event)));
   $("play").addEventListener("click",playIntro);$("replay").addEventListener("click",playIntro);$("skip").addEventListener("click",finishIntro);
   $("stage-mute").addEventListener("click",()=>setMuted(!muted));$("intro-mute").addEventListener("change",e=>setMuted(e.target.checked));
   $("reduce-motion").addEventListener("change",e=>{reduceMotion=e.target.checked;draw(lastTime);});
+  $("intro-language").addEventListener("change",e=>{
+    stopIntro();introLocale=e.target.value==="system"?defaultIntroLocale:e.target.value;
+    setup=false;lastTime=0;$("setup-preview").hidden=true;$("stage-copy").hidden=false;$("start-curtain").hidden=false;
+    applyIntroLanguage();updateCopy(0);draw(0);
+  });
   $("notification-mute").addEventListener("change",()=>{stopSounds();$("import-status").textContent=$("notification-mute").checked?"自动任务提示已静音。":"自动任务提示已开启。";});
   $("stop-audio").addEventListener("click",()=>{stopSounds();$("import-status").textContent="播放已停止。";});
-  $("fullscreen").addEventListener("click",async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $("stage-shell").requestFullscreen();}catch(_){$("play-state").textContent="当前浏览器不支持全屏，可在浏览器窗口中观看。";}});
-  document.addEventListener("fullscreenchange",()=>{$("fullscreen").textContent=document.fullscreenElement?"退出全屏 ↙":"全屏观看 ↗";});
-  $("setup-next").addEventListener("click",()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});showView("sources");});
+  $("fullscreen").addEventListener("click",async()=>{try{if(nativeReview){stopIntro();window.webkit.messageHandlers.reviewHost.postMessage("close");}else if(document.fullscreenElement)await document.exitFullscreen();else await $("stage-shell").requestFullscreen();}catch(_){$("play-state").textContent=introText().status.fullscreenUnavailable;}});
+  document.addEventListener("fullscreenchange",()=>{$("fullscreen").textContent=document.fullscreenElement?introText().controls.exitFullscreen:introText().controls.fullscreen;});
+  $("setup-next").addEventListener("click",()=>{if(nativeReview){window.webkit.messageHandlers.reviewHost.postMessage("close");return;}if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});showView("sources");});
   document.addEventListener("keydown",e=>{if(e.key==="Escape"&&playing)finishIntro();});
-  document.addEventListener("visibilitychange",()=>{if(document.hidden){const wasPlaying=playing;stopIntro();if(wasPlaying){$("start-curtain").hidden=false;$("play-state").textContent="已暂停 · 返回后从头重播";}}});
+  document.addEventListener("visibilitychange",()=>{if(document.hidden){const wasPlaying=playing;stopIntro();if(wasPlaying){$("start-curtain").hidden=false;$("play-state").textContent=introText().status.paused;}}});
   window.addEventListener("pagehide",stopIntro);new ResizeObserver(fitCanvas).observe(canvas);
-  renderSoundRows();showView(["intro","sound","sources"].includes(location.hash.slice(1))?location.hash.slice(1):"intro");updateCopy(0);
+  renderSoundRows();showView(["intro","sound","sources"].includes(location.hash.slice(1))?location.hash.slice(1):"intro");applyIntroLanguage();updateCopy(0);
+  AIslandIntroScene.ready.then(()=>draw(lastTime)).catch(()=>{$("play-state").textContent=introText().status.previewUnavailable;});
 })();

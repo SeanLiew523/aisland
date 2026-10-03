@@ -32,6 +32,7 @@ struct ScreenGeometry: Codable {
 
 struct ReviewGeometry: Encodable {
     let native = true
+    let preferredLanguage = Locale.preferredLanguages.first ?? "en"
     let notch: NotchGeometry
     let screen: ScreenGeometry
 
@@ -83,6 +84,7 @@ struct ReviewGeometry: Encodable {
 final class ReviewWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { NSApp.terminate(nil) }
@@ -142,11 +144,12 @@ final class ReviewDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, W
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         // Deny HTTP(S) and WebSocket resources, including page script requests.
         let rules = """
-        [{"trigger":{"url-filter":"^(https?|wss?)://"},"action":{"type":"block"}}]
+        [{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},
+         {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}]
         """
         WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "AIslandIntroReviewNoNetwork", encodedContentRuleList: rules) { ruleList, error in
             guard let ruleList, error == nil else {
-                fputs("AIsland Intro Review: network isolation rule unavailable; refusing to load.\n", stderr)
+                fputs("AIsland Intro Review: network isolation rule unavailable; refusing to load: \(String(describing: error)).\n", stderr)
                 NSApp.terminate(nil)
                 return
             }
@@ -173,15 +176,8 @@ final class ReviewDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, W
         guard let json = try? ReviewGeometry.read(screen).json() else { return }
         let bootstrap = """
         window.AIslandReviewHost = \(json);
-        document.documentElement.dataset.nativeReview = 'true';
-        (() => {
-          const policy = document.createElement('meta');
-          policy.httpEquiv = 'Content-Security-Policy';
-          policy.content = "default-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; media-src 'self' data: blob:";
-          let head = document.head;
-          if (!head) { head = document.createElement('head'); document.documentElement.prepend(head); }
-          head.appendChild(policy);
-        })();
+        // Document-start injection precedes DOM construction. The page sets its
+        // native layout after parsing; the content rule list blocks network requests.
         """
         controller.addUserScript(WKUserScript(source: bootstrap, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let exitButton = """
@@ -189,8 +185,9 @@ final class ReviewDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, W
           document.documentElement.dataset.nativeReview = 'true';
           const exit = document.createElement('button');
           exit.id = 'native-review-exit';
-          exit.textContent = '退出审阅';
-          exit.setAttribute('aria-label', '退出审阅（Esc 或 Command Q）');
+          const copy = window.AIslandIntroText[document.documentElement.dataset.introLocale || 'en'].controls;
+          exit.textContent = copy.nativeExit;
+          exit.setAttribute('aria-label', copy.nativeExitLabel);
           exit.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483647;padding:10px 16px;border:1px solid rgba(255,255,255,.3);border-radius:18px;background:rgba(12,20,42,.85);color:#fff;font:14px -apple-system,BlinkMacSystemFont,sans-serif;cursor:pointer;backdrop-filter:blur(16px)';
           exit.addEventListener('click', () => window.webkit.messageHandlers.reviewHost.postMessage('close'));
           document.body.appendChild(exit);
@@ -219,6 +216,19 @@ final class ReviewDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, W
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // A local review receipt checks the actual native viewport, not only NSScreen metadata.
+        webView.evaluateJavaScript("JSON.stringify({width:innerWidth,height:innerHeight,canvas: (()=>{ const r=document.getElementById('stage').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}; })(),nativeLayout:document.documentElement.dataset.nativeReview})") { result, _ in
+            guard let string = result as? String, let data = string.data(using: .utf8),
+                  var receipt = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let frame = self.window?.frame else { return }
+            receipt["windowFrame"] = ["x":frame.minX,"y":frame.minY,"width":frame.width,"height":frame.height]
+            receipt["bundleID"] = Bundle.main.bundleIdentifier
+            guard let output = try? JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted,.sortedKeys]) else { return }
+            try? output.write(to: Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("native-layout.json"), options: .atomic)
+        }
+    }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "reviewHost", message.frameInfo.isMainFrame,

@@ -1,0 +1,475 @@
+{
+  "sourceRepository": "/Users/seanliew/aisland-v0.1.1-intro-host",
+  "sourceCommit": "020c2bf48380496a5bbd084efc6eb8b25ae74e50",
+  "sources": [
+    {
+      "path": "Sources/OpenIslandApp/Views/IslandPanelView.swift",
+      "fileSHA256": "fe605290dcf4f83df4cbb86bf5a6fe7955de86ff3b7076cd036eeda5d0dbc953",
+      "startLine": 12,
+      "endLine": 49,
+      "extractionSHA256": "fa03a5eb1e643d1a2a94495e86b2373bafd1bd5ce6cda5ea4feb1ab3841782f4"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Views/IslandPanelView.swift",
+      "fileSHA256": "fe605290dcf4f83df4cbb86bf5a6fe7955de86ff3b7076cd036eeda5d0dbc953",
+      "startLine": 81,
+      "endLine": 92,
+      "extractionSHA256": "a1ff93c5b6ed44111b84804a0ef983b73f3d6f16e89921ab211200ca4bcc7402"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Views/IslandPanelView.swift",
+      "fileSHA256": "fe605290dcf4f83df4cbb86bf5a6fe7955de86ff3b7076cd036eeda5d0dbc953",
+      "startLine": 1254,
+      "endLine": 2816,
+      "extractionSHA256": "ae1d8824389692fa7d15d9b02f4057ed34beca275c018ac1971e0911c088f2f7"
+    },
+    {
+      "path": "Sources/OpenIslandApp/AgentSession+Presentation.swift",
+      "fileSHA256": "8878e00b26d00d986948023d34ae37cfea3260ecaff96f48c7d0b9dc568adaaf",
+      "startLine": 1,
+      "endLine": 490,
+      "extractionSHA256": "8878e00b26d00d986948023d34ae37cfea3260ecaff96f48c7d0b9dc568adaaf"
+    },
+    {
+      "path": "Sources/OpenIslandApp/IslandDesignPalette.swift",
+      "fileSHA256": "529c4b611c4ceee4038a9700c8047e1dbac9509c8226cfb0e9441a2941fbd2f2",
+      "startLine": 1,
+      "endLine": 42,
+      "extractionSHA256": "529c4b611c4ceee4038a9700c8047e1dbac9509c8226cfb0e9441a2941fbd2f2"
+    },
+    {
+      "path": "Sources/OpenIslandApp/AppModelTypes.swift",
+      "fileSHA256": "24c9a6c9af3aabb9f558b6847045466f4bf14b69cd652000e55c0464f6f1e8d2",
+      "startLine": 73,
+      "endLine": 86,
+      "extractionSHA256": "c99428ccaab47ad939d9ed3f1aaa71d35d06177b0c227559189099fca0442659"
+    },
+    {
+      "path": "Sources/OpenIslandApp/V6ClosedPillShape.swift",
+      "fileSHA256": "5637e63909a977dac474806c748e7b3c2f37c692e53594e2ea7d33625691fa9f",
+      "startLine": 38,
+      "endLine": 41,
+      "extractionSHA256": "c3b67b93b3df250409d82f10ed2a4bd4230fc8218f315c58c76e401e37f7bdac"
+    },
+    {
+      "path": "Sources/OpenIslandApp/AppModel.swift",
+      "fileSHA256": "bd2bc9ebaa2bf1c2b1054c3988a030553b2a0432218e39bf30707712f69aaf55",
+      "startLine": 1965,
+      "endLine": 1991,
+      "extractionSHA256": "0a7682b7d7885fd9b0cdf83f1eb7ef7cdb764ab91506aa16a8b4d2bdb25a2bb2"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Localization/LanguageManager.swift",
+      "fileSHA256": "5a5bf13752707aad4cd3a645a625366290caa93d7c07f67efbb8e8242bfb7c62",
+      "startLine": 1,
+      "endLine": 105,
+      "extractionSHA256": "5a5bf13752707aad4cd3a645a625366290caa93d7c07f67efbb8e8242bfb7c62"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Resources/en.lproj/Localizable.strings",
+      "fileSHA256": "6c482a361b2acfc44956e2dff9defbef521a7836611c527bb96a91e8f007c5cd",
+      "startLine": 1,
+      "endLine": 228,
+      "extractionSHA256": "6c482a361b2acfc44956e2dff9defbef521a7836611c527bb96a91e8f007c5cd"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Resources/zh-Hans.lproj/Localizable.strings",
+      "fileSHA256": "5c2baf7bd00289d25828ba0a83a88ef42ec492eb78e1d22f575949d7cae72bd7",
+      "startLine": 1,
+      "endLine": 228,
+      "extractionSHA256": "5c2baf7bd00289d25828ba0a83a88ef42ec492eb78e1d22f575949d7cae72bd7"
+    },
+    {
+      "path": "Sources/OpenIslandApp/Resources/zh-Hant.lproj/Localizable.strings",
+      "fileSHA256": "f7641dafc741d2081c6e27be289e45e6a7c76cc83b01236ee88bbb2b13e17c9c",
+      "startLine": 1,
+      "endLine": 227,
+      "extractionSHA256": "f7641dafc741d2081c6e27be289e45e6a7c76cc83b01236ee88bbb2b13e17c9c"
+    },
+    {
+      "path": "Sources/OpenIslandCore/AgentEvent.swift",
+      "fileSHA256": "85abf40b5c0c74df508189e3288d485d9a08c3525fc3463a5189d1ec5158d90d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/AgentHookIntent.swift",
+      "fileSHA256": "f5a0bc1a876d4c03ff8ef87682491d60141e87b16b3adaad0909181d3d714e96",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/AgentIntentStore.swift",
+      "fileSHA256": "1099cc468934d95efbaba9ebbbf1f46141f4481cc3e2d7027d70619d3b40a565",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/AgentSession.swift",
+      "fileSHA256": "2d912838c3c7d0a57a8696abb74ca5e006bbfcd8fc2c9525846640081af961fd",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/BridgeCommandClient.swift",
+      "fileSHA256": "3a0b7e8816f57a2445284b77ea989c0a17fd9a6ef553099fd8c37b6879866b4f",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/BridgeServer.swift",
+      "fileSHA256": "b0a58bef793ea112ee9f83138213bab9be5b1d865d38f135d40d135186b8917d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/BridgeTransport.swift",
+      "fileSHA256": "ee62597b6edd9352ba5bf84d0f594b6ecda45f06fc71179d55522863ed6ae5e6",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeConfigDirectory.swift",
+      "fileSHA256": "f18df15d14d0ed8e550083f5e805edb3ed88c523201abde343076f0b32a3ad6d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeHookInstallationManager.swift",
+      "fileSHA256": "c4cd9894a2cefa1aa4b922c7a8e6ba576137b21fd334d99a77ddc2acd826afe8",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeHookInstaller.swift",
+      "fileSHA256": "791c2500b89e17a841f10e8d84930939d7c3410146b4610cd820236162f1d507",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeHooks.swift",
+      "fileSHA256": "6135819a3a5b5a8c09d56809bd3ed241856a234c3ad3ca2ef965dd0135f77bbe",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeSessionRegistry.swift",
+      "fileSHA256": "21ca6b535d631ad139bb8e920188e7d4543d4eadc25a8a02880dda2eca268b6f",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeStatusLineInstallationManager.swift",
+      "fileSHA256": "f06d5bc506e8b73ddcdec0c51139ac04cd22cc5388675c06745a671af8a1b671",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeTaskNotification.swift",
+      "fileSHA256": "eb142027b0b9bbe0f63701f797a084ea418156e6f2b0642d5d02f8b180591990",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeTranscriptDiscovery.swift",
+      "fileSHA256": "b7c5081eafb9dbe0eda8201d5425d9809bdf1c5dff4b43f0806b53708f584d71",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ClaudeUsage.swift",
+      "fileSHA256": "779d432f7e202f5b901e2bca47e4ee70df062bd5d70a5f76eb79a6a032759b17",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexAppServer.swift",
+      "fileSHA256": "b6f2b2e07c772d38ee7c97aa32fbe52e8c16ea4e7e4039f6da9a4c8eaee66035",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexHookInstallationManager.swift",
+      "fileSHA256": "22d21e0071339fbdab6779329af0ccb99c2ffcc28ec04896e0649af965c39f93",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexHookInstaller.swift",
+      "fileSHA256": "fb0e8e246980acccd16e7a06052fdbe0361b506fe405f70a7eec992e50a03a32",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexHooks.swift",
+      "fileSHA256": "56f692d146a5cbd9aa0fc48a37cc99e3e5b9b9876cad30a7bf00e1d91a53ffe4",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexSessionTracking.swift",
+      "fileSHA256": "6998866ef34d13eed4a3e1dd1bca011eeeb2c58fe3ccc6c2ed24e8e420944ce0",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CodexUsage.swift",
+      "fileSHA256": "82ecb812f663a53c92efb5a47263bf1201404f8978aac5f002b100d1c8bfef6b",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CursorHookInstallationManager.swift",
+      "fileSHA256": "e61746abaa386122205ed817ba0428135f4b97a7fc2511c5a20043e29a5ac01d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CursorHookInstaller.swift",
+      "fileSHA256": "1014959f7038980def65594a316624ff25f73a6523f4f61f3204b88159abb280",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CursorHooks.swift",
+      "fileSHA256": "1803841633f4a6b765b39513f88f97ae58cc4652ef513289254c8c05e578e744",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CursorSessionRegistry.swift",
+      "fileSHA256": "5601795f3c73eafac2e4fb29362eebd36dfab83b3fec862d1731586df6dbd7b7",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/CursorTranscriptReader.swift",
+      "fileSHA256": "06334e7dd570f819d9e907e97501d7dd455ed71f2e286b8b216ab886b3105c3a",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/DeepSeekNavigationClient.swift",
+      "fileSHA256": "ed2487e2785ffe292949eaf9b6e7d325fc1e26fa4abf603a1d51ee0916880915",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GeminiHookInstallationManager.swift",
+      "fileSHA256": "e162dc10ea8f59d22df05a57031e228b7bd26cb4a5528f6078abcb6b5cc0b89a",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GeminiHookInstaller.swift",
+      "fileSHA256": "6a0584c3f8999ef60a62684e2761db612dfd00b90098008fb717ce4df0c4fdbd",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GeminiHooks.swift",
+      "fileSHA256": "a0f8fc1dff5236c745a0b3d31c7d0dbe064e78f0350b6c6728569fbc9cba16dc",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GrokHookInstallationManager.swift",
+      "fileSHA256": "44f42d937ca1279da4835c5a5181bfbc8d440715071f2ac7f70209490c48e016",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GrokHookInstaller.swift",
+      "fileSHA256": "1482d3163cd12614ea8ad37d9cf59071410d6233b17b8ce7eceb9775debbf500",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/GrokHooks.swift",
+      "fileSHA256": "5b41e4989affe9248adfe0ac0e17113f0ea37e3af82ccfe8450746a08ed1a24b",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HermesHookInstallationManager.swift",
+      "fileSHA256": "7c982e5339719cbf3b36e53044235a03e5b999501255d1a20b07ae0b91cd9703",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HermesHooks.swift",
+      "fileSHA256": "34e841bd3144c7c7bd3863c8ab7d80946decaff58dcdd1630252af9e4b97b00f",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HexEscapedUTF8.swift",
+      "fileSHA256": "4a68e110d76c91849022bf031f834a28a00e216b207400d761aa5b02e16dcdd0",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HookHealthCheck.swift",
+      "fileSHA256": "65e7f487a0b2972063b92b34921511d7d3024158f3dcd36dcaceb1348cbe57b8",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HookSkipConfiguration.swift",
+      "fileSHA256": "d0fcdcdca89bfc40228669dc65a220d4afa9b3e3997f927359d0e513b01f127a",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/HooksBinaryLocator.swift",
+      "fileSHA256": "dfd48091886776c13e0ac171b2e4a87bcffac4e0a3b245e042ae124828228ebc",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/KimiHookInstallationManager.swift",
+      "fileSHA256": "075135c2e8e1f9883bf4a7aa0b6a8f12e9ff62e2e0c1bfa202810a552f9de908",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/KimiHookInstaller.swift",
+      "fileSHA256": "d18439b9f382275cb0321260c492329d919ed6f6b9eac968fcfb188307443d33",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/LocalBridgeClient.swift",
+      "fileSHA256": "a7c61270267753966626ddbc34370e66a4b33243cbd58dfcf0f9dbe204081604",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/NotificationSoundPlayback.swift",
+      "fileSHA256": "6961e5f172c7882d7011c6fdf9459769c3244ef3b37cb187435c7fe3654c5412",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/NotificationSoundStore.swift",
+      "fileSHA256": "aea47eef69139cc7bbe6388a0f389cd50043f9d44d6ee1f8d40eb503833c463d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/OpenCodeHooks.swift",
+      "fileSHA256": "3381ed72c930d65a8781f28daae20fa1685d376cca5677ca83d3e442f3653edc",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/OpenCodePluginInstallationManager.swift",
+      "fileSHA256": "7df1b9be5c8d2aba83d038b27865ee1cdabd9293be4334ab21abde6a222a7677",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/OpenCodeSessionRegistry.swift",
+      "fileSHA256": "49cc147f426f6be546d4cb6e63a7175145d943b069032be8c5150bd7fa2aff38",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/PiExtensionInstallationManager.swift",
+      "fileSHA256": "0467d9e3f239504f6772f15a5224aa4c00e73e0f3c8f94cd790bb0aec40fa772",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/PiHooks.swift",
+      "fileSHA256": "03feabd9f10eed7dc9f99d9c7df2c6f334db973d53b1e93524e6df8893c30069",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/PiSessionRegistry.swift",
+      "fileSHA256": "b9e4a86536cf2e53c8ee9af158ddcbba4b439a7fc0ffdb8abb82ab69e416111d",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/RuntimeLifecycleHooks.swift",
+      "fileSHA256": "eed2733b8937e19c28e06d0746a2483afbfa44762cb252145411f914f8aff089",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/SafeFileDescriptorWriter.swift",
+      "fileSHA256": "4544436ca20a28f796795e1664f1c8910932d5a07f7a1f529dfc77701d1588a7",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/SessionState.swift",
+      "fileSHA256": "3a7b521d96679909e8d40b939129310fa7c861078b27f829ec3b3a41776f0bed",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/TimedCache.swift",
+      "fileSHA256": "1954cd1a20434fd29946de706423b74e16066fb9a3e344bfb259b5f74adbd0b6",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/WarpProcessResolver.swift",
+      "fileSHA256": "7e8dc384418d108659675862c979783cc3b319c9c92d08fa09209c39e3395be0",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/WarpSQLiteReader.swift",
+      "fileSHA256": "cd1f2670d9d74e09baa0847b9208140fe1d0eeb45c85fe0a466bf1e28b417e06",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/WatchHTTPEndpoint.swift",
+      "fileSHA256": "dbf2d05a614f5325a191909069817db4f1e17148df7fafee3b945db9d99f115b",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/WatchNotificationRelay.swift",
+      "fileSHA256": "a1f775eb5ee5477c87a5b3738addc2da5f8790735f92bc72e5ce28aef53509b0",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/WorkspaceNameResolver.swift",
+      "fileSHA256": "0fa6fb0faa7c3f41c241d0c0682f6261d85932b6a565b55451a204fbbc484757",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    },
+    {
+      "path": "Sources/OpenIslandCore/ZCodeHookInstallationManager.swift",
+      "fileSHA256": "0e8ffb148d0e8d02dff10b5291b1add66fde33ec36b41666f0805f2507a4af6c",
+      "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"
+    }
+  ],
+  "transformations": [
+    "Only LanguageManager preference IO replaced with explicit CLI language; drawing source unchanged",
+    "Bundle.appResources points to the isolated capture target's localization bundle",
+    "Private row and helper declarations remain in one compilation unit"
+  ],
+  "resolvedPackages": {
+    "originHash": "8e16404c5caad50ae1cfb6d938f994411a1867fa518dc4e81f10284fe36de2ba",
+    "pins": [
+      {
+        "identity": "networkimage",
+        "kind": "remoteSourceControl",
+        "location": "https://github.com/gonzalezreal/NetworkImage",
+        "state": {
+          "revision": "2849f5323265386e200484b0d0f896e73c3411b9",
+          "version": "6.0.1"
+        }
+      },
+      {
+        "identity": "sparkle",
+        "kind": "remoteSourceControl",
+        "location": "https://github.com/sparkle-project/Sparkle",
+        "state": {
+          "revision": "eef1a539a373c1f1a320624b1130fc5de7b2e100",
+          "version": "2.10.0"
+        }
+      },
+      {
+        "identity": "swift-cmark",
+        "kind": "remoteSourceControl",
+        "location": "https://github.com/swiftlang/swift-cmark",
+        "state": {
+          "revision": "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
+          "version": "0.9.0"
+        }
+      },
+      {
+        "identity": "swift-markdown-ui",
+        "kind": "remoteSourceControl",
+        "location": "https://github.com/gonzalezreal/swift-markdown-ui",
+        "state": {
+          "revision": "5f613358148239d0292c0cef674a3c2314737f9e",
+          "version": "2.4.1"
+        }
+      }
+    ],
+    "version": 3
+  },
+  "captureTool": [
+    {
+      "file": "capture.py",
+      "SHA256": "148466ba12ebc57af1a5d5f31531d3c54b2fd9b0afd6a5106d02e325b9194b11"
+    },
+    {
+      "file": "capture.swift",
+      "SHA256": "c71e1407714ae4e6ddadb5f1824f90f5d0c72a76b314c25546b9efcfde964305"
+    }
+  ],
+  "language": "en",
+  "artifacts": [
+    {
+      "file": "native-row-claude-en@2x.png",
+      "SHA256": "351ed30ed20d32c062fe2827207574cb577c5b0cd526632ee9d79c98507b4124"
+    },
+    {
+      "file": "native-row-codex-en@2x.png",
+      "SHA256": "5dad952fd7e330451bfa6248371e6b04b0e5763966b7160c40d05a384a0d5838"
+    },
+    {
+      "file": "native-row-gemini-en@2x.png",
+      "SHA256": "cce9bfb385a9db3f4302e463a66c84c79aae15510826105d450221592068569d"
+    },
+    {
+      "file": "native-row-manifest-en.json",
+      "SHA256": "c6ab00ea67b601cb5954ef8c2f9e4d36223d4a99a15290896a5990f24a8c1bb5"
+    },
+    {
+      "file": "native-row-workbuddy-en@2x.png",
+      "SHA256": "0715cad698103d1d1886859f0e8083d1cbec95c164281a42c57f4a9d49005125"
+    }
+  ]
+}

@@ -79,3 +79,17 @@ DeepSeek Harness Desktop 重新加载官方插件到独立 App socket；在已�
 缺失，不能把 OS entitlement warning 当成权限拒绝。辅助技术的面板/行可操作性
 正单独处理；不把 source RPC、当前已选中会话或进程激活冒充 App 点击成功。
 审批与回答类别的 MP3 真实事件、既有来源导航回归也尚待验证。
+
+### 原生可访问动作与 DeepSeek 点击复测
+
+`6f65fdb` 给原有闭合 pill 添加独立按钮名称/default action，给会话行添加
+保留子按钮的 container/default action；没有改动视觉、鼠标、悬停、窗口穿透或动画。
+完整 build 12 的实际 AX 树显示“展开 AIsland 会话”，按该动作可展开列表；会话
+容器与原独立 chevron 按钮均可见。实际 MiniMaxCode 行触发导航并记录
+`sidebar-conversation-unavailable`，证明新版 permission probe 没有返回权限拒绝。
+其现有侧栏 label 读取仍在修复，不能报告准确会话成功。
+
+DeepSeek 来源先选中另一条专用中止会话，再从完整 App 的 DeepSeek 会话行点击，
+来源实际改选 `AISLAND-DEEPSEEK-OK 测试` 并加载 `AISLAND-DEEPSEEK-NATIVE-OK`
+完成内容。这是实际 App 点击后的选择证据，已经超出单独 RPC dispatch；macOS
+前台的独立观测仍待验证，来源窗口截图本身不证明前台。

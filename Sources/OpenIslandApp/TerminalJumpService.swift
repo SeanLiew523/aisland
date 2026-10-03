@@ -393,6 +393,8 @@ struct TerminalJumpService {
             case "com.deepseek.dsh":
                 try deepseekNavigator(target)
                 try openAction(["-b", "com.deepseek.dsh"])
+                let sourceFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.deepseek.dsh"
+                logJumpDiagnostics("deepseek navigation dispatched sourceFrontmost=\(sourceFrontmost)")
                 return "Sent the DeepSeek conversation navigation request. Verify the selected conversation in DeepSeek."
             case "com.minimax.agent":
                 // The controller verifies the original native session ID and

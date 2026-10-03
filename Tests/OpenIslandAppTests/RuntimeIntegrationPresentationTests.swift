@@ -9,7 +9,8 @@ struct RuntimeIntegrationPresentationTests {
             appConversationID: "real-session", runtimeProfileID: "desktop")
         let service = TerminalJumpService(applicationResolver: { _ in URL(fileURLWithPath: "/tmp/app") },
             appRunningChecker: { _ in true }, openAction: { arguments in #expect(arguments == ["-b", "com.deepseek.dsh"]) },
-            deepseekNavigator: { value in #expect(value.appConversationID == "real-session"); #expect(value.runtimeProfileID == "desktop") })
+            deepseekNavigator: { value in #expect(value.appConversationID == "real-session"); #expect(value.runtimeProfileID == "desktop") },
+            jumpDiagnostics: { _ in })
         let result = try service.jump(to: target)
         #expect(result.contains("request"))
         #expect(!result.contains("Focused"))

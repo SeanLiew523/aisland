@@ -50,3 +50,14 @@ R7 未修改 V6 标签，也未同步正式原生引导。若需回退，以从 
 修复使缓存 key 同时包含 tick、radius 和 size，时间不变但几何变化时也重新生成子节点偏移。新增检查直接读取实际 adapter 产生的六个子节点偏移，分别在正常 / 减少动态下连续渲染同一 21.1 秒的 380×500 → 1702×1016 → 380×500，修复前确实以 stale child y 失败，修复后六组通过。离线静帧也改为使用实际子节点 SVG 与偏移，不再重新计算正确布局来掩盖缓存错误。
 
 生成包、源码来源 hash 已更新；16 CSS 组合、六组同时间缩放与 16 静帧通过，V6 壳 / 卡片 / timeline / audio / review controls 不变检查仍通过。真实浏览器缩放复测、实时音画与用户效果确认由主流程继续，仍未定版。
+
+## 主流程真实浏览器复测
+
+主流程已在实际 IAB 中核对中英文全屏开场标题、中文汇入左侧角色和归位六角色。
+缩放修复后，21.1 秒归位静帧从窗口切到全屏时六角色正确分布于放大的圆轨道上。
+实际截图保存在 ignored `output/verification/v0.1.1-intro-revision-7/`：
+`browser-zh-fullscreen-opening.jpg`、`browser-en-fullscreen-opening.jpg`、
+`browser-zh-fullscreen-gather.jpg`、`browser-zh-fullscreen-home.jpg`。
+已通过页面真实“从头重播”入口启动完整 22 秒播放，未将静帧称为声音或帧率验收。
+用户效果确认仍待回复；严格保留 V6 原生资源，不提前同步 R7。思考三点的短暂展示、
+主观音画节奏、实时帧率和减少动态完整播放仍需后续验收。

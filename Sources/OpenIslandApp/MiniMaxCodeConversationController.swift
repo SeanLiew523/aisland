@@ -93,6 +93,7 @@ private enum MiniMaxCodeAXNavigation {
         case projectRowPress = "project-row-press"
         case titleSurfaceRoots = "title-surface-roots"
         case titleBranchTitles = "title-branch-titles"
+        case titleAncestor = "title-ancestor"
         case titleMenuMatches = "title-menu-matches"
         case titleMenuTimeout = "title-menu-timeout"
         case copySubmenu = "copy-submenu"
@@ -311,13 +312,16 @@ private enum MiniMaxCodeAXNavigation {
         guard choosers.count == 1, terminals.count == 1 else { return nil }
         var node = choosers[0]
         var topbar: AXUIElement?; var branch: [AXUIElement] = []; var heading: AXUIElement?
-        for _ in 0..<8 where remaining(deadline) {
+        for index in 0..<8 where remaining(deadline) {
             guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
             node = unsafeDowncast(parent, to: AXUIElement.self)
             guard role(node) == "AXGroup", visited.contains(where: { CFEqual($0, node) }) else { return nil }
             let members = nodes(node, deadline, maximum: 129, depth: 8)
+            let forbidden = members.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") })
+            acceptanceLog(.titleAncestor, count: index + 1, nodes: members.count,
+                          error: forbidden ? 1 : 0, flag: remaining(deadline))
             guard members.count <= 128, remaining(deadline),
-                  !members.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") }) else { return nil }
+                  !forbidden else { return nil }
             guard members.contains(where: { CFEqual($0, terminals[0]) }) else { continue }
             let titles = members.filter { role($0) == "AXStaticText" && text($0) == title }
             acceptanceLog(.titleBranchTitles, count: titles.count, nodes: members.count, flag: remaining(deadline))

@@ -1,7 +1,7 @@
 import Schema from '@deepseek-ai/schemastery';
 import { attachHost } from './core.mjs';
 export const name = 'aisland-deepseek';
-export const inject = ['sessions', 'connection'];
+export const inject = ['sessions', 'connection', 'webServer'];
 export const Config = Schema.object({
   profileID: Schema.string().default('desktop'),
   bridgeSocketPath: Schema.string().default(''),

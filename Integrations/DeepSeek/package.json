@@ -18,7 +18,7 @@
     "test": "node --test test/*.test.mjs",
     "check": "node --check index.mjs && node --check core.mjs && node --check client.js"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@deepseek-ai/schemastery": "~3.18.4"
   },
   "dsh": {

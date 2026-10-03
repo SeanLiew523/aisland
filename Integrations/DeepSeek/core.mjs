@@ -159,7 +159,12 @@ export function attachHost(ctx, config = {}) {
   ctx.on('session/event', (session, event) => projection.observe(session, event));
   ctx.on('session/disposed', session => projection.disposed(session));
   ctx.effect(() => {
-    const unregister = ctx.connection.rpc.handle(CHANNEL, async (endpoint, payload) => broker.rpc(endpoint, payload));
+    const handler = async (endpoint, payload) => broker.rpc(endpoint, payload);
+    // 0.2.0-rc.2's rpc getter retains the provider's Cordis shadow. Pass the
+    // caller explicitly through the same authenticated route registration.
+    const unregister = typeof ctx.connection.register === 'function'
+      ? ctx.connection.register(ctx, CHANNEL, handler)
+      : ctx.connection.rpc.handle(CHANNEL, handler);
     try { broker.listen(); } catch { /* Optional navigation cannot block lifecycle/source activation. */ }
     return async () => { sender.dispose(); broker.dispose(); await unregister(); };
   });

@@ -15,7 +15,7 @@
 
 ## 生命周期与隐私
 
-`package.json` 声明 `dsh.bundle.patch`、`./client` 和 `dsh.client`。宿主注入 `sessions/connection`，浏览器注入 `connection/uiWorkspace`；`ctx.on` 与 `ctx.effect` 随插件卸载清理。
+`package.json` 声明 `dsh.bundle.patch`、`./client` 和 `dsh.client`。宿主注入 `sessions/connection/webServer`，浏览器注入 `connection/uiWorkspace`；`ctx.on` 与 `ctx.effect` 随插件卸载清理。
 
 只转发 `profile_id/session_id/turn_id/sequence/cwd/timestamp`、来源身份、导航目标和粗粒度 `result_reason`；不转发消息正文、标题、tool input、错误详情或任意 hook reason。不存在目录时 `cwd` 为 `""`，不猜成宿主进程目录。
 
@@ -87,7 +87,7 @@ DSH_DESKTOP_CLI='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/c
 
 ## 可配置项
 
-所有配置只属于 `aisland-deepseek` row。用户 profile 的 patch 晚于 bundle layer；配置替换为整行值。默认 `profileID: desktop`，如隔离验证改名要明确保持 native 与源一致：
+所有配置只属于 `aisland-deepseek` row。用户 profile 的 patch 晚于 bundle layer；配置替换为整个 config 值，保留已插入组件的 name/id。默认 `profileID: desktop`，如隔离验证改名要明确保持 native 与源一致：
 
 ```yaml
 - id: aisland-deepseek
@@ -115,3 +115,19 @@ node Integrations/DeepSeek/plan.mjs
 最终 22 项通过；另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
 
 下一效果节点应先评审该代码与 native 联调结果，再获准安装；用可丢弃测试目录与专用会话检查成功、失败、取消、两个并行任务、重复标题、源退出/恢复、AIsland 重启与桥断连。分别记录确切会话选中、内容加载、macOS 前台及通知声音；完成后卸载确认原 profile 保留。审批/问答下一切片再核对 `approval/request` waterfall 与 userQuestions 的归属、取消及操作回传，未接通前不可显示可操作审批/回答。
+
+## Official linked-plugin loading compatibility
+
+The installed 0.2.0-rc.2 desktop loader shares host packages with linked plugins
+only when they are declared as peerDependencies. Schemastery is a host peer,
+not an uninstalled local dependency. The native loader initially rejected the
+linked plugin, despite its outer bundle appearing enabled in the UI.
+
+This release's connection.rpc getter also retains the provider's Cordis shadow.
+Navigation registration declares webServer injection and explicitly passes the
+plugin caller to connection.register(ctx, channel, handler). This is the same
+authenticated registration route used by rpc.handle; it changes no shared
+provider, credentials, SDK or host profile injection. Later hosts without that
+method retain the handle path. The installed host now creates the navigation
+endpoint and delivers a real tiny task's start and successful terminal event.
+Exact visible navigation and native notification acceptance remain separate.

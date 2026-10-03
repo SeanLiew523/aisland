@@ -1150,6 +1150,7 @@ struct AppModelSessionListTests {
                 lastAssistantMessage: "Latest response"
             )
         )
+        model.state = SessionState(sessions: [existing])
 
         let selected = model.discovery.codexAppRediscoveryRecords(
             from: [updatedRecord],

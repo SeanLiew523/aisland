@@ -29,7 +29,8 @@ struct CodexDesktopIdentityTests {
     @Test
     func attachmentReconciliationDoesNotEraseDesktopIdentity() {
         var state = desktopState()
-        #expect(!state.reconcileJumpTargets(["desktop": target(host: "Unknown")]))
+        let changed = state.reconcileJumpTargets(["desktop": target(host: "Unknown")])
+        #expect(!changed)
         #expect(state.session(id: "desktop")?.jumpTarget?.codexThreadID == "desktop")
     }
 

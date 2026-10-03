@@ -98,6 +98,7 @@ private enum MiniMaxCodeAXNavigation {
         case copyFocus = "copy-focus"
         case copyIDItem = "copy-id-item"
         case copyIDPress = "copy-id-press"
+        case copyLabel = "copy-label"
         case pasteboardCapture = "pasteboard-capture"
         case pasteboardIdentity = "pasteboard-identity"
         case pasteboardRestore = "pasteboard-restore"
@@ -335,14 +336,23 @@ private enum MiniMaxCodeAXNavigation {
     /// admitted label with a fresh source-process hit test, never a guessed point.
     static func activateCopyLabel(_ item: AXUIElement, source: MiniMaxCodeConversationUI.Source,
                                   deadline: TimeInterval) -> Bool {
+        if acceptanceDiagnosticsEnabled {
+            NSLog("aisland_minimax_navigation stage=copy-label-guard role=%@ frontmost=%d trusted=%d can_post=%d remaining=%d",
+                  DiagnosticRole(role(item)).rawValue, frontmost(source) ? 1 : 0,
+                  AXIsProcessTrusted() ? 1 : 0, CGPreflightPostEventAccess() ? 1 : 0, remaining(deadline) ? 1 : 0)
+        }
         guard remaining(deadline), frontmost(source), AXIsProcessTrusted(), CGPreflightPostEventAccess(),
               role(item) == "AXMenuItem" else { return false }
         let members = nodes(item, deadline, maximum: 17, depth: 4)
         guard members.count <= 16, remaining(deadline) else { return false }
         let labels = members.filter { role($0) == "AXStaticText" && ["复制会话 ID", "Copy session ID"].contains(text($0) ?? "") }
-        guard labels.count == 1, let label = labels.first,
-              let pointValue = value(label, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
-              let sizeValue = value(label, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
+        acceptanceLog(.copyLabel, count: labels.count, nodes: members.count, flag: remaining(deadline))
+        guard labels.count == 1, let label = labels.first else { return false }
+        let pointValue = value(label, kAXPositionAttribute)
+        let sizeValue = value(label, kAXSizeAttribute)
+        acceptanceLog(.copyLabel, count: 2, flag: pointValue != nil && sizeValue != nil)
+        guard let pointValue, CFGetTypeID(pointValue) == AXValueGetTypeID(),
+              let sizeValue, CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
         var origin = CGPoint.zero; var size = CGSize.zero
         guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
               AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
@@ -351,8 +361,10 @@ private enum MiniMaxCodeAXNavigation {
         let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         let application = AXUIElementCreateApplication(source.processID)
         var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit) == .success,
-              let hit, members.contains(where: { CFEqual($0, hit) }), remaining(deadline), frontmost(source) else { return false }
+        let hitResult = AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit)
+        let matches = hit.map { candidate in members.contains { CFEqual($0, candidate) } } ?? false
+        acceptanceLog(.copyLabel, count: 3, error: Int(hitResult.rawValue), flag: matches)
+        guard hitResult == .success, let hit, matches, remaining(deadline), frontmost(source) else { return false }
         var owner: pid_t = 0
         guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
               let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),

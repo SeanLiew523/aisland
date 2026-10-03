@@ -50,7 +50,9 @@ function render(scene: Scene) {
     }
   }
   if (geometry.orbit.visible) {
-    const o = geometry.orbit, key = `${tick}`;
+    // A paused still keeps the same tick across window/fullscreen resize. Its
+    // child offsets depend on radius, so invalidate geometry as well as time.
+    const o = geometry.orbit, key = `${tick}:${o.radius}:${o.size}`;
     orbit.style.cssText = `left:${o.x}px;top:${o.y}px;width:${o.radius * 2}px;height:${o.radius * 2}px;--agent-size:${o.size}px`;
     if (key !== lastOrbitFrame) {
       orbit.innerHTML = o.agents.map(({ angle }, i) => {

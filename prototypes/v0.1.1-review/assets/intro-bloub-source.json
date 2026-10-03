@@ -41,8 +41,8 @@
     "aisland-website/src/vendor/bloub/shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
     "aisland-website/src/vendor/bloub/skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
     "aisland-website/src/vendor/bloub/states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
-    "prototypes/v0.1.1-review/intro-bloub.ts": "fc519b48c003c16c350b62861cb2207924e73c7f452d7a9bd461fa413f62b0b8"
+    "prototypes/v0.1.1-review/intro-bloub.ts": "98012c8f4c5eb0cb896da781fbf5a661d92af792be8b4643d32a17e622d422b7"
   },
-  "bundle_sha256": "7d0452d5571f92f819b6425dafddc457ca8c8a268f7976e0b9f1dbf396a066d8",
+  "bundle_sha256": "678a60e62263002d979db2fc1748fdb841242e41f5541f4b9daa1fb7ba2ab136",
   "scope": "Prototype brand animation; not runtime sessions or acceptance evidence"
 }

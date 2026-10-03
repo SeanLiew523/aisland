@@ -98,6 +98,27 @@ const sandbox = { Image:ReviewImage, document:{getElementById:id=>surfaces[id]},
 sandbox.window = sandbox; vm.createContext(sandbox);
 for (const name of ['assets/native-media.js','intro-i18n.js','assets/intro-bloub.js','intro-scene.js']) vm.runInContext(read(name), sandbox, {filename:name});
 const bloub=sandbox.AIslandIntroBloub, scene=sandbox.AIslandIntroScene;
+function orbitChildren() {
+  return [...surfaces['home-orbit'].innerHTML.matchAll(/<div class="home-agent" style="left:calc\(50% \+ ([^)]+)px\);top:calc\(50% \+ ([^)]+)px\)">(<svg[\s\S]*?<\/svg>)<span>([^<]+)<\/span><\/div>/g)]
+    .map(([,x,y,svg,label])=>({x:Number(x),y:Number(y),svg,label}));
+}
+const resizeChecks=[];
+for (const reduceMotion of [false,true]) {
+  // Same sampled time, including reduced motion: changes in viewport must
+  // update the renderer's actual child positions, not just its parent circle.
+  for (const [w,h] of [[380,500],[1702,1016],[380,500]]) {
+    const input={w,h,t:21.1,x:w/2,y:h*.43,iw:100,ih:30,gather:5.3,arrived:7.95,
+      approval:8.2,dock:18.1,motion:!reduceMotion,setup:false};
+    bloub.render(input);
+    const geometry=bloub.layout(input).orbit, children=orbitChildren();
+    assert.equal(children.length,6);
+    for (const [i,{angle}] of geometry.agents.entries()) {
+      assert(Math.abs(children[i].x-Math.cos(angle)*geometry.radius)<1e-8,'same-time resize: stale child x');
+      assert(Math.abs(children[i].y-Math.sin(angle)*geometry.radius)<1e-8,'same-time resize: stale child y');
+    }
+    resizeChecks.push({w,h,reduceMotion,time:21.1,radius:geometry.radius});
+  }
+}
 assert.deepEqual(Array.from(bloub.outerStates),['egg','hexagon','play','idle','thinking','notify']);
 for (const state of bloub.outerStates) {
   const frame = bloub.sample(state,1), svg = bloub.svg(frame,'test-'+state);
@@ -122,12 +143,14 @@ async function capture(width,height,time,language,reduceMotion=false) {
     assert(o.y+o.radius+o.size/2 < height*.81);
     ctx.save(); ctx.globalAlpha=+surfaces['home-orbit'].style.opacity;
     ctx.beginPath(); ctx.arc(o.x,o.y,o.radius,0,Math.PI*2);ctx.strokeStyle='#6c7dca30';ctx.stroke();
-    for (const [i,{angle,state}] of o.agents.entries()) {
-      const x=o.x+Math.cos(angle)*o.radius,y=o.y+Math.sin(angle)*o.radius;
-      const svg=bloub.svg(bloub.sample(state,reduceMotion?1:time+i*.3),'capture-'+i);
-      ctx.drawImage(await loadImage(Buffer.from(svg)),x-o.size/2,y-o.size/2,o.size,o.size);
+    // Render the SVG and offsets produced by the actual DOM adapter. Rebuilding
+    // a mathematically correct layout here would hide a stale-child cache bug.
+    const children=orbitChildren();assert.equal(children.length,6);
+    for (const child of children) {
+      const x=o.x+child.x,y=o.y+child.y;
+      ctx.drawImage(await loadImage(Buffer.from(child.svg)),x-o.size/2,y-o.size/2,o.size,o.size);
       ctx.fillStyle='#60718f';ctx.font=`${Math.max(7,Math.min(11,width*.01))}px Menlo`;ctx.textAlign='center';
-      ctx.fillText(`AGENT / 0${i+1}`,x,y+o.size*.5+10);
+      ctx.fillText(child.label,x,y+o.size*.5+10);
     }
     ctx.restore();
   }
@@ -151,9 +174,9 @@ async function capture(width,height,time,language,reduceMotion=false) {
     for (const time of [1.3,6.6,21.1]) renders.push(await capture(380,500,time,language));
     renders.push(await capture(970,606,21.1,language,true));
   }
-  fs.writeFileSync(path.join(output,'offline-checks.json'),JSON.stringify({result:'passed',cases,
+  fs.writeFileSync(path.join(output,'offline-checks.json'),JSON.stringify({result:'passed',cases,resizeChecks,
     unchanged:['V6 island drawing','V6 four-card paths','22-second audio source','review controls/clock'],
     oldChineseFullscreen:{left:oldChinese.left,width:oldChinese.width,translate:oldChinese.transform,leftEdgePercent:-35},
     states:bloub.outerStates,renders,limitations:'Offline source/CSS model and static canvas/SVG rendering only. Browser fullscreen, timing, output audio and user visual acceptance pending.'},null,2)+'\n');
-  console.log(`PASS: ${cases.length} CSS cases; V6 shell/cards/audio/controls unchanged; six exact engine states; ${renders.length} offline renders.`);
+  console.log(`PASS: ${cases.length} CSS cases; ${resizeChecks.length} same-time resize checks; V6 shell/cards/audio/controls unchanged; six exact engine states; ${renders.length} offline renders.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

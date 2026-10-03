@@ -352,9 +352,19 @@ private enum MiniMaxCodeAXNavigation {
         let values = error == .success ? (output as? [AXUIElement] ?? []) : []
         acceptanceLog(.windowQuery, count: values.count, error: Int(error.rawValue), flag: error == .success)
         acceptanceWindowLog(values)
-        // Multiple source windows require an explicit discriminator; don't
-        // choose the first one or open/close a source window to manufacture it.
-        return values.count == 1 ? values[0] : nil
+        // Live 3.1.0 exposes an auxiliary AXDialog beside its standard main
+        // window. Admit one exact, non-minimized standard window only, then
+        // require its project header and copied native session ID as before.
+        guard values.count <= 8 else { return nil }
+        let attributes = values.map {
+            MiniMaxCodeWindowSelection.Attributes(role: role($0),
+                subrole: value($0, kAXSubroleAttribute) as? String,
+                title: value($0, kAXTitleAttribute) as? String,
+                isMain: bool($0, kAXMainAttribute),
+                isMinimized: bool($0, kAXMinimizedAttribute))
+        }
+        guard let index = MiniMaxCodeWindowSelection.mainIndex(in: attributes) else { return nil }
+        return values[index]
     }
     static func nodes(_ root: AXUIElement, _ deadline: TimeInterval, maximum: Int = 4000, depth maximumDepth: Int = 48) -> [AXUIElement] {
         var queue: [(AXUIElement, Int)] = [(root, 0)]; var output: [AXUIElement] = []; var index = 0

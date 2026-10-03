@@ -42,14 +42,26 @@ test('identity, per-session ordering, duplicate and older turn rejection', () =>
   assert.equal(hook(output[0]).navigation_socket_path, '/tmp/deepseek-navigation.sock');
 });
 
-test('old seed/start, end without observed start and idle never complete', () => {
+test('old seed/start rejected; end without start restores silently and idle does nothing', () => {
   const { p, output } = projected();
   p.observe(session(), event('turn/start', 1, 9)); p.observe(session(), event('turn/start', 1, 10, null, 999));
   p.observe(session(), event('turn/end', 1, 11, { kind: 'completed' })); p.observe(session(), event('agent/status', 2, 12, { kind: 'idle' }));
-  assert.equal(output.length, 0);
+  assert.equal(output.length, 1); assert.equal(hook(output[0]).source_observed_start, false);
   const restarted = new LifecycleProjection(options(), x => output.push(x), 1000);
-  restarted.observe(session(), event('turn/end', 2, 13, { kind: 'completed' })); assert.equal(output.length, 0);
-  restarted.observe(session(), event('turn/start', 3, 14)); restarted.observe(session(), event('turn/end', 3, 15, { kind: 'completed' })); assert.equal(output.length, 2);
+  restarted.observe(session(), event('turn/end', 2, 13, { kind: 'completed' })); assert.equal(output.length, 2);
+  assert.equal(hook(output[1]).source_observed_start, false);
+  restarted.observe(session(), event('turn/start', 3, 14)); restarted.observe(session(), event('turn/end', 3, 15, { kind: 'completed' })); assert.equal(output.length, 4);
+  assert.equal(hook(output[3]).source_observed_start, true);
+});
+
+test('plugin reload restores the native observed turn without a fresh success receipt', () => {
+  const { p, output } = projected();
+  p.observe(session(), event('turn/start', 4, 10));
+  const reloaded = new LifecycleProjection(options(), x => output.push(x), 1001);
+  reloaded.observe(session(), event('turn/end', 4, 11, { kind: 'completed' }, 1002));
+  reloaded.observe(session(), event('turn/end', 4, 12, { kind: 'completed' }, 1003));
+  assert.deepEqual(output.map(x => [hook(x).event, hook(x).turn_id, hook(x).source_observed_start]),
+    [['turnStarted', '4', true], ['turnCompleted', '4', false]]);
 });
 
 test('disposal ends only observed session, never successful completion', () => {

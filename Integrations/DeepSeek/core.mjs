@@ -40,21 +40,24 @@ export class LifecycleProjection {
     // Session seeds do not publish in the supported runtime; these guards also reject replay.
     if (event.time < this.startedAt || event.seq < (session.firstLiveSeq ?? 0)) return;
     if (!['turn/start', 'turn/end'].includes(event.type) || !nonnegative(event.data?.turn)) return;
-    const state = this.sessions.get(id) ?? { sequence: -1, turn: -1, active: false };
+    const state = this.sessions.get(id) ?? { sequence: -1, turn: -1, active: false, ended: false };
     if (event.seq <= state.sequence || event.data.turn < state.turn) return;
     state.sequence = event.seq;
     const turn = event.data.turn;
-    let type; let reason;
+    let type; let reason; let observedStart = false;
     if (event.type === 'turn/start') {
       if (turn <= state.turn) return;
-      state.turn = turn; state.active = true; type = 'turnStarted';
+      state.turn = turn; state.active = true; state.ended = false; type = 'turnStarted'; observedStart = true;
     } else {
-      // An end first seen after restart is not a new completion.
-      if (state.turn !== turn || !state.active) { state.turn = Math.max(state.turn, turn); this.sessions.set(id, state); return; }
-      state.active = false; [type, reason] = classifyReason(event.data.reason);
+      if (state.turn === turn && state.ended) return;
+      // Synchronize an end after plugin reload, but never turn it into a fresh notification.
+      observedStart = state.turn === turn && state.active;
+      state.turn = turn; state.active = false; state.ended = true;
+      [type, reason] = classifyReason(event.data.reason);
     }
     this.sessions.set(id, state);
-    this.publish(session, type, event.time, { turn_id: String(turn), sequence: event.seq, ...(reason ? { result_reason: reason } : {}) });
+    this.publish(session, type, event.time, { turn_id: String(turn), sequence: event.seq,
+      source_observed_start: observedStart, ...(reason ? { result_reason: reason } : {}) });
   }
   disposed(session) {
     if (!this.sessions.has(session?.id)) return;

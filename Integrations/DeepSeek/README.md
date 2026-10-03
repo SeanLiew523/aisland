@@ -27,7 +27,7 @@
 | interrupted / forked | turnInterrupted | 原粗枚举 |
 | 未知扩展 reason | turnFailed | unknown |
 
-只有该插件本次启动已观察到对应 `turn/start` 的结束才发结束事件；旧时间、seed seq、旧 turn、重复 seq、无 start 的结束全部抑制。`idle` 不作为完成。源 session disposed 只发 `sessionEnded` 收拢状态。插件重启不恢复旧 turn 为新完成，也不补响桥断连时遗漏的通知。
+旧时间、seed seq、旧 turn 和重复 seq 被抑制；`idle` 不作为完成。已观察对应 `turn/start` 的结束带 `source_observed_start: true`；插件重载后仅见结束仍同步状态，但带 `source_observed_start: false`，native 必须收拢任务且保持静默，避免长期显示运行中或补响完成。源 session disposed 只发 `sessionEnded` 收拢状态。插件重启不恢复旧 turn 为新完成，也不补响桥断连时遗漏的通知。
 
 Bridge 使用 UTF-8 newline JSON，结构为：
 
@@ -112,6 +112,6 @@ node --check Integrations/DeepSeek/client.js
 node Integrations/DeepSeek/plan.mjs
 ```
 
-最终 21 项通过；另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
+最终 22 项通过；另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
 
 下一效果节点应先评审该代码与 native 联调结果，再获准安装；用可丢弃测试目录与专用会话检查成功、失败、取消、两个并行任务、重复标题、源退出/恢复、AIsland 重启与桥断连。分别记录确切会话选中、内容加载、macOS 前台及通知声音；完成后卸载确认原 profile 保留。审批/问答下一切片再核对 `approval/request` waterfall 与 userQuestions 的归属、取消及操作回传，未接通前不可显示可操作审批/回答。

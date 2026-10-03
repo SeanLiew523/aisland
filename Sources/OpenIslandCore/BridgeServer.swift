@@ -90,6 +90,8 @@ public final class BridgeServer: @unchecked Sendable {
     /// overwritten whenever AppModel pushes a fresh snapshot.
     private var localState = SessionState()
     private var runtimeLifecycleReducer: RuntimeLifecycleReducer
+    private var miniMaxCodeMonitor = MiniMaxCodeLifecycleMonitor()
+    private var miniMaxCodePollTimer: DispatchSourceTimer?
 
     public init(
         socketURL: URL = BridgeSocketLocation.defaultURL,
@@ -120,6 +122,19 @@ public final class BridgeServer: @unchecked Sendable {
             if let legacyListener = try? bindListener(at: legacyURL) {
                 listeners.append(legacyListener)
             }
+        }
+        queue.async { [weak self] in
+            guard let self, !self.listeners.isEmpty, self.miniMaxCodePollTimer == nil else { return }
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now(), repeating: .milliseconds(250))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                for payload in self.miniMaxCodeMonitor.poll() {
+                    for event in self.runtimeLifecycleReducer.receive(payload) { self.emit(event) }
+                }
+            }
+            self.miniMaxCodePollTimer = timer
+            timer.resume()
         }
     }
 
@@ -191,6 +206,9 @@ public final class BridgeServer: @unchecked Sendable {
     }
 
     private func stopLocked() {
+        miniMaxCodePollTimer?.cancel()
+        miniMaxCodePollTimer = nil
+        miniMaxCodeMonitor = MiniMaxCodeLifecycleMonitor()
         pendingApprovals.removeAll()
         pendingClaudeInteractions.removeAll()
         pendingClaudeToolContexts.removeAll()
@@ -488,7 +506,17 @@ public final class BridgeServer: @unchecked Sendable {
         case let .processGrokHook(payload):
             handleGrokHook(payload, from: clientID)
         case let .processRuntimeLifecycleHook(payload):
-            for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
+            if payload.source.isMiniMaxCode {
+                // Native hooks only admit identities. Outcomes come from committed DB facts.
+                for observed in miniMaxCodeMonitor.observe(payload) {
+                    for event in runtimeLifecycleReducer.receive(observed) { emit(event) }
+                }
+                if payload.event == .sessionEnded {
+                    for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
+                }
+            } else {
+                for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
+            }
             send(.response(.acknowledged), to: clientID)
         case let .processPiHook(payload):
             handlePiHook(payload, from: clientID)

@@ -445,6 +445,8 @@ final class AppModel {
 
     @ObservationIgnored
     var openSettingsWindow: (() -> Void)?
+    @ObservationIgnored var onStartupSetupReady: (() -> Void)?
+    @ObservationIgnored var replayWelcome: (() -> Void)?
 
     @ObservationIgnored
     private var hasFinishedInit = false
@@ -1359,9 +1361,7 @@ final class AppModel {
     }
 
     /// Opens Settings on the Setup tab so the user can install hooks.
-    /// Used by every "Set up agents" CTA in the empty-state UI. A
-    /// dedicated first-run onboarding window will replace this in a
-    /// later PR; until then this is the canonical entry point.
+    /// Used by the welcome's completion and "Set up agents" empty-state CTAs.
     func showOnboarding() {
         showSettings()
         NotificationCenter.default.post(name: .openIslandSelectSetupTab, object: nil)
@@ -1760,6 +1760,7 @@ final class AppModel {
             // on upgrade. Must run after status reads and before any
             // install decision.
             self.hooks.migrateIntentStoreIfNeeded()
+            self.onStartupSetupReady?()
 
             // Pi and Oh My Pi load a runtime extension that talks to the
             // bridge socket directly, so they do not depend on the hooks

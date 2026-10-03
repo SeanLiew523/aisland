@@ -205,6 +205,7 @@ struct GeneralSettingsPane: View {
                     Text(lang.t("settings.general.languageChinese")).tag(LanguageManager.AppLanguage.zhHans)
                     Text(lang.t("settings.general.languageTraditionalChinese")).tag(LanguageManager.AppLanguage.zhHant)
                 }
+                Button(lang.t("settings.general.replayWelcome")) { model.replayWelcome?() }
             }
 
             Section(lang.t("settings.general.behavior")) {

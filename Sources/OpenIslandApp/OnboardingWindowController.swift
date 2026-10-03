@@ -57,13 +57,18 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var originalPresentation: NSApplication.PresentationOptions?
     private var completion: ((OnboardingExit) -> Void)?
     private var state = OnboardingPlaybackState()
+    private var hapticsEnabled = false
+    private var nextHaptic = 0
+    private let hapticTimes = [3.0, 8.2, 10.7, 15.7, 20.7]
     var isPresenting: Bool { window != nil }
     private(set) var lastError: String?
 
     /// Persistence is the caller's responsibility so hook migration can finish
     /// before claiming automatic presentation. Settings replay bypasses that gate.
     @discardableResult
-    func present(language: OnboardingLanguage, completion: @escaping (OnboardingExit) -> Void) -> Bool {
+    func present(language: OnboardingLanguage, initiallyMuted: Bool = false,
+                 hapticFeedbackEnabled: Bool = false,
+                 completion: @escaping (OnboardingExit) -> Void) -> Bool {
         guard !isPresenting else { window?.makeKeyAndOrderFront(nil); return false }
         guard let screen = OnboardingGeometry.selectedScreen() else {
             lastError = "No display is available for the welcome."; return false
@@ -74,6 +79,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         lastError = nil
         self.completion = completion
         state = OnboardingPlaybackState()
+        state.muted = initiallyMuted
+        hapticsEnabled = hapticFeedbackEnabled
+        nextHaptic = 0
         state.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let root = NSView(frame: CGRect(origin: .zero,size: screen.frame.size))
         root.autoresizingMask = [.width,.height]
@@ -114,6 +122,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if let url = Bundle.appResources.url(forResource: "intro-v6",withExtension: "wav"),
            let audio = try? AVAudioPlayer(contentsOf: url) {
             audio.prepareToPlay()
+            audio.volume = state.muted ? 0 : 1
             let start = audio.deviceCurrentTime+lead
             if audio.play(atTime: start) {
                 player = audio
@@ -132,6 +141,13 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         state.elapsed = min(OnboardingTimeline.duration,elapsed)
         player?.volume = state.muted ? 0 : 1
         scene.time = state.elapsed; scene.reduceMotion = state.reduceMotion; scene.needsDisplay = true
+        if nextHaptic < hapticTimes.count, elapsed >= hapticTimes[nextHaptic] {
+            let beat = hapticTimes[nextHaptic]
+            while nextHaptic < hapticTimes.count, elapsed >= hapticTimes[nextHaptic] { nextHaptic += 1 }
+            if hapticsEnabled, !state.reduceMotion, elapsed - beat < 0.15 {
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            }
+        }
         if elapsed >= OnboardingTimeline.duration { finish(.completed) }
     }
 

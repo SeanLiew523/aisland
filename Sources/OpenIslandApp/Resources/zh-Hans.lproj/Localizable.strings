@@ -226,3 +226,5 @@
 
 /* Window Titles */
 "window.settings" = "AIsland 设置";
+
+"settings.general.replayWelcome" = "重播欢迎引导";

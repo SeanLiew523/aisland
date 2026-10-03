@@ -226,3 +226,5 @@
 
 /* Window Titles */
 "window.settings" = "AIsland Settings";
+
+"settings.general.replayWelcome" = "Replay welcome";

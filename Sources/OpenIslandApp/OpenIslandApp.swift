@@ -1,11 +1,14 @@
 import AppKit
 import SwiftUI
+import OpenIslandCore
 
 @MainActor
 final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     private let harnessLaunchConfiguration = HarnessLaunchConfiguration(environment: BloubTrialController.launchEnvironment)
     private lazy var bloubTrialController = BloubTrialController(model: model)
+    private let welcomeStore = OnboardingPresentationStore()
+    private let welcomeController = OnboardingWindowController()
     private let launchedAt = Date()
     private lazy var harnessRuntimeMonitor = HarnessRuntimeMonitor(launchedAt: launchedAt)
 
@@ -25,6 +28,8 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
             model.ignoresPointerExitDuringHarness = harnessLaunchConfiguration.scenario != nil
             model.disablesOverlayEventMonitoringDuringHarness =
                 harnessLaunchConfiguration.disablesOverlayEventMonitoring
+            model.onStartupSetupReady = { [weak self] in self?.presentAutomaticWelcome() }
+            model.replayWelcome = { [weak self] in self?.presentWelcome() }
             model.startIfNeeded(
                 startBridge: harnessLaunchConfiguration.shouldStartBridge,
                 shouldPerformBootAnimation: harnessLaunchConfiguration.shouldPerformBootAnimation,
@@ -81,6 +86,7 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        welcomeController.stop()
         NotificationSoundService.stop()
     }
 
@@ -91,12 +97,41 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if welcomeController.isPresenting { return false }
         if BloubTrialController.isEnabled { bloubTrialController.show() }
         else { model.showSettings() }
         return false
     }
 
     func showBloubTrial() { bloubTrialController.show() }
+
+    private func presentAutomaticWelcome() {
+        guard !BloubTrialController.isEnabled, harnessLaunchConfiguration.scenario == nil,
+              welcomeStore.claimAutomaticPresentation(
+                migrationReady: model.hooks.intentStore.migrationVersion > 0,
+                firstLaunchCompleted: model.firstLaunchCompleted
+              ) else { return }
+        presentWelcome()
+    }
+
+    private func presentWelcome() {
+        let language = OnboardingLanguage.resolve(
+            manualLanguage: model.lang.language.rawValue,
+            preferredLanguages: Locale.preferredLanguages
+        )
+        if !welcomeController.present(
+            language: language, initiallyMuted: model.isSoundMuted,
+            hapticFeedbackEnabled: model.hapticFeedbackEnabled,
+            completion: { [weak self] result in
+                guard let self, result != .closed else { return }
+                self.model.firstLaunchCompleted = true
+                self.model.showOnboarding()
+            }
+        ), let error = welcomeController.lastError {
+            model.lastActionMessage = error
+            model.showOnboarding()
+        }
+    }
 }
 
 @main

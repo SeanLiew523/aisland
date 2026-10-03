@@ -83,9 +83,9 @@ struct CodexAppServerCompatibilityTests {
         for url in [modern, legacy] {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         }
-        #expect(CodexAppServerExecutable.resolve(in: bundle) == modern)
+        #expect(CodexAppServerExecutable.resolve(in: bundle)?.path == modern.path)
         try FileManager.default.removeItem(at: modern)
-        #expect(CodexAppServerExecutable.resolve(in: bundle) == legacy)
+        #expect(CodexAppServerExecutable.resolve(in: bundle)?.path == legacy.path)
         try FileManager.default.removeItem(at: legacy)
         #expect(CodexAppServerExecutable.resolve(in: bundle) == nil)
     }

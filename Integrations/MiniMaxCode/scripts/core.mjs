@@ -24,7 +24,7 @@ export function projectHook(input, config, timestamp = Date.now()) {
   else if (input.hook_event_name === 'SessionEnd') event = 'sessionEnded';
   else return null;
   const hook = { source: config.source, event, profile_id: config.profileID, session_id: input.session_id,
-    cwd: input.cwd, timestamp, metadata_database_path: config.metadataDatabasePath,
+    cwd: input.cwd, timestamp, metadata_database_path: config.metadataDatabasePath, source_runtime_version: config.sourceRuntimeVersion,
     ...(cleanText(input.turn_id, 512) ? { turn_id: input.turn_id } : {}),
     ...(config.source === 'minimaxCodeDesktop' ? { app_bundle_id: 'com.minimax.agent',
       app_conversation_id: input.session_id, terminal_app: 'MiniMax Code.app' } : {}) };

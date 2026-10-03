@@ -1672,6 +1672,8 @@ final class ProcessMonitoringCoordinator {
             return "ZCode \(session.id.prefix(8))"
         case .hermesCLI: return "Hermes CLI"
         case .deepseekHarness: return "DeepSeek Harness"
+        case .minimaxCodeDesktop: return "MiniMaxCode Desktop"
+        case .minimaxCodeCLI: return "MiniMaxCode CLI"
         case .workbuddy:
             return "WorkBuddy \(session.id.prefix(8))"
         }

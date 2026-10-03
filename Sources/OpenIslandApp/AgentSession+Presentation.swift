@@ -87,7 +87,7 @@ extension AgentSession {
     }
 
     var runtimeOutcomeLabel: String? {
-        guard tool == .hermesCLI || tool == .deepseekHarness else { return nil }
+        guard tool.isMetadataOnlyRuntime else { return nil }
         switch runtimeOutcome {
         case .succeeded: return "Turn completed"
         case .failed: return "Turn failed"
@@ -98,7 +98,7 @@ extension AgentSession {
     }
 
     func localizedRuntimeStatus(using lang: LanguageManager) -> String? {
-        guard tool == .hermesCLI || tool == .deepseekHarness else { return nil }
+        guard tool.isMetadataOnlyRuntime else { return nil }
         guard lang.language.resolvedCode.hasPrefix("zh") else { return runtimeOutcomeLabel ?? (phase == .running ? "Running" : nil) }
         switch runtimeOutcome {
         case .succeeded: return "回合已完成"
@@ -262,6 +262,8 @@ extension AgentSession {
             return "ZCode"
         case .hermesCLI: return "Hermes CLI"
         case .deepseekHarness: return "DeepSeek Harness"
+        case .minimaxCodeDesktop: return "MiniMaxCode Desktop"
+        case .minimaxCodeCLI: return "MiniMaxCode CLI"
         case .workbuddy:
             return "WorkBuddy"
         }

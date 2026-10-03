@@ -3,11 +3,19 @@ import Foundation
 /// Metadata-only contract shared by Hermes CLI and the DeepSeek desktop plugin.
 public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
     public enum Source: String, Codable, Sendable {
-        case hermesCLI, deepseekHarness
-        public var tool: AgentTool { self == .hermesCLI ? .hermesCLI : .deepseekHarness }
+        case hermesCLI, deepseekHarness, minimaxCodeDesktop, minimaxCodeCLI
+        public var tool: AgentTool {
+            switch self {
+            case .hermesCLI: .hermesCLI
+            case .deepseekHarness: .deepseekHarness
+            case .minimaxCodeDesktop: .minimaxCodeDesktop
+            case .minimaxCodeCLI: .minimaxCodeCLI
+            }
+        }
+        public var isMiniMaxCode: Bool { self == .minimaxCodeDesktop || self == .minimaxCodeCLI }
     }
     public enum Event: String, Codable, Sendable {
-        case turnStarted, turnCompleted, turnFailed, turnInterrupted, sessionEnded
+        case turnStarted, turnCompleted, turnFailed, turnInterrupted, sessionEnded, sessionObserved
     }
     public var source: Source
     public var event: Event
@@ -23,6 +31,8 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
     public var appBundleID: String?
     public var appConversationID: String?
     public var sourceObservedStart: Bool?
+    public var metadataDatabasePath: String?
+    public var sourceRuntimeVersion: String?
     public var navigationSocketPath: String?
     public var resultReason: String?
     public var tmuxTarget: String?
@@ -35,6 +45,7 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
         case terminalApp = "terminal_app", terminalSessionID = "terminal_session_id", terminalTTY = "terminal_tty"
         case appBundleID = "app_bundle_id", appConversationID = "app_conversation_id", resultReason = "result_reason"
         case sourceObservedStart = "source_observed_start"
+        case metadataDatabasePath = "metadata_database_path", sourceRuntimeVersion = "source_runtime_version"
         case navigationSocketPath = "navigation_socket_path"
         case tmuxTarget = "tmux_target", tmuxSocketPath = "tmux_socket_path", warpPaneUUID = "warp_pane_uuid"
     }
@@ -42,12 +53,13 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
                 sequence: Int? = nil, cwd: String, timestamp: Date = .now, terminalApp: String? = nil,
                 terminalSessionID: String? = nil, terminalTTY: String? = nil, appBundleID: String? = nil,
                 appConversationID: String? = nil, resultReason: String? = nil, tmuxTarget: String? = nil,
-                tmuxSocketPath: String? = nil, warpPaneUUID: String? = nil, navigationSocketPath: String? = nil, sourceObservedStart: Bool? = nil) {
+                tmuxSocketPath: String? = nil, warpPaneUUID: String? = nil, navigationSocketPath: String? = nil, sourceObservedStart: Bool? = nil, metadataDatabasePath: String? = nil, sourceRuntimeVersion: String? = nil) {
         self.source = source; self.event = event; self.profileID = profileID; self.sessionID = sessionID
         self.turnID = turnID; self.sequence = sequence; self.cwd = cwd; self.timestamp = timestamp
         self.terminalApp = terminalApp; self.terminalSessionID = terminalSessionID; self.terminalTTY = terminalTTY
         self.appBundleID = appBundleID; self.appConversationID = appConversationID; self.resultReason = resultReason
         self.sourceObservedStart = sourceObservedStart
+        self.metadataDatabasePath = metadataDatabasePath; self.sourceRuntimeVersion = sourceRuntimeVersion
         self.navigationSocketPath = navigationSocketPath
         self.tmuxTarget = tmuxTarget; self.tmuxSocketPath = tmuxSocketPath; self.warpPaneUUID = warpPaneUUID
     }
@@ -70,19 +82,25 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
             return (!required || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 && value.utf8.count <= maximum && !value.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
         }
-        let reasons: Set<String> = source == .hermesCLI ? Self.hermesResultReasons : ["completed", "error", "blocked", "max-tokens", "aborted:user", "aborted:parent", "aborted:hook", "aborted:disposed", "aborted:legacy", "aborted:unknown", "interrupted", "forked", "unknown"]
+        if event == .sessionObserved {
+            guard source.isMiniMaxCode,
+                  let path = metadataDatabasePath, path.hasPrefix("/"), path.hasSuffix("/v2/sqlite/runtime-state.sqlite"),
+                  sourceRuntimeVersion == (source == .minimaxCodeDesktop ? "3.1.0" : "0.5.3") else { return false }
+        }
+        let reasons: Set<String> = source.isMiniMaxCode ? ["completed", "failed", "aborted", "unknown"] : source == .hermesCLI ? Self.hermesResultReasons : ["completed", "error", "blocked", "max-tokens", "aborted:user", "aborted:parent", "aborted:hook", "aborted:disposed", "aborted:legacy", "aborted:unknown", "interrupted", "forked", "unknown"]
         return identity(profileID, maximum: 1024, required: true) && identity(sessionID, maximum: 512, required: true)
-            && identity(turnID, maximum: 512, required: event != .sessionEnded)
+            && identity(turnID, maximum: 512, required: event != .sessionEnded && event != .sessionObserved)
             && identity(cwd, maximum: 4096) && identity(terminalApp, maximum: 128)
             && identity(terminalSessionID, maximum: 512) && identity(terminalTTY, maximum: 128)
             && identity(appBundleID, maximum: 255) && identity(appConversationID, maximum: 512)
+            && identity(metadataDatabasePath, maximum: 4096) && identity(sourceRuntimeVersion, maximum: 64)
             && identity(navigationSocketPath, maximum: 4096) && identity(tmuxTarget, maximum: 128)
             && identity(tmuxSocketPath, maximum: 4096) && identity(warpPaneUUID, maximum: 128)
             && (sequence == nil || sequence! >= 0) && timestamp.timeIntervalSince1970.isFinite
             && (resultReason == nil || reasons.contains(resultReason!))
     }
     public var jumpTarget: JumpTarget {
-        JumpTarget(terminalApp: source == .deepseekHarness ? "DeepSeek Harness.app" : (terminalApp ?? "Unknown"),
+        JumpTarget(terminalApp: source == .deepseekHarness ? "DeepSeek Harness.app" : source == .minimaxCodeDesktop ? "MiniMax Code.app" : (terminalApp ?? "Unknown"),
                    workspaceName: WorkspaceNameResolver.workspaceName(for: cwd), paneTitle: source.tool.displayName,
                    workingDirectory: cwd.isEmpty ? nil : cwd, terminalSessionID: terminalSessionID,
                    terminalTTY: terminalTTY, tmuxTarget: tmuxTarget, tmuxSocketPath: tmuxSocketPath,
@@ -133,7 +151,7 @@ public struct RuntimeLifecycleReducer: Sendable {
     }
 
     public mutating func receive(_ incoming: RuntimeLifecycleHookPayload) -> [AgentEvent] {
-        guard incoming.isValid else { return [] }
+        guard incoming.isValid, incoming.event != .sessionObserved else { return [] }
         var payload = incoming
         let id = payload.namespacedSessionID
         let previous = cursors[id]
@@ -169,6 +187,7 @@ public struct RuntimeLifecycleReducer: Sendable {
         case .turnFailed: summary = "Turn failed"
         case .turnInterrupted: summary = "Turn interrupted"
         case .sessionEnded: summary = "Session ended"
+        case .sessionObserved: return []
         }
         cursors[id] = Cursor(turnID: payload.turnID ?? previous?.turnID, timestamp: payload.timestamp,
                              sequence: payload.sequence ?? previous?.sequence, finished: !started, observedStart: started,

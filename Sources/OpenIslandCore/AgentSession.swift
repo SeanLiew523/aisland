@@ -18,6 +18,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
     case workbuddy
     case hermesCLI
     case deepseekHarness
+    case minimaxCodeDesktop
+    case minimaxCodeCLI
 
     public var displayName: String {
         switch self {
@@ -51,6 +53,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "ZCode"
         case .hermesCLI: "Hermes CLI"
         case .deepseekHarness: "DeepSeek Harness"
+        case .minimaxCodeDesktop: "MiniMaxCode Desktop"
+        case .minimaxCodeCLI: "MiniMaxCode CLI"
         case .workbuddy:
             "WorkBuddy"
         }
@@ -88,9 +92,15 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "ZCODE"
         case .hermesCLI: "HERMES"
         case .deepseekHarness: "DEEPSEEK"
+        case .minimaxCodeDesktop: "MINIMAX APP"
+        case .minimaxCodeCLI: "MINIMAX CLI"
         case .workbuddy:
             "WORKBUDDY"
         }
+    }
+
+    public var isMetadataOnlyRuntime: Bool {
+        [.hermesCLI, .deepseekHarness, .minimaxCodeDesktop, .minimaxCodeCLI].contains(self)
     }
 
     public var isClaudeCodeFork: Bool {
@@ -125,6 +135,7 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
         case .workbuddy:  "#818cf8"
         case .hermesCLI: "#f2ae52"
         case .deepseekHarness: "#4d6bfe"
+        case .minimaxCodeDesktop, .minimaxCodeCLI: "#f66b52"
         }
     }
 }

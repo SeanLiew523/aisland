@@ -12,6 +12,7 @@ struct TerminalJumpService {
     typealias WarpFocusedPaneReader = @Sendable () -> String?
     typealias WarpTabCountReader = @Sendable () -> Int
     typealias DeepSeekNavigator = @Sendable (JumpTarget) throws -> Void
+    typealias MiniMaxCodeConversationFocuser = @Sendable (JumpTarget) -> MiniMaxCodeConversationFocusResult
     typealias ZCodeConversationFocuser = @Sendable (String) -> ZCodeConversationFocusResult
     /// Returns true when Warp is the system's frontmost app and ready to
     /// receive the next tab-advance command. Production asks
@@ -151,6 +152,11 @@ struct TerminalJumpService {
             aliases: ["deepseek harness.app", "deepseek harness"]
         ),
         TerminalAppDescriptor(
+            displayName: "MiniMax Code.app",
+            bundleIdentifier: "com.minimax.agent",
+            aliases: ["minimax code.app", "minimax code", "minimaxcode"]
+        ),
+        TerminalAppDescriptor(
             displayName: "WorkBuddy.app",
             bundleIdentifier: "com.tencent.workbuddy.mac",
             aliases: ["workbuddy", "workbuddy.app"]
@@ -250,7 +256,9 @@ struct TerminalJumpService {
     private let warpKeystroker: KeystrokeInjector
     private let warpFrontmostChecker: WarpFrontmostChecker
     private let deepseekNavigator: DeepSeekNavigator
+    private let miniMaxCodeConversationFocuser: MiniMaxCodeConversationFocuser
     private let zcodeConversationFocuser: ZCodeConversationFocuser
+    private let jumpDiagnostics: @Sendable (String) -> Void
 
     init(
         applicationResolver: @escaping ApplicationResolver = { bundleIdentifier in
@@ -273,9 +281,13 @@ struct TerminalJumpService {
                 == "dev.warp.Warp-Stable"
         },
         deepseekNavigator: @escaping DeepSeekNavigator = { try DeepSeekNavigationClient().dispatch(target: $0) },
+        miniMaxCodeConversationFocuser: @escaping MiniMaxCodeConversationFocuser = {
+            MiniMaxCodeConversationController().focus(target: $0)
+        },
         zcodeConversationFocuser: @escaping ZCodeConversationFocuser = { conversationID in
             ZCodeConversationJumpController().focus(conversationID: conversationID)
-        }
+        },
+        jumpDiagnostics: @escaping @Sendable (String) -> Void = Self.defaultJumpDiagnostics
     ) {
         self.applicationResolver = applicationResolver
         self.appRunningChecker = appRunningChecker
@@ -287,7 +299,9 @@ struct TerminalJumpService {
         self.warpKeystroker = warpKeystroker
         self.warpFrontmostChecker = warpFrontmostChecker
         self.deepseekNavigator = deepseekNavigator
+        self.miniMaxCodeConversationFocuser = miniMaxCodeConversationFocuser
         self.zcodeConversationFocuser = zcodeConversationFocuser
+        self.jumpDiagnostics = jumpDiagnostics
     }
 
     func jump(to target: JumpTarget) throws -> String {
@@ -380,6 +394,18 @@ struct TerminalJumpService {
                 try deepseekNavigator(target)
                 try openAction(["-b", "com.deepseek.dsh"])
                 return "Sent the DeepSeek conversation navigation request. Verify the selected conversation in DeepSeek."
+            case "com.minimax.agent":
+                // The controller verifies the original native session ID and
+                // foreground after selecting an existing source sidebar row.
+                // Never open a new workspace or claim activation as success.
+                switch miniMaxCodeConversationFocuser(target) {
+                case .focused:
+                    logJumpDiagnostics("minimaxcode conversation focus ok frontmost=com.minimax.agent")
+                    return "Focused the MiniMaxCode conversation."
+                case let .unavailable(reason):
+                    logJumpDiagnostics("minimaxcode conversation focus miss reason=\(reason)")
+                    throw TerminalJumpError.conversationUnavailable("MiniMaxCode", reason)
+                }
             case "com.openai.codex":
                 // If we have a thread ID, use the codex:// URL scheme to
                 // open the specific conversation directly.  Otherwise just
@@ -753,8 +779,19 @@ struct TerminalJumpService {
     /// so jump behavior can be diagnosed from real clicks when window matching
     /// misbehaves on a specific machine.
     private func logJumpDiagnostics(_ message: String) {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("OpenIsland", isDirectory: true)
+        jumpDiagnostics(message)
+    }
+
+    private static func defaultJumpDiagnostics(_ message: String) {
+        let directory: URL?
+        do {
+            if let acceptance = try RuntimeAcceptanceConfiguration.current() {
+                directory = acceptance.socketURL.deletingLastPathComponent()
+            } else {
+                directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                    .appendingPathComponent("OpenIsland", isDirectory: true)
+            }
+        } catch { return }
         guard let directory else { return }
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1669,6 +1706,7 @@ enum TerminalJumpError: Error, LocalizedError {
     case unsupportedTerminal(String)
     case openFailed([String])
     case appleScriptFailed(String)
+    case conversationUnavailable(String, String)
 
     var errorDescription: String? {
         switch self {
@@ -1678,6 +1716,8 @@ enum TerminalJumpError: Error, LocalizedError {
             "Failed to launch terminal with arguments: \(arguments.joined(separator: " "))"
         case let .appleScriptFailed(message):
             "Terminal automation failed: \(message)"
+        case let .conversationUnavailable(app, reason):
+            "Could not verify the \(app) conversation (\(reason))."
         }
     }
 }

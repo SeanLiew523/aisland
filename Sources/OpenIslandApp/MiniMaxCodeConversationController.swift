@@ -165,11 +165,11 @@ private enum MiniMaxCodeAXNavigation {
         for group in nodes(root, deadline) {
             let children = elements(group, kAXChildrenAttribute)
             guard children.count >= 5,
-                  children.contains(where: { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(description($0) ?? "") }),
-                  children.contains(where: { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(description($0) ?? "") }) else { continue }
+                  children.contains(where: { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }),
+                  children.contains(where: { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }) else { continue }
             for index in 0..<(children.count - 1) where role(children[index]) == "AXStaticText" {
                 let candidate = children[index + 1]
-                guard role(candidate) == "AXButton", (description(candidate) ?? "").isEmpty,
+                guard role(candidate) == "AXButton", (exactLabel(candidate) ?? "").isEmpty,
                       text(children[index]) == title, action(candidate, kAXPressAction) else { continue }
                 if !matches.contains(where: { CFEqual($0, candidate) }) { matches.append(candidate) }
             }
@@ -178,25 +178,25 @@ private enum MiniMaxCodeAXNavigation {
     }
     static func projectHeaders(_ root: AXUIElement, path: String, deadline: TimeInterval) -> [AXUIElement] {
         nodes(root, deadline).filter {
-            role($0) == "AXButton" && (description($0) ?? "").hasSuffix(", " + path)
+            role($0) == "AXButton" && (exactLabel($0) ?? "").hasSuffix(", " + path)
                 && action($0, kAXPressAction)
         }
     }
     static func projectRows(_ header: AXUIElement, title: String, deadline: TimeInterval) -> [AXUIElement]? {
-        guard let label = description(header), !label.isEmpty else { return nil }
+        guard let label = exactLabel(header) else { return nil }
         var node = header
         // Exactly the observed header/container/draggable project ancestry.
         // A larger unnamed ancestor is never accepted as a project boundary.
         for _ in 0..<3 where remaining(deadline) {
             guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
             node = unsafeDowncast(parent, to: AXUIElement.self)
-            let labelOfGroup = description(node) ?? ""
+            let labelOfGroup = exactLabel(node) ?? ""
             let rendererGroup = classes(node).contains("space-y-px")
             guard rendererGroup || labelOfGroup == label || labelOfGroup.hasPrefix(label + " ") else { continue }
             let members = nodes(node, deadline, maximum: 500, depth: 8)
             guard members.contains(where: { CFEqual($0, header) }) else { return nil }
             let rows = members.filter {
-                role($0) == "AXButton" && !CFEqual($0, header) && description($0) == title
+                role($0) == "AXButton" && !CFEqual($0, header) && exactLabel($0) == title
                     && action($0, kAXPressAction)
             }
             if !rows.isEmpty || rendererGroup { return rows }
@@ -211,7 +211,7 @@ private enum MiniMaxCodeAXNavigation {
                 var matches: [AXUIElement] = []
                 for menu in menus {
                     for item in nodes(menu, deadline) where ["AXMenuItem", "AXButton"].contains(role(item) ?? "") {
-                        guard labels.contains(description(item) ?? text(item) ?? ""), action(item, kAXPressAction) else { continue }
+                        guard labels.contains(exactLabel(item) ?? ""), action(item, kAXPressAction) else { continue }
                         if !matches.contains(where: { CFEqual($0, item) }) { matches.append(item) }
                     }
                 }
@@ -245,7 +245,18 @@ private enum MiniMaxCodeAXNavigation {
     }
     static func elements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] { value(element, attribute) as? [AXUIElement] ?? [] }
     static func role(_ element: AXUIElement) -> String? { value(element, kAXRoleAttribute) as? String }
-    static func description(_ element: AXUIElement) -> String? { value(element, kAXDescriptionAttribute) as? String }
+    /// Electron uses Title for some native button/container labels and Description
+    /// for others. Preserve exact label text; Value belongs to body/static text,
+    /// and must never become a button label or project boundary.
+    static func exactLabel(_ element: AXUIElement) -> String? {
+        for attribute in [kAXDescriptionAttribute, kAXTitleAttribute] {
+            if let label = value(element, attribute) as? String,
+               !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return label
+            }
+        }
+        return nil
+    }
     static func text(_ element: AXUIElement) -> String? {
         ((value(element, kAXValueAttribute) as? String) ?? (value(element, kAXTitleAttribute) as? String))?
             .trimmingCharacters(in: .whitespacesAndNewlines)

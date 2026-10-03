@@ -75,6 +75,44 @@ struct ZCodeTaskIndex: Sendable {
             workspacePath: workspacePath
         )
     }
+
+    /// A standalone task has a workspace directory but no matching project
+    /// section in the sidebar. Only allow a title lookup outside its project
+    /// when the local index proves that title identifies this one task.
+    func hasUniqueTitle(for conversation: ZCodeConversationRecord) -> Bool {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(databasePath, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
+                == SQLITE_OK,
+              let database else {
+            if database != nil { sqlite3_close(database) }
+            return false
+        }
+        defer { sqlite3_close(database) }
+        sqlite3_busy_timeout(database, 100)
+
+        let sql = "SELECT task_id, workspace_path FROM tasks WHERE TRIM(title) = ? AND deleted = 0;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else { return false }
+        defer { sqlite3_finalize(statement) }
+        let heldTitle = conversation.title.withCString { strdup($0) }
+        defer { free(heldTitle) }
+        sqlite3_bind_text(statement, 1, heldTitle, -1, nil)
+
+        var found = false
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return found }
+            guard result == SQLITE_ROW,
+                  let id = sqlite3_column_text(statement, 0),
+                  let workspace = sqlite3_column_text(statement, 1),
+                  String(cString: id) == conversation.id,
+                  String(cString: workspace) == conversation.workspacePath else {
+                return false
+            }
+            found = true
+        }
+    }
 }
 
 enum ZCodeConversationFocusResult: Equatable, Sendable {
@@ -147,6 +185,7 @@ struct ZCodeConversationJumpController: Sendable {
         }
 
         let workspaceName = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
+        let allowsStandaloneLookup = taskIndex.hasUniqueTitle(for: conversation)
         ensureProjectsView(in: window, before: deadline)
         guard let projectsWindow = waitForWindow(of: application, before: deadline) else {
             if !hasTimeRemaining(before: deadline) {
@@ -160,16 +199,18 @@ struct ZCodeConversationJumpController: Sendable {
            pressConversation(
                title: conversation.title,
                workspaceName: workspaceName,
+               allowsStandaloneLookup: allowsStandaloneLookup,
                in: expandedWindow,
                before: deadline
            ),
            waitUntilConversationIsActive(
                title: conversation.title,
                workspaceName: workspaceName,
+               allowsStandaloneLookup: allowsStandaloneLookup,
                application: application,
                before: deadline
            ) {
-            return .focused
+            return verifyForeground(of: application, before: deadline)
         }
 
         // ZCode initially renders only a bounded number of conversations for
@@ -180,6 +221,7 @@ struct ZCodeConversationJumpController: Sendable {
             guard let currentWindow = waitForWindow(of: application, before: deadline),
                   pressShowMore(
                     forProjectNamed: workspaceName,
+                    allowsStandaloneLookup: allowsStandaloneLookup,
                     in: currentWindow,
                     before: deadline
                   ) else {
@@ -190,16 +232,18 @@ struct ZCodeConversationJumpController: Sendable {
                pressConversation(
                    title: conversation.title,
                    workspaceName: workspaceName,
+                   allowsStandaloneLookup: allowsStandaloneLookup,
                    in: revealedWindow,
                    before: deadline
                ),
                waitUntilConversationIsActive(
                    title: conversation.title,
                    workspaceName: workspaceName,
+                   allowsStandaloneLookup: allowsStandaloneLookup,
                    application: application,
                    before: deadline
                ) {
-                return .focused
+                return verifyForeground(of: application, before: deadline)
             }
         }
 
@@ -209,15 +253,36 @@ struct ZCodeConversationJumpController: Sendable {
         return .unavailable("sidebar-conversation-miss")
     }
 
+    private func verifyForeground(
+        of application: NSRunningApplication,
+        before deadline: TimeInterval
+    ) -> ZCodeConversationFocusResult {
+        // Activation is asynchronous. Selecting the correct sidebar item
+        // alone does not prove that the user can see the resulting window.
+        for attempt in 0..<30 where hasTimeRemaining(before: deadline) {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+                return .focused
+            }
+            if attempt < 29 { sleep(0.05, before: deadline) }
+        }
+        return .unavailable("app-not-frontmost")
+    }
+
     private func pressConversation(
         title: String,
         workspaceName: String,
+        allowsStandaloneLookup: Bool,
         in root: AXUIElement,
         before deadline: TimeInterval
     ) -> Bool {
         guard hasTimeRemaining(before: deadline),
-              let container = projectContainer(named: workspaceName, in: root, before: deadline),
-              let taskItem = taskItem(titled: title, in: container, before: deadline),
+              let taskItem = conversationItem(
+                titled: title,
+                workspaceName: workspaceName,
+                allowsStandaloneLookup: allowsStandaloneLookup,
+                in: root,
+                before: deadline
+              ),
               hasTimeRemaining(before: deadline) else {
             return false
         }
@@ -227,6 +292,7 @@ struct ZCodeConversationJumpController: Sendable {
     private func waitUntilConversationIsActive(
         title: String,
         workspaceName: String,
+        allowsStandaloneLookup: Bool,
         application: NSRunningApplication,
         before deadline: TimeInterval
     ) -> Bool {
@@ -236,8 +302,13 @@ struct ZCodeConversationJumpController: Sendable {
         // look like a miss or, worse, a false success.
         for attempt in 0..<60 where hasTimeRemaining(before: deadline) {
             if let window = firstWindow(of: application),
-               let container = projectContainer(named: workspaceName, in: window, before: deadline),
-               let item = taskItem(titled: title, in: container, before: deadline),
+               let item = conversationItem(
+                titled: title,
+                workspaceName: workspaceName,
+                allowsStandaloneLookup: allowsStandaloneLookup,
+                in: window,
+                before: deadline
+               ),
                domClasses(of: item).contains("bg-selected"),
                hasConversationHeading(title, in: window, before: deadline) {
                 return true
@@ -294,19 +365,21 @@ struct ZCodeConversationJumpController: Sendable {
 
     private func pressShowMore(
         forProjectNamed workspaceName: String,
+        allowsStandaloneLookup: Bool,
         in root: AXUIElement,
         before deadline: TimeInterval
     ) -> Bool {
-        guard hasTimeRemaining(before: deadline),
-              let projectContainer = projectContainer(
-                named: workspaceName,
-                in: root,
-                before: deadline
-              ) else {
+        guard hasTimeRemaining(before: deadline) else {
             return false
         }
 
-        for element in descendants(of: projectContainer, before: deadline) {
+        let projectContainer = projectContainer(named: workspaceName, in: root, before: deadline)
+        guard projectContainer != nil || allowsStandaloneLookup else { return false }
+        // In the standalone Tasks list there is no project header. Avoid
+        // guessing which pagination control to press if several are visible.
+        var candidates: [AXUIElement] = []
+
+        for element in descendants(of: projectContainer ?? root, before: deadline) {
             guard displayedText(of: element) == "显示更多" || displayedText(of: element) == "Show more",
                   let pressable = nearestPressableAncestor(
                     of: element,
@@ -316,9 +389,10 @@ struct ZCodeConversationJumpController: Sendable {
                   hasTimeRemaining(before: deadline) else {
                 continue
             }
-            return AXUIElementPerformAction(pressable, kAXPressAction as CFString) == .success
+            if !candidates.contains(where: { CFEqual($0, pressable) }) { candidates.append(pressable) }
         }
-        return false
+        guard candidates.count == 1, hasTimeRemaining(before: deadline) else { return false }
+        return AXUIElementPerformAction(candidates[0], kAXPressAction as CFString) == .success
     }
 
     private func projectButton(
@@ -361,7 +435,31 @@ struct ZCodeConversationJumpController: Sendable {
         in projectContainer: AXUIElement,
         before deadline: TimeInterval
     ) -> AXUIElement? {
-        for element in descendants(of: projectContainer, before: deadline)
+        taskItems(titled: title, in: projectContainer, before: deadline).first
+    }
+
+    private func conversationItem(
+        titled title: String,
+        workspaceName: String,
+        allowsStandaloneLookup: Bool,
+        in root: AXUIElement,
+        before deadline: TimeInterval
+    ) -> AXUIElement? {
+        if let container = projectContainer(named: workspaceName, in: root, before: deadline) {
+            return taskItem(titled: title, in: container, before: deadline)
+        }
+        guard allowsStandaloneLookup else { return nil }
+        let candidates = taskItems(titled: title, in: root, before: deadline)
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    private func taskItems(
+        titled title: String,
+        in root: AXUIElement,
+        before deadline: TimeInterval
+    ) -> [AXUIElement] {
+        var items: [AXUIElement] = []
+        for element in descendants(of: root, before: deadline)
         where copyStringValue(of: element, attribute: kAXRoleAttribute as CFString) == "AXStaticText"
             && displayedText(of: element) == title {
             if let item = nearestAncestor(
@@ -373,10 +471,10 @@ struct ZCodeConversationJumpController: Sendable {
                         && hasAction(kAXPressAction as CFString, on: candidate)
                 }
             ) {
-                return item
+                if !items.contains(where: { CFEqual($0, item) }) { items.append(item) }
             }
         }
-        return nil
+        return items
     }
 
     private func hasConversationHeading(

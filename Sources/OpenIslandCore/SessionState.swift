@@ -56,7 +56,12 @@ public struct SessionState: Equatable, Sendable {
     public mutating func apply(_ event: AgentEvent) {
         switch event {
         case let .sessionStarted(payload):
-            let preservedFirstSeenAt = sessionsByID[payload.sessionID]?.firstSeenAt
+            let existing = sessionsByID[payload.sessionID]
+            let preservedFirstSeenAt = existing?.firstSeenAt
+            let jumpTarget = payload.tool == .codex
+                ? payload.jumpTarget?.preservingCodexDesktopIdentity(from: existing?.jumpTarget)
+                    ?? (existing?.jumpTarget?.terminalApp == "Codex.app" ? existing?.jumpTarget : nil)
+                : payload.jumpTarget
             var session = AgentSession(
                 id: payload.sessionID,
                 title: payload.title,
@@ -67,7 +72,7 @@ public struct SessionState: Equatable, Sendable {
                 summary: payload.summary,
                 updatedAt: payload.timestamp,
                 firstSeenAt: preservedFirstSeenAt,
-                jumpTarget: payload.jumpTarget,
+                jumpTarget: jumpTarget,
                 codexMetadata: payload.codexMetadata?.isEmpty == true ? nil : payload.codexMetadata,
                 claudeMetadata: payload.claudeMetadata?.isEmpty == true ? nil : payload.claudeMetadata,
                 geminiMetadata: payload.geminiMetadata?.isEmpty == true ? nil : payload.geminiMetadata,
@@ -161,7 +166,9 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
-            session.jumpTarget = payload.jumpTarget
+            session.jumpTarget = session.tool == .codex
+                ? payload.jumpTarget.preservingCodexDesktopIdentity(from: session.jumpTarget)
+                : payload.jumpTarget
             session.updatedAt = payload.timestamp
             Self.refreshCodexAppClassification(for: &session)
             upsert(session)
@@ -336,12 +343,13 @@ public struct SessionState: Equatable, Sendable {
         var changed = false
 
         for (sessionID, jumpTarget) in updates {
-            guard var session = sessionsByID[sessionID],
-                  session.jumpTarget != jumpTarget else {
-                continue
-            }
+            guard var session = sessionsByID[sessionID] else { continue }
+            let resolved = session.tool == .codex
+                ? jumpTarget.preservingCodexDesktopIdentity(from: session.jumpTarget)
+                : jumpTarget
+            guard session.jumpTarget != resolved else { continue }
 
-            session.jumpTarget = jumpTarget
+            session.jumpTarget = resolved
             Self.refreshCodexAppClassification(for: &session)
             upsert(session)
             changed = true

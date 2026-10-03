@@ -36,6 +36,7 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/images/readme/README.md](./images/readme/README.md) for README artwork, English and Chinese native recordings, licenses, and repeatable exports
 - [docs/notch-surface-model.md](./notch-surface-model.md) for the island surface routing model and debug harness intent
 - [docs/app-ghostty-codex-chain.md](./app-ghostty-codex-chain.md) for terminal environment findings across the current supported chain
+- [docs/codex-desktop-identity.md](./codex-desktop-identity.md) for Desktop originators, cached conversation targets, and app-server compatibility
 
 ## Refactoring Plans
 

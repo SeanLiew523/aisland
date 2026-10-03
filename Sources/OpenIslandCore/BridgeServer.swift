@@ -2292,7 +2292,7 @@ public final class BridgeServer: @unchecked Sendable {
         let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
             incoming: payload.defaultJumpTarget,
             existing: existingSession.jumpTarget
-        )
+        ).preservingCodexDesktopIdentity(from: existingSession.jumpTarget)
 
         guard existingSession.jumpTarget != jumpTarget else {
             return

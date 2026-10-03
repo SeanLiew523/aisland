@@ -489,6 +489,7 @@ struct TerminalJumpServiceTests {
     func zcodeJumpFocusesExactConversationBeforeWorkspaceFallback() throws {
         let openedArguments = OpenedArgumentsBox()
         let focusedConversationIDs = StringValuesBox()
+        let operations = StringValuesBox()
         let service = TerminalJumpService(
             applicationResolver: { bundleIdentifier in
                 bundleIdentifier == "dev.zcode.app" ? URL(fileURLWithPath: "/Applications/ZCode.app") : nil
@@ -498,10 +499,12 @@ struct TerminalJumpServiceTests {
             },
             openAction: { arguments in
                 openedArguments.values.append(arguments)
+                operations.values.append("activate")
             },
             appleScriptRunner: { _ in "" },
             zcodeConversationFocuser: { conversationID in
                 focusedConversationIDs.values.append(conversationID)
+                operations.values.append("select-conversation")
                 return .focused
             }
         )
@@ -519,7 +522,32 @@ struct TerminalJumpServiceTests {
 
         #expect(result == "Focused the ZCode conversation.")
         #expect(focusedConversationIDs.values == ["sess_9fdf2cd9-bb33-4e38-bab1-64c6c0861743"])
-        #expect(openedArguments.values.isEmpty)
+        #expect(openedArguments.values == [["-b", "dev.zcode.app"]])
+        #expect(operations.values == ["activate", "select-conversation"])
+    }
+
+    @Test
+    func zcodeActivationFailureDoesNotSelectAnInvisibleConversation() throws {
+        let focusedConversationIDs = StringValuesBox()
+        let service = TerminalJumpService(
+            applicationResolver: { _ in URL(fileURLWithPath: "/Applications/ZCode.app") },
+            appRunningChecker: { _ in true },
+            openAction: { _ in throw NSError(domain: "ZCodeActivation", code: 1) },
+            zcodeConversationFocuser: { conversationID in
+                focusedConversationIDs.values.append(conversationID)
+                return .focused
+            }
+        )
+
+        #expect(throws: NSError.self) {
+            try service.jump(to: JumpTarget(
+                terminalApp: "ZCode.app",
+                workspaceName: "default",
+                paneTitle: "Standalone task",
+                appConversationID: "sess_exact"
+            ))
+        }
+        #expect(focusedConversationIDs.values.isEmpty)
     }
 
     @Test

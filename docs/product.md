@@ -41,6 +41,8 @@ CLI coding agents are powerful, but they pull attention away from the editor and
 | **Grok Build** | Supported | Managed hook file, lifecycle tracking, and terminal jump-back |
 | **Pi** | Supported | Runtime extension at `~/.pi/agent/extensions/open-island.ts`; lifecycle/tool events, session persistence, process detection, and terminal jump metadata |
 | **Oh My Pi (OMP)** | Supported | Runtime extension at `~/.omp/agent/extensions/open-island.ts`; equivalent coverage through OMP lifecycle aliases |
+| **Hermes CLI** | v0.1.1 implementation; native acceptance pending | Explicit turn results, profile-scoped shell hooks and terminal metadata. Real consent, pane selection and notifications still require acceptance |
+| **DeepSeek Harness Desktop** | v0.1.1 implementation; native acceptance pending | Official metadata plugin and exact-ID navigation dispatch. Real plugin loading, visible selection and frontmost activation still require acceptance |
 
 ## Supported Terminals
 
@@ -60,7 +62,7 @@ CLI coding agents are powerful, but they pull attention away from the editor and
 - **Notch overlay** — sits in the notch area on notch Macs, falls back to a compact top-center bar on external displays or non-notch Macs
 - **Settings** — hook install/uninstall, usage dashboard, General, Display, Sound, Shortcuts, Lab, About
 - **Notification mode** — auto-height panel for permission requests and session events
-- **Notification sounds** — configurable system sounds with mute toggle
+- **Notification sounds** — system sounds and managed MP3 choices per completion, approval and answer, with mute and playback length controls; v0.1.1 native effect acceptance pending
 - **i18n** — English and Simplified Chinese
 - **Session discovery** — auto-discover from local transcripts, persist across launches
 - **Process discovery** — match active agents via `ps`/`lsof`
@@ -79,3 +81,5 @@ CLI coding agents are powerful, but they pull attention away from the editor and
 - Stable public signing, notarization, and AIsland-owned updates
 - Sound packs, themes, and onboarding polish
 - Deeper terminal split targeting
+
+The v0.1.1 plan also includes MiniMax Code Desktop, Doubao Work Desktop and Qwen Work Desktop. Their required event/navigation contracts remain under investigation; they are not declared supported. mcode CLI is a comparison route, not an automatically added runtime. See [v0.1.1 requirements](exec-plans/active/aisland-v0.1.1-requirements.md).

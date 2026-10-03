@@ -15,6 +15,17 @@ enum IslandSurface: Equatable {
         sessionID != nil
     }
 
+    func notificationSoundCategory(for session: AgentSession?) -> NotificationSoundCategory? {
+        guard let session, session.id == sessionID, matchesCurrentState(of: session) else { return nil }
+        switch session.phase {
+        case .waitingForApproval: return .approval
+        case .waitingForAnswer: return .answer
+        case .completed:
+            return session.runtimeOutcome == nil || session.runtimeOutcome == .succeeded ? .completed : nil
+        case .running: return nil
+        }
+    }
+
     func autoDismissesWhenPresentedAsNotification(session: AgentSession?) -> Bool {
         guard sessionID != nil else { return false }
         return session?.phase == .completed

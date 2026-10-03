@@ -359,6 +359,7 @@ final class AppModel {
             }
 
             UserDefaults.standard.set(isSoundMuted, forKey: Self.soundMutedDefaultsKey)
+            NotificationSoundService.setMuted(isSoundMuted)
             lastActionMessage = isSoundMuted
                 ? "Island sound notifications muted."
                 : "Island sound notifications enabled."

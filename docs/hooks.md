@@ -32,6 +32,18 @@ This is meant for per-process launches. Do not set it globally unless you want A
 
 ---
 
+## v0.1.1 Runtime Lifecycle Sources (acceptance pending)
+
+Hermes CLI uses `OpenIslandHooks --source hermes --profile-id <profile-directory>`. Its managed shell hooks are `pre_llm_call` and `on_session_end`; the latter carries explicit completed/failed/interrupted flags and a turn identity. `post_llm_call` is not a completion signal. Hermes manages its own command consent, which AIsland never auto-approves. The installer only owns its exact entries and manifest; unrelated config and consent remain intact.
+
+DeepSeek Harness Desktop uses the [official-profile source plugin](../Integrations/DeepSeek/README.md), with a server event projection and a client navigation bridge. Only future `turn/start` and explicit `turn/end` reasons are projected. `idle`, process silence and navigation dispatch are not completion evidence. Public `openSession(ID)` returns void, so dispatch is separately accepted from visible selection and frontmost activation.
+
+Both use `processRuntimeLifecycleHook` with `runtimeLifecycleHook` over the existing NDJSON bridge. Source/profile/session namespace, turn identity, sequence and timestamp prevent cross-task completion, stale events and replay. Only a matching start observed in the current native run and not explicitly unobserved by the source may notify successful completion. Unsuccessful endings and restored endings update state silently; companion success notifications obey the same distinction. `source_observed_start:false` repairs a plugin-reload ending without creating a fresh alert.
+
+Payloads carry only identity, status and navigation metadata; no prompt, tool input, history, error body or credential is projected. Exact contract and restoration behavior are in the [Hermes/native implementation record](exec-plans/active/v0.1.1-hermes-implementation.md). Source-specific reason enums are pinned there and in the plugin. Real native consent, source loading, state, sound and navigation remain pending acceptance.
+
+---
+
 ## Codex Hooks (`--source codex`)
 
 **Payload type**: `CodexHookPayload`

@@ -386,7 +386,10 @@ final class OverlayUICoordinator {
         }
 
         appModel?.measuredNotificationContentHeight = 0
-        NotificationSoundService.playNotification(isMuted: isSoundMuted)
+        let notificationSession = surface.sessionID.flatMap { appModel?.state.session(id: $0) }
+        if let category = surface.notificationSoundCategory(for: notificationSession) {
+            NotificationSoundService.playNotification(category: category, isMuted: isSoundMuted)
+        }
         notchOpen(reason: .notification, surface: surface)
     }
 

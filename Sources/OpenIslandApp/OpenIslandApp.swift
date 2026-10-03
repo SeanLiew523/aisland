@@ -80,6 +80,10 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        NotificationSoundService.stop()
+    }
+
     private static func hideAllAppWindows() {
         for window in NSApp.windows {
             window.orderOut(nil)

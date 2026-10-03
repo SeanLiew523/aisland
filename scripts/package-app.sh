@@ -23,6 +23,28 @@ if [[ "${OPEN_ISLAND_HARDENED_SIGNING:-true}" != "true" ]]; then
     signing_runtime_args=()
 fi
 
+# A requested notarized release must never fall back to a local/ad-hoc build.
+# Check credentials before compiling or replacing existing packaging output.
+if [[ -n "$notary_profile" ]]; then
+    if [[ "$signing_identity" != "Developer ID Application: "* ]]; then
+        echo "Notarization requires a Developer ID Application signing identity." >&2
+        exit 1
+    fi
+    if [[ "${OPEN_ISLAND_HARDENED_SIGNING:-true}" != "true" ]]; then
+        echo "Notarization requires hardened runtime and secure timestamps." >&2
+        exit 1
+    fi
+    if [[ -n "${OPEN_ISLAND_TEAM_ID:-}" && "$signing_identity" != *"(${OPEN_ISLAND_TEAM_ID})" ]]; then
+        echo "The signing identity does not belong to OPEN_ISLAND_TEAM_ID." >&2
+        exit 1
+    fi
+    if ! security find-identity -v -p codesigning | /usr/bin/grep -Fq -- "\"$signing_identity\""; then
+        echo "The requested Developer ID identity and private key are not available in Keychain." >&2
+        exit 1
+    fi
+    xcrun notarytool history --keychain-profile "$notary_profile" --output-format json >/dev/null
+fi
+
 brand_script="$repo_root/scripts/generate_brand_icons.py"
 dmg_bg_script="$repo_root/scripts/generate_dmg_background.py"
 entitlements_path="$repo_root/config/packaging/OpenIslandApp.entitlements"
@@ -269,8 +291,7 @@ ditto -c -k --keepParent "$bundle_dir" "$zip_path"
 
 # --- Notarize app bundle (before DMG so the stapled bundle goes into the DMG) ---
 if [[ -n "$signing_identity" && -n "$notary_profile" ]]; then
-    xcrun notarytool submit "$zip_path" --keychain-profile "$notary_profile" --wait
-    xcrun stapler staple -v "$bundle_dir"
+    python3 "$repo_root/scripts/notarize-artifact.py" "$zip_path" "$bundle_dir" "$notary_profile"
     rm -f "$zip_path"
     ditto -c -k --keepParent "$bundle_dir" "$zip_path"
 fi
@@ -308,8 +329,7 @@ fi
 
 # Notarize and staple the DMG
 if [[ -n "$signing_identity" && -n "$notary_profile" ]]; then
-    xcrun notarytool submit "$dmg_path" --keychain-profile "$notary_profile" --wait
-    xcrun stapler staple -v "$dmg_path"
+    python3 "$repo_root/scripts/notarize-artifact.py" "$dmg_path" "$dmg_path" "$notary_profile"
 fi
 
 echo "Bundle: $bundle_dir"

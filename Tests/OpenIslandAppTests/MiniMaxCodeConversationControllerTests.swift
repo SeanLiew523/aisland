@@ -6,6 +6,23 @@ import Testing
 @testable import OpenIslandCore
 
 struct MiniMaxCodeConversationControllerTests {
+    @Test func accessibilityUnavailableStopsBeforeSourceOrUIActions() throws {
+        let fixture = try ControllerFixture(); defer { fixture.dispose() }
+        fixture.accessibilityAvailable = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
+        #expect(fixture.sourceCount == 0)
+        #expect(fixture.selectCount == 0 && fixture.activationCount == 0 && fixture.copyCount == 0)
+    }
+
+    @Test func accessibilityRevokedDuringSelectionStopsBeforeCopy() throws {
+        let fixture = try ControllerFixture(); defer { fixture.dispose() }
+        fixture.onSelect = { fixture.accessibilityAvailable = false }
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
+        #expect(fixture.copyCount == 0)
+        fixture.accessibilityAvailable = true; fixture.selected = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
+    }
+
     @Test func exactSessionIdentityAndForegroundAreBothRequired() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         #expect(fixture.controller.focus(target: fixture.target) == .focused)
@@ -101,18 +118,22 @@ private final class ControllerFixture: @unchecked Sendable {
     var copiedID: String? = "observed"
     var selected = true
     var frontmost = true
+    var accessibilityAvailable = true
     var sourceVersion = "3.1.0"
     var processID: pid_t = 10
     var time: TimeInterval = 0
     var selectCount = 0
+    var sourceCount = 0
+    var activationCount = 0
     var copyCount = 0
     var onSelect: (@Sendable () -> Void)?
     var onCopy: (@Sendable () -> Void)?
     var path: String { directory.appendingPathComponent("v2/sqlite/runtime-state.sqlite").path }
     var target: JumpTarget { .init(terminalApp: "MiniMax Code.app", workspaceName: "Synthetic workspace", paneTitle: "Synthetic task", appConversationID: "observed", runtimeMetadataDatabasePath: path, runtimeSourceVersion: "3.1.0") }
     var ui: MiniMaxCodeConversationUI {
-        .init(source: { .init(bundleIdentifier: "com.minimax.agent", version: self.sourceVersion, processID: self.processID) },
-              select: { _, _, _ in self.selectCount += 1; self.onSelect?(); return self.selected },
+        .init(isAccessibilityAvailable: { self.accessibilityAvailable },
+              source: { self.sourceCount += 1; return .init(bundleIdentifier: "com.minimax.agent", version: self.sourceVersion, processID: self.processID) },
+              select: { _, _, _ in self.selectCount += 1; self.activationCount += 1; self.onSelect?(); return self.selected },
               copyActiveSessionID: { _, _, _ in self.copyCount += 1; self.onCopy?(); return self.copiedID },
               isFrontmost: { _ in self.frontmost })
     }

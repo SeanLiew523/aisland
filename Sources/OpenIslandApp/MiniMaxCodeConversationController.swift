@@ -14,6 +14,8 @@ struct MiniMaxCodeConversationUI: Sendable {
         var version: String
         var processID: pid_t
     }
+    // Test UIs remain available by default; the production adapter checks TCC.
+    var isAccessibilityAvailable: @Sendable () -> Bool = { true }
     var source: @Sendable () -> Source?
     var select: @Sendable (MiniMaxCodeConversationMetadata, Source, TimeInterval) -> Bool
     var copyActiveSessionID: @Sendable (MiniMaxCodeConversationMetadata, Source, TimeInterval) -> String?
@@ -37,6 +39,7 @@ struct MiniMaxCodeConversationController: Sendable {
         guard target.terminalApp == "MiniMax Code.app", let id = target.appConversationID,
               let path = target.runtimeMetadataDatabasePath,
               target.runtimeSourceVersion == "3.1.0" else { return .unavailable("runtime-metadata-unavailable") }
+        guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
         guard let source = ui.source(), source.bundleIdentifier == "com.minimax.agent", source.version == "3.1.0" else {
             return .unavailable("source-version-or-process-unavailable")
         }
@@ -50,8 +53,12 @@ struct MiniMaxCodeConversationController: Sendable {
         } catch MiniMaxCodeNavigationMetadata.ReadError.ambiguousTitle { return .unavailable("ambiguous-session-title") }
         catch { return .unavailable("session-metadata-unavailable") }
         guard clock() < deadline else { return .unavailable("focus-timeout") }
-        guard ui.select(record, source, deadline) else { return .unavailable("sidebar-conversation-unavailable") }
+        guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
+        guard ui.select(record, source, deadline) else {
+            return .unavailable(ui.isAccessibilityAvailable() ? "sidebar-conversation-unavailable" : "accessibility-unavailable")
+        }
         guard clock() < deadline else { return .unavailable("focus-timeout") }
+        guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
         guard ui.copyActiveSessionID(record, source, deadline) == record.sessionID else {
             return .unavailable("active-session-id-unverified")
         }
@@ -69,7 +76,7 @@ struct MiniMaxCodeConversationController: Sendable {
 }
 
 private enum MiniMaxCodeAXNavigation {
-    static let ui = MiniMaxCodeConversationUI(source: source, select: select,
+    static let ui = MiniMaxCodeConversationUI(isAccessibilityAvailable: { AXIsProcessTrusted() }, source: source, select: select,
                                              copyActiveSessionID: copyID, isFrontmost: frontmost)
     static func source() -> MiniMaxCodeConversationUI.Source? {
         let applications = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")

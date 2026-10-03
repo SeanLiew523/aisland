@@ -158,7 +158,7 @@ struct SettingsView: View {
 
             if model.updateChecker.hasUpdate, let version = model.updateChecker.latestVersion {
                 UpdateBanner(version: version, lang: lang) {
-                    model.updateChecker.checkForUpdates()
+                    model.updateChecker.downloadAndInstall()
                 }
                 .padding(.top, 8)
                 .padding(.trailing, 16)
@@ -473,6 +473,8 @@ struct AboutSettingsPane: View {
                     .disabled(!model.updateChecker.canCheckForUpdates)
                     .opacity(model.updateChecker.canCheckForUpdates ? 1 : 0.55)
                     .accessibilityIdentifier("settings.about.checkForUpdates")
+
+                    UpdateSettingsStatus(checker: model.updateChecker, lang: lang)
                 }
 
                 Section {
@@ -1454,5 +1456,64 @@ struct UpdateBanner: View {
         }
         .buttonStyle(.plain)
         .shadow(color: .blue.opacity(0.3), radius: 4, y: 2)
+    }
+}
+
+
+/// Progress remains visible in Settings while Sparkle validates and installs.
+struct UpdateSettingsStatus: View {
+    var checker: UpdateChecker
+    var lang: LanguageManager
+
+    private var statusKey: String? {
+        switch checker.phase {
+        case .idle: nil
+        case .checking: "settings.update.checking"
+        case .available: "settings.update.ready"
+        case .downloading: "settings.update.downloading"
+        case .extracting: "settings.update.extracting"
+        case .installing: "settings.update.installing"
+        case .installed: "settings.update.installed"
+        case .upToDate: "settings.update.upToDate"
+        case .blocked, .failed: checker.messageKey
+        }
+    }
+    var body: some View {
+        if let statusKey {
+            VStack(alignment: .leading, spacing: 10) {
+                if let version = checker.latestVersion, checker.phase != .upToDate {
+                    Text(lang.t("settings.update.latestVersion", version)).font(.headline)
+                }
+                Text(lang.t(statusKey)).font(.callout).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.update.status")
+                if checker.phase == .checking || checker.phase == .installing {
+                    ProgressView().controlSize(.small)
+                } else if checker.phase == .downloading {
+                    if let progress = checker.downloadProgress {
+                        ProgressView(value: progress).accessibilityIdentifier("settings.update.progress")
+                    } else { ProgressView().controlSize(.small) }
+                    Text(checker.expectedBytes > 0
+                         ? "\(ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.downloadedBytes), countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.expectedBytes), countStyle: .file))"
+                         : ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.downloadedBytes), countStyle: .file))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                } else if checker.phase == .extracting {
+                    ProgressView(value: checker.extractionProgress)
+                }
+                if let detail = checker.errorDetail { Text(detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                HStack {
+                    if checker.hasUpdate {
+                        Button(lang.t("settings.update.downloadInstall")) { checker.downloadAndInstall() }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("settings.update.downloadInstall")
+                    }
+                    if checker.canCancel { Button(lang.t("settings.update.cancel")) { checker.cancel() } }
+                    if checker.canRetryTermination { Button(lang.t("settings.update.retryRelaunch")) { checker.retryRelaunch() } }
+                    if let notes = checker.releaseNotesURL {
+                        Link(lang.t("settings.update.releaseNotes"), destination: notes)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
     }
 }

@@ -18,8 +18,13 @@ assert plist["CFBundleIdentifier"] == "dev.aisland.app"
 assert plist["CFBundleExecutable"] == "OpenIslandApp"
 assert plist["LSMinimumSystemVersion"] == "14.0"
 assert plist["OpenIslandLiveBloubStyle"] is True
-assert plist["OpenIslandDisableUpdates"] is True
-assert "SUFeedURL" not in plist and "SUPublicEDKey" not in plist
+updates_enabled = plist.get("OpenIslandDisableUpdates") is False
+if updates_enabled:
+    subprocess.run(["python3", str(Path(__file__).with_name("verify-update-configuration.py")),
+                    "--app", str(app)], check=True)
+else:
+    assert plist["OpenIslandDisableUpdates"] is True
+    assert "SUFeedURL" not in plist and "SUPublicEDKey" not in plist
 assert "OpenIslandBloubTrial" not in plist
 assert len(plist["AIslandSourceCommit"]) == 40
 for binary in ["MacOS/OpenIslandApp", "Helpers/OpenIslandHooks", "Helpers/OpenIslandSetup"]:
@@ -55,6 +60,6 @@ hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [dmg, arch
     "name": "AIsland", "version": plist["CFBundleShortVersionString"],
     "bundle_identifier": plist["CFBundleIdentifier"], "source_commit": plist["AIslandSourceCommit"],
     "architectures": ["arm64", "x86_64"], "minimum_macos": "14.0",
-    "live_bloub_style": True, "updates_enabled": False, "notarized": False, "sha256": hashes,
+    "live_bloub_style": True, "updates_enabled": updates_enabled, "notarized": False, "sha256": hashes,
 }, indent=2) + "\n")
 print("Verified AIsland identity, universal binaries, C1 resources, signatures, ZIP and mounted DMG.")

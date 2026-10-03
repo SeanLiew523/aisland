@@ -228,3 +228,27 @@
 "window.settings" = "AIsland Settings";
 
 "settings.general.replayWelcome" = "Replay welcome";
+
+// GitHub stable releases and signed Sparkle updates
+"settings.update.latestVersion" = "Latest version: %@";
+"settings.update.checking" = "Checking the latest stable release on GitHub…";
+"settings.update.ready" = "Download the update to install it and restart AIsland automatically.";
+"settings.update.downloadInstall" = "Download, Install & Restart";
+"settings.update.downloading" = "Downloading update…";
+"settings.update.extracting" = "Verifying and preparing the update…";
+"settings.update.installing" = "Installing update and restarting AIsland…";
+"settings.update.installed" = "Update installed.";
+"settings.update.upToDate" = "You have the latest stable release.";
+"settings.update.cancel" = "Cancel";
+"settings.update.retryRelaunch" = "Retry Restart";
+"settings.update.releaseNotes" = "Release Notes";
+"settings.update.noRelease" = "No stable release is available on GitHub yet.";
+"settings.update.rateLimited" = "GitHub request limit reached. Try again later.";
+"settings.update.invalidRelease" = "GitHub returned an invalid stable release.";
+"settings.update.networkFailed" = "Could not check GitHub. Check your connection and try again.";
+"settings.update.invalidCurrentVersion" = "This build has no valid release version; automatic installation is unavailable.";
+"settings.update.signingNotConfigured" = "A newer release exists, but this build is not configured to trust AIsland update signatures.";
+"settings.update.missingFeed" = "This release has no signed update feed. Automatic installation is unavailable.";
+"settings.update.invalidFeed" = "The signed feed does not match this GitHub release. The update was stopped.";
+"settings.update.unavailableForSystem" = "The release has no compatible newer update for this build or macOS version.";
+"settings.update.installFailed" = "Update failed. AIsland could not validate, download or install this update. Try again.";

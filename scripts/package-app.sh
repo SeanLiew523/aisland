@@ -23,6 +23,12 @@ if [[ "${OPEN_ISLAND_HARDENED_SIGNING:-true}" != "true" ]]; then
     signing_runtime_args=()
 fi
 
+# Enabled updates require an explicitly supplied AIsland public trust anchor.
+# No signing key is generated or read by packaging.
+if [[ "${OPEN_ISLAND_DISABLE_UPDATES:-true}" != "true" ]]; then
+    python3 "$repo_root/scripts/verify-update-configuration.py" --environment
+fi
+
 brand_script="$repo_root/scripts/generate_brand_icons.py"
 dmg_bg_script="$repo_root/scripts/generate_dmg_background.py"
 entitlements_path="$repo_root/config/packaging/OpenIslandApp.entitlements"
@@ -152,7 +158,7 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
     <key>SUFeedURL</key>
     <string>https://raw.githubusercontent.com/SeanLiew523/aisland/main/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>${OPEN_ISLAND_EDDSA_PUBLIC_KEY:-3IF8txq9RRNanzE2FNhyGRcwhslTucCcJHpTkpxcgBQ=}</string>
+    <string>${OPEN_ISLAND_EDDSA_PUBLIC_KEY:-}</string>
 </dict>
 </plist>
 EOF
@@ -161,6 +167,13 @@ if [[ "${OPEN_ISLAND_DISABLE_UPDATES:-true}" == "true" ]]; then
     /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$bundle_dir/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$bundle_dir/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Add :OpenIslandDisableUpdates bool true" "$bundle_dir/Contents/Info.plist"
+else
+    /usr/libexec/PlistBuddy -c "Add :OpenIslandDisableUpdates bool false" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :AIslandUpdateSigningIdentity string aisland-ed25519-v1" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SURequireSignedFeed bool true" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUVerifyUpdateBeforeExtraction bool true" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool false" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUAutomaticallyUpdate bool false" "$bundle_dir/Contents/Info.plist"
 fi
 
 plutil -lint "$bundle_dir/Contents/Info.plist" >/dev/null

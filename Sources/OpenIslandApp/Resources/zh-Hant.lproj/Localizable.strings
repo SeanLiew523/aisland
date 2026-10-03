@@ -227,3 +227,27 @@
 "window.settings" = "AIsland 設定";
 
 "settings.general.replayWelcome" = "重播歡迎引導";
+
+// GitHub stable releases and signed Sparkle updates
+"settings.update.latestVersion" = "最新版本：%@";
+"settings.update.checking" = "正在查詢 GitHub 最新穩定版本…";
+"settings.update.ready" = "下載完成並驗證後，將自動安裝並重新啟動 AIsland。";
+"settings.update.downloadInstall" = "下載、安裝並重新啟動";
+"settings.update.downloading" = "正在下載更新…";
+"settings.update.extracting" = "正在驗證並準備安裝…";
+"settings.update.installing" = "正在安裝更新並重新啟動 AIsland…";
+"settings.update.installed" = "更新已安裝。";
+"settings.update.upToDate" = "目前已是最新穩定版本。";
+"settings.update.cancel" = "取消";
+"settings.update.retryRelaunch" = "重試重新啟動";
+"settings.update.releaseNotes" = "版本說明";
+"settings.update.noRelease" = "GitHub 尚未發佈穩定版本。";
+"settings.update.rateLimited" = "GitHub 請求達到限制，請稍後重試。";
+"settings.update.invalidRelease" = "GitHub 返回的穩定版本資訊無效。";
+"settings.update.networkFailed" = "無法查詢 GitHub，請檢查網路後重試。";
+"settings.update.invalidCurrentVersion" = "目前構建缺少有效版本號，無法自動安裝更新。";
+"settings.update.signingNotConfigured" = "發現新版，但目前構建尚未配置 AIsland 更新簽章，無法自動安裝。";
+"settings.update.missingFeed" = "該版本尚未提供簽章更新清單，無法自動安裝。";
+"settings.update.invalidFeed" = "簽章更新清單與 GitHub 版本資產不一致，已停止更新。";
+"settings.update.unavailableForSystem" = "該版本沒有適用於目前構建或 macOS 的新版更新。";
+"settings.update.installFailed" = "更新失敗，無法驗證、下載或安裝該更新，請重試。";

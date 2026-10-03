@@ -261,8 +261,10 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.pasteboardCapture, flag: captured != nil)
         guard let snapshot = captured, remaining(deadline),
               pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
-        let activated = activateCopyLabel(copyID, source: source, deadline: deadline)
+        let activated = activateCopyLabel(copyID, source: source, deadline: deadline,
+                                          isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
         acceptanceLog(.copyIDPress, flag: activated)
+        guard activated else { return nil }
         // Observe and restore an explicit copy even if delivery exhausts the
         // deadline. The result, rather than an input return code, proves copy.
         repeat {
@@ -335,12 +337,7 @@ private enum MiniMaxCodeAXNavigation {
     /// AXPress on the outer ARIA menuitem only closes the menu. Click the exact
     /// admitted label with a fresh source-process hit test, never a guessed point.
     static func activateCopyLabel(_ item: AXUIElement, source: MiniMaxCodeConversationUI.Source,
-                                  deadline: TimeInterval) -> Bool {
-        if acceptanceDiagnosticsEnabled {
-            NSLog("aisland_minimax_navigation stage=copy-label-guard role=%@ frontmost=%d trusted=%d can_post=%d remaining=%d",
-                  DiagnosticRole(role(item)).rawValue, frontmost(source) ? 1 : 0,
-                  AXIsProcessTrusted() ? 1 : 0, CGPreflightPostEventAccess() ? 1 : 0, remaining(deadline) ? 1 : 0)
-        }
+                                  deadline: TimeInterval, isPasteboardUnchanged: () -> Bool) -> Bool {
         guard remaining(deadline), frontmost(source), AXIsProcessTrusted(), CGPreflightPostEventAccess(),
               role(item) == "AXMenuItem" else { return false }
         let members = nodes(item, deadline, maximum: 17, depth: 4)
@@ -348,32 +345,41 @@ private enum MiniMaxCodeAXNavigation {
         let labels = members.filter { role($0) == "AXStaticText" && ["复制会话 ID", "Copy session ID"].contains(text($0) ?? "") }
         acceptanceLog(.copyLabel, count: labels.count, nodes: members.count, flag: remaining(deadline))
         guard labels.count == 1, let label = labels.first else { return false }
-        let pointValue = value(label, kAXPositionAttribute)
-        let sizeValue = value(label, kAXSizeAttribute)
-        acceptanceLog(.copyLabel, count: 2, flag: pointValue != nil && sizeValue != nil)
-        guard let pointValue, CFGetTypeID(pointValue) == AXValueGetTypeID(),
-              let sizeValue, CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
-        var origin = CGPoint.zero; var size = CGSize.zero
-        guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
-              AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
-              origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite,
-              size.width > 0, size.height > 0 else { return false }
-        let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         let application = AXUIElementCreateApplication(source.processID)
-        var hit: AXUIElement?
-        let hitResult = AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit)
-        let matches = hit.map { candidate in members.contains { CFEqual($0, candidate) } } ?? false
-        acceptanceLog(.copyLabel, count: 3, error: Int(hitResult.rawValue), flag: matches)
-        guard hitResult == .success, let hit, matches, remaining(deadline), frontmost(source) else { return false }
-        var owner: pid_t = 0
-        guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
-              let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
-              let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { return false }
-        down.flags = []; up.flags = []
-        down.setIntegerValueField(.mouseEventClickState, value: 1)
-        up.setIntegerValueField(.mouseEventClickState, value: 1)
-        down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
-        return true
+        // Opening the renderer submenu animates its geometry. Fresh bounds and
+        // hit identity must agree before clicking; wait within the same budget.
+        while remaining(deadline), frontmost(source), isPasteboardUnchanged() {
+            guard let pointValue = value(label, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
+                  let sizeValue = value(label, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
+            var origin = CGPoint.zero; var size = CGSize.zero
+            guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
+                  AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
+                  origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite,
+                  size.width > 0, size.height > 0 else { return false }
+            let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+            var hit: AXUIElement?
+            let hitResult = AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit)
+            let matches = hit.map { candidate in members.contains { CFEqual($0, candidate) } } ?? false
+            acceptanceLog(.copyLabel, count: 3, error: Int(hitResult.rawValue), flag: matches)
+            guard hitResult == .success else { return false }
+            if let hit, matches {
+                var owner: pid_t = 0
+                guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
+                      remaining(deadline), frontmost(source), isPasteboardUnchanged(),
+                      let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+                      let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { return false }
+                down.flags = []; up.flags = []
+                down.setIntegerValueField(.mouseEventClickState, value: 1)
+                up.setIntegerValueField(.mouseEventClickState, value: 1)
+                down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
+                return true
+            }
+            if acceptanceDiagnosticsEnabled {
+                NSLog("aisland_minimax_navigation stage=copy-label-hit role=%@", DiagnosticRole(hit.flatMap { role($0) }).rawValue)
+            }
+            pause(deadline)
+        }
+        return false
     }
 
     /// Live 3.1.0 flattens title/menu/controls into adjacent direct children.

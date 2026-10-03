@@ -97,6 +97,7 @@ private enum MiniMaxCodeAXNavigation {
         case copyKeyDelivery = "copy-key-delivery"
         case copyFocus = "copy-focus"
         case copyIDItem = "copy-id-item"
+        case copyIDPress = "copy-id-press"
         case pasteboardCapture = "pasteboard-capture"
         case pasteboardIdentity = "pasteboard-identity"
         case pasteboardRestore = "pasteboard-restore"
@@ -258,8 +259,13 @@ private enum MiniMaxCodeAXNavigation {
         let captured = MiniMaxCodePasteboardSnapshot.capture(pasteboard)
         acceptanceLog(.pasteboardCapture, flag: captured != nil)
         guard let snapshot = captured, remaining(deadline),
-              pasteboard.changeCount == snapshot.originalChangeCount, press(copyID, deadline) else { return nil }
-        while remaining(deadline) {
+              pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
+        let copyResult = AXUIElementPerformAction(copyID, kAXPressAction as CFString)
+        acceptanceLog(.copyIDPress, error: Int(copyResult.rawValue), flag: copyResult == .success)
+        // A native menu can close during AXPress and invalidate its AX reply.
+        // Observe the explicit copy's result even after a non-success return,
+        // and restore it if it changed before the deadline check.
+        repeat {
             let producedCount = pasteboard.changeCount
             if producedCount != snapshot.originalChangeCount {
                 defer {
@@ -268,7 +274,7 @@ private enum MiniMaxCodeAXNavigation {
                 }
                 // Read only the bounded plain text produced by the explicit
                 // public Copy session ID action; never log/persist clipboard.
-                guard let data = pasteboard.data(forType: .string), data.count <= 512,
+                guard remaining(deadline), let data = pasteboard.data(forType: .string), data.count <= 512,
                       pasteboard.changeCount == producedCount,
                       let value = String(data: data, encoding: .utf8), value == record.sessionID else {
                     acceptanceLog(.pasteboardIdentity); return nil
@@ -276,8 +282,9 @@ private enum MiniMaxCodeAXNavigation {
                 acceptanceLog(.pasteboardIdentity, flag: true)
                 return value
             }
+            guard remaining(deadline) else { break }
             pause(deadline)
-        }
+        } while remaining(deadline)
         return nil
     }
     /// Native NSMenu AXPress focuses the Copy item without opening its submenu.

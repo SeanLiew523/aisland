@@ -2,6 +2,12 @@
 
 状态：`IN_PROGRESS`。用户认可第六版 `32c94f2fb0282242d17ef4db63f6c169a874e25f` 并定版，标签 `review/v0.1.1-intro-r6` 固定该原型；第五版 `86f2865` 回退点保留。v0.1.0 公证仍由原窗口负责。
 
+## 完整验收包首次启动诊断
+
+`d6c5937` 的独立 `runtime-live` 构建 6 包已构建并通过深度严格签名校验，但两次 CUA 原生启动均退出，尚无引导展示回执。这不是首启验收通过。2026-10-04 01:18:58 的实际进程 `90562` 日志明确记录 Foundation 拒绝用自己的 bundle identifier 再创建 UserDefaults suite，随后 `exit(1), ran for 82ms`。对外部 Bundle(path:) 的配置探针原先通过，遗漏了真实主 bundle 的 Foundation 语义。
+
+修复后，已经通过严格配置校验且与主 bundle ID 相同的验收配置使用 `.standard`，它实际属于独立验收 bundle 的偏好域；外部探针仍使用显式 case suite。生产 bundle 不进入该验收分支。启动失败现在输出错误类型到系统日志，便于区分配置拒绝与 UI 失败。原生首启、语言、重启及真实声音仍以重新构建后的实际结果验收。
+
 ## 当前授权与顺序
 
 1. 核对并验证 Hermes CLI、DeepSeek Harness 桌面端及 MiniMaxCode 桌面端的真实加载、任务状态、完成提醒、确切会话和前台。

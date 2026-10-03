@@ -69,6 +69,11 @@ struct RuntimeAcceptanceConfiguration: Sendable {
     }
 
     func isolatedPreferences() throws -> UserDefaults {
+        // Foundation rejects suiteName == the running app's own identifier.
+        // In that validated acceptance bundle, .standard already belongs to
+        // its distinct case domain, never to dev.aisland.app. External probes
+        // and isolated tests still need an explicit suite for this case.
+        if Bundle.main.bundleIdentifier == bundleIdentifier { return .standard }
         guard let defaults = UserDefaults(suiteName: bundleIdentifier) else {
             throw ConfigurationError.preferencesUnavailable
         }

@@ -25,6 +25,7 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
             // No AppModel or production store/bridge is created on invalid
             // opted-in metadata. A distinct acceptance app fails closed.
             fputs("AIsland runtime acceptance configuration is invalid; startup stopped.\n", stderr)
+            NSLog("AIsland runtime acceptance startup stopped: %@", String(reflecting: error))
             exit(EXIT_FAILURE)
         }
         super.init()

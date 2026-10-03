@@ -82,7 +82,7 @@ enum SettingsSection: String, CaseIterable {
     }
 
     var tabs: [SettingsTab] {
-        SettingsTab.allCases.filter { $0.section == self }
+        SettingsTab.allCases.filter { $0.section == self && $0 != .watch }
     }
 }
 

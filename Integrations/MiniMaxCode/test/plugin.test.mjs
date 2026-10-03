@@ -45,10 +45,12 @@ test('Input and disconnected bridge are bounded and fail open', async () => {
   const started = Date.now(); assert.equal(await sendOnce(projectHook(input, config), config), false);
   assert.ok(Date.now() - started < 1000);
 });
-test('Dry-run plan renders a source-native plugin without changing the destination', async () => {
+test('Dry-run plan renders a source-native plugin without changing the destination', { skip: process.platform !== 'darwin' || !existsSync('/Applications/MiniMax Code.app') }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aisland-minimax-plan-'));
   try {
-    const args = { dataDir: join(dir, 'source'), bridgeSocketPath: join(dir, 'bridge.sock'), nodePath: process.execPath };
+    await mkdir(join(dir, 'source'));
+    const args = { dataDir: join(dir, 'source'), dataDirConfirmed: true, supportDir: join(dir, 'support'), bridgeSocketPath: join(dir, 'bridge.sock'), nodePath: process.execPath,
+      desktopAppPath: '/Applications/MiniMax Code.app', cliPrefix: '/Users/seanliew/.minimax-code' };
     const plan = await buildPlan(args);
     assert.equal(plan.mode, 'dry-run-only'); assert.equal(existsSync(plan.destination), false);
     assert.ok(plan.hooks.hooks.Stop[0].hooks[0].command.includes(process.execPath));

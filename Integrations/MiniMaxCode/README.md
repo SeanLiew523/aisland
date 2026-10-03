@@ -110,22 +110,53 @@ production renderer uses private MessagePort. This package uses neither route.
 
 ## Install/remove review plan
 
-`node plan.mjs '<JSON inputs>'` prints a plan only. Inputs:
-`source`, `profileID`, absolute `dataDir`, absolute `bridgeSocketPath`, and absolute
-`nodePath`. The existing dry-run plan describes the package/config skeleton;
-the installer must add `scripts/source.mjs`, compile/preflight the external
-helper and add `sourceDiscovery` before it is usable. CLI also requires the caller to supply `desktopVerified: true` after
-actual desktop acceptance; the flag does not constitute acceptance evidence.
+`node scripts/install.mjs '<JSON inputs>'` defaults to a read-only plan. Example:
 
-Before installation, record active source dataDir/version, chosen Node executable,
-owned destination state and any exact backup. Refuse to overwrite an unknown
-existing destination. Copy regular package files only, write `config.json` and the
-rendered Hook document, preserve other plugins, and explicitly enable only this
-plugin in MiniMaxCode. Main source/runtime installer owns these reversible changes.
-Remove by disabling this plugin and deleting only its recorded owned installation;
-restore the previous exact backup when applicable. Preserve source database,
-source sessions, source plugin data and all unrelated profile files. Remove only
-the separately recorded owned helper as part of rollback.
+```sh
+node scripts/install.mjs '{"operation":"install","dataDirConfirmed":true,"dataDir":"/Users/example/.minimax","supportDir":"/Users/example/Library/Application Support/AIsland","bridgeSocketPath":"/absolute/bridge.sock","nodePath":"/opt/homebrew/bin/node","desktopAppPath":"/Applications/MiniMax Code.app","cliPrefix":"/Users/example/.minimax-code","profileID":"desktop","cliProfileID":"cli"}'
+```
+
+The caller must confirm the actual active source `dataDir`; the installer does not
+read source configuration, DB, auth or messages to infer it. Paths must be absolute
+and normalized. `dataDir` must exist. `supportDir` may be new, but its immediate
+parent must already be a regular directory. The installer checks the actual app
+Info.plist bundle ID/version, public CLI package identity/version and the canonical
+regular executable Node path without running MiniMaxCode.
+
+Review `destination`, `helperDirectory`, `sourceDiscovery`, rendered hooks and
+`fileHashes`. Repeat the same JSON with `"apply":true` to install. Apply copies
+only regular allowlisted package files, compiles the external helper, preflights
+its own PID in staging and at the final location, and writes a private owned
+`receipt.json` containing every installed file and helper SHA-256. It does not
+enable plugins or launch source UI. Enable only this plugin in MiniMaxCode after
+installation, then run the source acceptance checks.
+
+An existing destination/helper is accepted only when both directories, exact
+path-bound receipt, all file hashes and complete inventories match. Unknown,
+partial, extra, changed or symlinked installations are refused. A matching plan
+is idempotent; a changed reviewed config replaces a verified owned installation
+through staging and reversible renames. A failed replacement restores previous
+owned paths. Recovery files are preserved and their location reported if rollback
+or concurrent changes prevent safe cleanup.
+
+Desktop-only is the default. After real desktop acceptance, add `"enableCLI":true`
+and `"desktopVerified":true` to the same install request, preview then apply. This
+updates the same shared plugin with separate runtime profile IDs. The supplied
+acceptance flag is a gate, not runtime acceptance evidence.
+
+Disable only this plugin in source UI before removal. Preview removal with:
+
+```sh
+node scripts/install.mjs '{"operation":"remove","dataDirConfirmed":true,"dataDir":"/Users/example/.minimax","supportDir":"/Users/example/Library/Application Support/AIsland"}'
+```
+
+Repeat with `"apply":true` to remove. Removal validates every fixed owned path,
+receipt, hash and directory inventory again, then removes only the recorded plugin
+and external helper directory. The returned JSON includes `removedReceipt` for
+retaining the audit record. Empty support/plugin parent directories remain.
+Source DB, sessions, plugin data and all unrelated plugins/files are preserved.
+`plan.mjs` remains a read-only renderer; use `scripts/install.mjs` for the ownership
+check, reviewable action and explicit application.
 
 ## Navigation and remaining runtime checks
 

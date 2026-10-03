@@ -119,6 +119,11 @@ App 从公开 Copy session ID 菜单取得的结果与准入 ID 完全一致，�
 `2026-10-03T20:44:34Z minimaxcode conversation focus ok frontmost=com.minimax.agent`。
 对应截图保存在 ignored MiniMaxCode evidence 目录。不是仅激活应用或查看同名标题。
 
+Build 37（`29aa626`）在剪贴板并发保护修订后再次通过同一真实流程，
+`2026-10-03T20:54:40Z` 的精确会话/前台成功回执以及 ID/恢复 true 已保存。
+实际打开设置页确认侧栏无 Watch，截图为
+`output/verification/v0.1.1-live/native-app/settings-watch-hidden-b37.png`。
+
 当前仍未整体验收完成：Hermes GUI 终端 pane/前台、三类声音中的审批/回答真实
 事件、必要既有来源导航回归仍待验证。R7 原型效果待用户阶段确认，Native 仍保留
 已批准 V6。mcode 按用户要求延期；GitHub 在线完整安装升级仍需发布已签名的

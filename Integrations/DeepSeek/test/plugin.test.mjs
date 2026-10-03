@@ -125,3 +125,22 @@ test('configuration precedence keeps test sockets separate from production', () 
   assert.equal(resolved.bridgeSocketPath, '/test/config.sock'); assert.equal(resolved.navigationSocketPath, '/test/deepseek-navigation.sock');
   assert.equal(resolveOptions({}, { OPEN_ISLAND_SOCKET_PATH: '/test/env.sock' }).bridgeSocketPath, '/test/env.sock');
 });
+
+test('navigation socket survives request half-close until correlated client acknowledgement', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const broker = new NavigationBroker(options({ navigationSocketPath: path, navigationTimeoutMs: 100 })); broker.listen(); await once(broker.server, 'listening');
+  const socket = net.createConnection(path); let wire = ''; socket.on('data', chunk => { wire += chunk; });
+  socket.end(JSON.stringify(request()) + '\n');
+  for (let i = 0; i < 20 && broker.pending.size === 0; i++) await new Promise(resolve => setTimeout(resolve, 2));
+  assert.equal(broker.rpc('poll', {}).value.request.session_id, 'exact-session');
+  broker.rpc('ack', { ...request(), status: 'dispatched' }); await once(socket, 'close');
+  assert.deepEqual(JSON.parse(wire), { version: 1, request_id: 'request-1', session_id: 'exact-session', profile_id: 'desktop', status: 'dispatched' });
+  broker.dispose(); rmSync(dir, { recursive: true });
+});
+
+test('endpoint collision fails open and never removes the existing socket', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const owner = net.createServer(); owner.listen(path); await once(owner, 'listening'); const inode = statSync(path).ino;
+  const broker = new NavigationBroker(options({ navigationSocketPath: path })); broker.listen(); await once(broker.server, 'error').catch(() => {}); broker.dispose();
+  assert.equal(statSync(path).ino, inode); await new Promise(resolve => owner.close(resolve)); rmSync(dir, { recursive: true });
+});

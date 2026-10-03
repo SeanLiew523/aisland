@@ -1,6 +1,6 @@
-# AIsland v0.1.1 接入与 Dia 引导调研记录
+# AIsland v0.1.1 接入与视听引导调研记录
 
-采集日期：2026-10-03（北京时间）。状态：`PRELIMINARY_RESEARCH`。本记录区分本机静态资源、公开资料、实际画面和待验证行为；不代表新工具已接入或 Dia 视听调研已完成。需求草案见 [执行计划](../exec-plans/active/aisland-v0.1.1-requirements.md)。
+采集日期：2026-10-03（北京时间）。状态：`STATIC_DISCOVERY_AND_PROTOTYPE_REVIEW_PENDING`。本记录区分本机静态资源、公开资料、实际画面、设计推导和待验证行为；不代表新工具已接入或 Dia 视听调研已完成。用户已确认总体计划并允许扩展相关调研；本轮补齐静态能力与跨案例视听设计研究，交付独立原型供实际试听。范围见 [执行计划](../exec-plans/active/aisland-v0.1.1-requirements.md)，停止节点见 [阶段 1 记录](../exec-plans/active/aisland-v0.1.1-stage-1.md)。
 
 ## 1. 新工具的本机身份与证据
 
@@ -90,3 +90,76 @@ Apple 的 `NSHapticFeedbackManager` 用于带 Force Touch 触控板的系统，�
 后续需要在同一来源/版本的带声音演示中记录：每一步的视觉起止、音效起点/主落点/尾音、音乐与交互音的关系、触感时机、跳过和中断时的行为。听感与真实触感最终通过用户可播放、可操作的预览验收；代码调用成功或素材存在不能替代体验结果。
 
 对 AIsland 的设计建议是共同编排画面、音乐底层、转场音、交互音和触感，提供分步骤 cue 表及完整联动预览。该建议是设计推导，不是对 Dia 原始时间轴的复刻结论。
+
+## 7. 进一步来源能力核验
+
+本轮由用户指定的 `gpt-6.1-sol` / `high` 子 Agent 分两路只读研究，主 Agent 复核 Hermes 结束/授权源码、MiniMax 插件文档与结果 schema、DeepSeek `openSession` 和千问通知 URL 构造。没有读取真实会话数据库、正文或凭证，没有执行第三方配置安装。下列路径相对各应用的 `Contents/Resources/app.asar`；行号为包条目的文本行，压缩条目用字符偏移定位，版本变化后需重新核对。
+
+| 来源 | 可实施的静态入口 | 关键缺口与结果判据 |
+| --- | --- | --- |
+| Hermes CLI | profile `config.yaml` 的 shell hooks；`pre_llm_call` 与 `on_session_end`；session/task/turn 身份 | 终端 pane/窗口身份需补采；审批 observer 不接纳回答，内部 TUI RPC 不等于普通 CLI 外部 API。完成必须使用显式结果字段，不能只用 `post_llm_call` |
+| MiniMax Code | 本地 `.minimax-plugin/plugin.json` 的 hooks，扫描本地 plugins 目录；session/turn/tool-use 身份 | `Stop` 后其他 hook 可能继续运行；完成需校准最终提交。内部结果表可作为只读元数据候选，尚未读取实测；deep-link 只证明窗口聚焦；同步审批最多 10 秒，不能承诺长时间人工回传 |
+| DeepSeek Harness | 官方桌面独立 Cordis profile；插件 `session/event`、`agent/status`、审批与问答能力；客户端 `uiWorkspace.openSession` | 需要做 server 插件到客户端导航的可卸载桥接；`idle` 不必然成功完成，需 `turn/end(reason)`；`dsh://open` 本身仍只是聚焦 |
+| 千问办公 | 内部真实 task/stream 状态及带 `chatId/subChatId` 的通知导航；官方企业 HTTP hooks | 当前用户有效 profile 是否可用企业入口未知；hook session ID 到桌面 ID 映射待测。`Stop` 可被阻止继续，不是最终完成；未证实外部对已有审批/问题回传 |
+| 豆包工作 | 本机资源有办公异步状态与会话 ID 模型 | 未找到可配置外部事件订阅或带会话 ID 的准确导航契约；不能拿内部字符串或进程存在当接入路线 |
+
+### Hermes
+
+- 本机源码仍为 `0ff4c748658ff5b92661fa2b453fcf8ed813414d`。`agent/turn_finalizer.py:572–577` 计算成功完成需有最终响应、非失败、非中断；`:770–782` 的 `on_session_end` 转发 `completed/failed/interrupted/turn_exit_reason`、session/task/turn ID。CLI 每条消息执行一次回合，此事件名不表示用户彻底退出终端。
+- `hermes_cli/cli_shutdown.py:183–190` 中断补发可能缺少 task/turn，须谨慎匹配当前 session；`post_llm_call` 在普通中断时通常不发，但缺少结果字段，失败说明也可能发，不能作为成功完成判据。
+- `agent/shell_hooks.py:141–175` 注册需要来源自己的 consent；授权写入 profile 的 `shell-hooks-allowlist.json`，非 TTY 未授权会跳过。安装引导应展示真实待授权状态，不全局开启 `hooks_auto_accept`。
+- shell payload 包含 `tool_input` 等不需要的数据，适配器只留下身份/状态/终端元数据。`action:approve` 是进入人工审批，不是批准。TUI 的 `approval.respond/request.answer` 属私有 socketpair，普通外部连接尚未成立。
+
+公开文档将 Gateway-only `HOOK.yaml` 与 CLI/TUI shell 路线区分，需使用正确系统。[Hermes 官方 Event Hooks](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks/)
+
+### MiniMax Code
+
+- `node_modules/@mavis/local-runtime-v2/assets/skills/plugin-creator/references/local-plugin-hooks.md` 声明本地 plugin hooks 入口与 `UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/Stop` 等事件；`dist/service/plugin-system/plugin/package/minimax-reader.js:76–90` 和 `plugin/runtime/local-directory-watcher.js:25–63` 提供 loader 与扫描实现。
+- `dist/service/turn-system/agent-host/execution/user-input-control.js:167–199` 在 Stop handler 后可能追加 `continuePrompt`；`dist/infra/db/schema/turn.js:10–28` 的 `local_runtime_turn_ingress` 才有 `accepted/completed/failed/aborted` 最终状态字段。仅查询这些身份、状态、时间字段是候选路线，不代表已按真实数据库验证。
+- `dist/main/modules/local-runtime/data-dir.js:150–179` 表明 dataDir 可变，不能硬编码 `~/.minimax`。HTTP diagnostic sidecar 默认不是普通外部 API，不为了接入擅自改启动环境。
+- `dist/main/modules/deeplink/index.js:114–135` 只确认 restore/focus 与 renderer 广播；renderer 唯一观察到的 deep-link listener 处理 `navigate` 支付回跳。没有发现 session 选择契约，不能猜 `minimax://open?session_id=...` 已有效。
+- `@mavis/plugin-hooks/dist/parser.js:2–3` 约束 hook 默认 5 秒、最长 10 秒；HTTP permission/questionnaire controller 名称存在，但当前实现抛 `NotImplementedError`，不能据此展示可回传按钮。
+
+### DeepSeek Harness
+
+- 随包 `runtime/cli/bin/dsh` 与官方桌面 README 说明桌面有独立 profile，可使用随包 CLI 管理插件，需要先退出桌面应用；本轮未执行。[DeepSeek 官方桌面文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/README.md)
+- `dsh/node_modules/@deepseek-ai/dsh-session/lib/index.js` 约 69457 发布 `session/event`；agent-loop 约 33642/35988 写入 `turn/start` / `turn/end`，身份、turn、seq 可用于归属与去重，不转发正文。
+- `dsh-client-ui-workspace/lib/client.js` 约 34009 的 `openSession(target)` 调用 `replaceMain(...,"reveal")`；这是客户端插件能力，需要外部桥接与实际验证。`lib/main.js` 的 `dsh://open` 处理仍仅聚焦。
+- `dsh-user-approval/lib/index.js` 约 7767 通过 `approval/request` waterfall 回传决定并响应取消；`userQuestions` 有活跃问题路径。需要验证取消、请求归属和与现有 UI 协同。
+
+### 千问办公与豆包工作
+
+- 千问 `out/main/main.js` 约 3790722 的 `notification-click` 读取 chatId/subChatId/requestId，bringToFront 后发 `notification:clicked`；renderer `out/renderer/assets/index-Dg59jxtt.js` 约 3406810 按 ID 选择会话。主 Agent 复核了包内构造的 `qwenwork-cn://notification-click?...`。这是只导航候选，仍需真实任务 ID 与准确选中验收。
+- 内部 stream/task 模型区分 running/completed/failed/cancelled/interrupted；baseline profile 不注入企业 hooks。官方说明企业 HTTP POST 的六类 hook，并在企业旗舰版管理规则；账号能力需当前核对。[千问桌面 Hooks](https://docs.qwenwork.cn/desktop/hooks)、[企业 Hooks 规则](https://docs.qwenwork.cn/enterprise-ultimate/security/hooks-rules)
+- 豆包 `DoubaoWork Browser Framework.framework/Versions/147.0.7727.149/Resources/local_webcontents/` 下 `extensions/ai-views/static/js/side_panel.js` 约 32731 有办公任务状态枚举；`apps/entry-main/main.js` 出现 conversation/thread 身份。已找到的 `doubaowork://doubaowork-settings` 是设置入口，不是准确会话导航。
+
+建议先做 Hermes 与 DeepSeek 的完整来源切片；其余三来源补缺口，不降低五来源验收目标。专用真实任务要覆盖并行、成功、失败、中断、恢复和重复标题，分别记录会话选择与前台；本轮尚未执行。
+
+## 8. 扩展视听案例与平台限制
+
+| 一手案例 | 可核实的事实 | AIsland 设计推导 |
+| --- | --- | --- |
+| Google / Pixel 6 欢迎动画 | 设计师说明两形碰撞用低频、随时间变化的 THUD 触感模拟橡胶球与软膜；明确有意使用静默。子 Agent 观察官方内嵌视频两帧的形体与波形变化，未听辨 | 统一形体的材质感；聚拢落位一次反馈，运行与持续漂移保持安静。Pixel 马达曲线不移植为 macOS 承诺 |
+| Apple WWDC18 流畅界面 | 建议先用没有过冲的阻尼，再根据手势目的添加弹性；音画与触感需保持同一性格 | 连续变形与稳定收束，少量有目的的压缩；配置页保持克制，可立即打断 |
+| Microsoft 音频设计 | 鼓励设计师在早期 demo 和原型中尝试声音，并用声音库保持同一家族 | 同一画面和落点对比 A/B 音色，让用户实际听后选；声音不是最后补上的素材 |
+| Dia 设计说明 | 新能力的动作承担创新表达，日常界面保持熟悉 | 将开场收束为日常刘海，再进入简洁配置；不是品牌影片结束后重新开说明页 |
+
+来源：[Google Sound & Touch](https://design.google/library/ux-sound-haptic-material-design)、[Apple Designing Fluid Interfaces](https://developer.apple.com/videos/play/wwdc2018/803/)、[Microsoft 音频设计访谈](https://microsoft.design/articles/the-sound-of-innovation-how-audio-designers-are-redefining-digital-experiences/)、[Dia 设计说明](https://browsercompany.substack.com/p/the-strategy-behind-dias-design)。这些支持原则和推导，不表示本轮已经直接听辨上述音轨。
+
+**触感修正。** 主 Agent 复核 Apple 官方文档数据：`NSHapticFeedbackPerformer.perform` 只应响应用户发起的操作；未触碰 Force Touch 触控板时可能不反馈。macOS 提供 generic/alignment/levelChange 等语义，HIG 将其用于合适的拖动或 Force Click 响应；不能用 iPhone 的 success/error 或 Pixel 自定义 THUD 替代。自动开场、自动完成状态和自动收拢均不安排真实触感；后续原生阶段在合适的真实用户操作上试验，记录设备、输入方式和体验结果。[Apple 调用条件](https://developer.apple.com/documentation/appkit/nshapticfeedbackperformer/perform(_:performancetime:))、[Apple HIG 触感](https://developer.apple.com/design/human-interface-guidelines/playing-haptics)
+
+## 9. 本轮原创音画原型与 cue 表
+
+原型见 [阶段记录](../exec-plans/active/aisland-v0.1.1-stage-1.md)。下表是当前实现参数，属于设计草样；不是 Dia 时序，也不是已经通过听感验收的制作标准。网页不产生真实触感。减少动态效果使用固定构图和状态切换。
+
+| 时间 | 画面 | 音效起点 / 目标 | 最晚尾音约 |
+| --- | --- | --- | --- |
+| 0–3 秒 | 从小形体展开为 Bloub / 平顶刘海 | 0.4 秒低强度底层；1.65 秒三音品牌动机 | 约 2.7 秒；底层约 3.7 秒 |
+| 3–8 秒 | 三张有身份的任务卡汇入 | 3.7 秒短移动纹理；6.4 秒一次低中频落位；running 无循环音 | 移动约 4.5 秒，落位约 6.8 秒；底层约 7.9 秒 |
+| 8–11.8 秒 | 示例任务 A 运行后完成 | 9.4 秒两音上行完成标记 | A 约 10.2 秒 / B 约 9.9 秒 |
+| 11.8–14.2 秒 | 示例任务 B 粉色等待审批 | 11.8 秒同音短双击 | A 约 12.5 秒 / B 约 12.3 秒 |
+| 14.2–16.2 秒 | 示例任务 C 黄色等待回答 | 14.2 秒上扬回答标记 | A 约 15 秒 / B 约 14.7 秒 |
+| 16.2–18 秒 | 返回任务 B 的示意会话窗口 | 16.2 秒轻确认 | 约 16.4 秒 |
+| 18–22 秒 | 收回顶部，进入简洁工具选择 | 18 秒移动纹理；20.5 秒品牌收束 | A 约 21.7 秒 / B 约 21.2 秒 |
+
+A「温润共鸣」用正弦、低中频底层与空气纹理，B「清脆数字」用三角波与较短包络；两者采用相同主要事件落点。名称描述合成意图，不能代替主观听感。用户可比较完整开场与三类样音，反馈节奏、可辨识度及是否愿意继续设置。后续调整仍先视听对齐，再接入原生；跳过、静音、切换、重播和退出必须取消过期声音。

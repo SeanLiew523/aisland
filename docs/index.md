@@ -24,9 +24,10 @@ This index is the repository map for humans and coding agents. Read these files 
 
 - [docs/exec-plans/README.md](./exec-plans/README.md) for the active and completed execution-plan convention
 - [docs/exec-plans/active/aisland-v0.1.1-handoff.md](./exec-plans/active/aisland-v0.1.1-handoff.md) for the verified build 5 baseline, prepared v0.1.1 worktree, and development/release handoff
-- [docs/exec-plans/active/aisland-v0.1.1-requirements.md](./exec-plans/active/aisland-v0.1.1-requirements.md) for the confirmed v0.1.1 scope and draft acceptance criteria
+- [docs/exec-plans/active/aisland-v0.1.1-requirements.md](./exec-plans/active/aisland-v0.1.1-requirements.md) for the confirmed v0.1.1 scope and staged acceptance plan
+- [docs/exec-plans/active/aisland-v0.1.1-stage-1.md](./exec-plans/active/aisland-v0.1.1-stage-1.md) for the first audiovisual prototype, integration capability review, and required user effect checkpoints
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines
-- [docs/references/aisland-v0.1.1-discovery.md](./references/aisland-v0.1.1-discovery.md) for preliminary integration evidence and Dia audiovisual research boundaries
+- [docs/references/aisland-v0.1.1-discovery.md](./references/aisland-v0.1.1-discovery.md) for integration capability evidence, Dia and related audiovisual research, and prototype cue boundaries
 
 ## Superpowers Plans
 

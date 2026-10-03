@@ -273,16 +273,18 @@ private enum MiniMaxCodeAXNavigation {
                 let titleChildren = children.filter {
                     (value($0, kAXValueAttribute) as? String) == title
                         || (value($0, kAXTitleAttribute) as? String) == title
+                        || (value($0, kAXDescriptionAttribute) as? String) == title
                 }
                 if !titleChildren.isEmpty {
                     let chooser = children.contains { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
                     let terminal = children.contains { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
                     for (index, child) in children.enumerated() where titleChildren.contains(where: { CFEqual($0, child) }) {
                         let next = index + 1 < children.count ? children[index + 1] : nil
-                        NSLog("aisland_minimax_navigation stage=title-menu-structure children=%ld chooser=%d terminal=%d text_matches=%d value_matches=%d title_matches=%d role=%@ next_role=%@ next_empty=%d next_press=%d",
+                        NSLog("aisland_minimax_navigation stage=title-menu-structure children=%ld chooser=%d terminal=%d text_matches=%d value_matches=%d title_matches=%d description_matches=%d role=%@ next_role=%@ next_empty=%d next_press=%d",
                               children.count, chooser ? 1 : 0, terminal ? 1 : 0, text(child) == title ? 1 : 0,
                               (value(child, kAXValueAttribute) as? String) == title ? 1 : 0,
                               (value(child, kAXTitleAttribute) as? String) == title ? 1 : 0,
+                              (value(child, kAXDescriptionAttribute) as? String) == title ? 1 : 0,
                               DiagnosticRole(role(child)).rawValue, DiagnosticRole(next.flatMap { role($0) }).rawValue,
                               next.map { (exactLabel($0) ?? "").isEmpty } == true ? 1 : 0,
                               next.map { action($0, kAXPressAction) } == true ? 1 : 0)
@@ -446,8 +448,13 @@ private enum MiniMaxCodeAXNavigation {
         return nil
     }
     static func text(_ element: AXUIElement) -> String? {
-        ((value(element, kAXValueAttribute) as? String) ?? (value(element, kAXTitleAttribute) as? String))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+            if let text = value(element, attribute) as? String,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
     }
     static func bool(_ element: AXUIElement, _ attribute: String) -> Bool? { value(element, attribute) as? Bool }
     static func classes(_ element: AXUIElement) -> [String] { value(element, "AXDOMClassList") as? [String] ?? [] }

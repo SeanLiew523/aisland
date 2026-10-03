@@ -25,6 +25,7 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/exec-plans/README.md](./exec-plans/README.md) for the active and completed execution-plan convention
 - [docs/exec-plans/active/aisland-v0.1.1-handoff.md](./exec-plans/active/aisland-v0.1.1-handoff.md) for the verified build 5 baseline, prepared v0.1.1 worktree, and development/release handoff
 - [docs/exec-plans/active/aisland-v0.1.1-requirements.md](./exec-plans/active/aisland-v0.1.1-requirements.md) for the confirmed v0.1.1 scope and staged acceptance plan
+- [docs/exec-plans/active/aisland-v0.1.1-runtime-acceptance.md](./exec-plans/active/aisland-v0.1.1-runtime-acceptance.md) for approved intro finalization, passive MiniMaxCode desktop/CLI scope and real app verification
 - [docs/exec-plans/active/aisland-v0.1.1-stage-1.md](./exec-plans/active/aisland-v0.1.1-stage-1.md) for the first audiovisual prototype, integration capability review, and required user effect checkpoints
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-6.md](./exec-plans/active/aisland-v0.1.1-intro-revision-6.md) for the current visual storytelling and progressive audio prototype, verified playback and pending effect confirmation
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-5.md](./exec-plans/active/aisland-v0.1.1-intro-revision-5.md) for the user-selected rollback baseline at 86f2865

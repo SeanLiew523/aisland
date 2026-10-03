@@ -275,11 +275,21 @@ struct DisplaySettingsPane: View {
 
 struct SoundSettingsPane: View {
     var model: AppModel
+    @State private var selections: [NotificationSoundCategory: NotificationSoundSelection] = [:]
+    @State private var fallbacks: Set<NotificationSoundCategory> = []
+    @State private var messages: [NotificationSoundCategory: String] = [:]
+    @State private var playbackMode: NotificationSoundPlaybackMode = .shortFade
 
     private var lang: LanguageManager { model.lang }
+    private var store: NotificationSoundStore { NotificationSoundService.store }
+    private var availableSounds: [String] { NotificationSoundService.availableSounds() }
 
-    private var availableSounds: [String] {
-        NotificationSoundService.availableSounds()
+    private func text(_ en: String, _ zh: String, _ hant: String) -> String {
+        switch lang.language.resolvedCode {
+        case "zh-Hans": zh
+        case "zh-Hant": hant
+        default: en
+        }
     }
 
     var body: some View {
@@ -287,34 +297,133 @@ struct SoundSettingsPane: View {
             Section(lang.t("settings.sound.notifications")) {
                 Toggle(lang.t("settings.sound.mute"), isOn: Binding(
                     get: { model.isSoundMuted },
-                    set: { _ in model.toggleSoundMuted() }
+                    set: { _ in model.toggleSoundMuted(); NotificationSoundService.setMuted(model.isSoundMuted) }
                 ))
+                Picker(text("Automatic playback", "自动提示长度", "自動提示長度"), selection: $playbackMode) {
+                    Text(text("Up to 5 seconds, fade out", "最多 5 秒，淡出结束", "最多 5 秒，淡出結束"))
+                        .tag(NotificationSoundPlaybackMode.shortFade)
+                    Text(text("Full audio", "完整播放", "完整播放")).tag(NotificationSoundPlaybackMode.full)
+                }
+                Text(text("New alerts replace the current sound.",
+                          "新提示会替换正在播放的声音。",
+                          "新提示會替換正在播放的聲音。"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-
-            Section(lang.t("settings.sound.selectSound")) {
-                List(availableSounds, id: \.self) { name in
-                    Button {
-                        model.selectedSoundName = name
-                        NotificationSoundService.play(name)
-                    } label: {
-                        HStack {
-                            Text(name)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if name == model.selectedSoundName {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
-                                    .fontWeight(.semibold)
+            ForEach(NotificationSoundCategory.allCases, id: \.self) { category in
+                Section(categoryTitle(category)) {
+                    Picker(text("Sound", "声音", "聲音"), selection: sourceBinding(category)) {
+                        ForEach(availableSounds, id: \.self) { name in
+                            Text(name).tag("system:" + name)
+                        }
+                        Text(text("Custom MP3…", "自定义 MP3…", "自訂 MP3…")).tag("custom")
+                    }
+                    if case .custom(let asset) = selections[category] {
+                        Text(asset.displayName).lineLimit(1).truncationMode(.middle)
+                        Text(text("Managed copy · ", "已保存本地副本 · ", "已儲存本機副本 · ")
+                             + String(format: "%.1f s", asset.duration))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button(text("Preview full audio", "完整试听", "完整試聽")) {
+                            refresh()
+                            if !NotificationSoundService.preview(category: category) {
+                                messages[category] = text("Playback failed. Check your audio output.", "播放失败，请检查音频输出。", "播放失敗，請檢查音訊輸出。")
                             }
                         }
-                        .contentShape(Rectangle())
+                        Button(text("Import / Replace MP3", "导入 / 替换 MP3", "匯入 / 替換 MP3")) { importMP3(category) }
+                        Button(text("Restore default", "恢复默认", "恢復預設")) {
+                            NotificationSoundService.stop()
+                            store.restoreDefault(for: category)
+                            messages[category] = nil
+                            refresh()
+                        }
                     }
-                    .buttonStyle(.plain)
+                    if fallbacks.contains(category) {
+                        Text(text("The managed MP3 is missing or unreadable. Alerts and previews use Bottle until you replace it or restore the default.",
+                                  "本地 MP3 已丢失或无法读取。提示和试听暂用 Bottle；请替换文件或恢复默认。",
+                                  "本機 MP3 已遺失或無法讀取。提示和試聽暫用 Bottle；請替換檔案或恢復預設。"))
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if let message = messages[category] {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+            }
+            Section {
+                Button(text("Stop playback", "停止播放", "停止播放")) { NotificationSoundService.stop() }
+                Text(text("Manual previews play the full sound even when automatic alerts are muted. MP3 files are limited to 20 MB.",
+                          "主动试听始终完整播放，不受自动提示静音影响。MP3 文件最大 20 MB。",
+                          "主動試聽始終完整播放，不受自動提示靜音影響。MP3 檔案最大 20 MB。"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .navigationTitle(lang.t("settings.tab.sound"))
+        .onAppear { refresh(); playbackMode = store.playbackMode }
+        .onChange(of: playbackMode) { _, mode in NotificationSoundService.stop(); store.playbackMode = mode }
+        .onChange(of: model.isSoundMuted) { _, muted in NotificationSoundService.setMuted(muted) }
+        .onDisappear { NotificationSoundService.stop() }
+    }
+
+    private func categoryTitle(_ category: NotificationSoundCategory) -> String {
+        switch category {
+        case .completed: text("Task completed", "任务完成", "任務完成")
+        case .approval: text("Waiting for approval", "等待审批", "等待審批")
+        case .answer: text("Waiting for an answer", "等待回答", "等待回答")
+        }
+    }
+
+    private func sourceBinding(_ category: NotificationSoundCategory) -> Binding<String> {
+        Binding(get: {
+            if case .system(let name) = selections[category] { return "system:" + name }
+            if case .custom = selections[category] { return "custom" }
+            return "system:" + NotificationSoundService.defaultSoundName
+        }, set: { source in
+            if source == "custom" { importMP3(category) }
+            else if source.hasPrefix("system:") {
+                NotificationSoundService.stop()
+                store.selectSystem(String(source.dropFirst(7)), for: category)
+                messages[category] = nil
+                refresh()
+            }
+        })
+    }
+
+    private func refresh() {
+        for category in NotificationSoundCategory.allCases {
+            selections[category] = store.selection(for: category)
+            if store.resolve(category).usedFallback { fallbacks.insert(category) }
+            else { fallbacks.remove(category) }
+        }
+    }
+
+    private func importMP3(_ category: NotificationSoundCategory) {
+        NotificationSoundService.stop()
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.mp3]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = text("Import MP3", "导入 MP3", "匯入 MP3")
+        guard panel.runModal() == .OK, let url = panel.url else {
+            messages[category] = text("Import cancelled. Your selection is unchanged.", "已取消导入，原有选择保持不变。", "已取消匯入，原有選擇保持不變。")
+            return
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try store.importMP3(from: url, for: category)
+            messages[category] = text("Imported. You can move or delete the original file.", "已导入；移动或删除原始文件不影响声音。", "已匯入；移動或刪除原始檔案不影響聲音。")
+        } catch {
+            let reason: String
+            switch error as? NotificationSoundImportError {
+            case .notMP3: reason = text("Choose a real MP3 file.", "请选择真实 MP3 文件。", "請選擇真正的 MP3 檔案。")
+            case .tooLarge: reason = text("The file exceeds 20 MB.", "文件超过 20 MB。", "檔案超過 20 MB。")
+            case .invalidAudio: reason = text("The file cannot be decoded or has no audio.", "文件无法解码或没有有效音频。", "檔案無法解碼或沒有有效音訊。")
+            default: reason = text("The file or managed directory is inaccessible.", "无法访问文件或本地声音目录。", "無法存取檔案或本機聲音目錄。")
+            }
+            messages[category] = reason + text(" Your previous selection is unchanged.", "原有选择保持不变。", "原有選擇保持不變。")
+        }
+        refresh()
     }
 }
 

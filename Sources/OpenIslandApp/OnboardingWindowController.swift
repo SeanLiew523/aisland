@@ -1,6 +1,6 @@
 import AppKit
 import AVFoundation
-import SwiftUI
+import Observation
 import OpenIslandCore
 
 @MainActor
@@ -12,6 +12,28 @@ final class OnboardingPlaybackState {
 }
 
 enum OnboardingExit: Equatable { case completed, skipped, closed }
+
+/// First launch runs to the natural ending; replay is an explicit user action.
+/// This policy never alters presentation/completion preferences.
+enum OnboardingPlaybackMode: Sendable {
+    case autoMandatory
+    case explicitReplay
+
+    var permitsManualExit: Bool { self == .explicitReplay }
+
+    func permitsFinish(_ result: OnboardingExit, elapsed: Double) -> Bool {
+        switch result {
+        case .completed: elapsed >= OnboardingTimeline.duration
+        case .closed: permitsManualExit
+        case .skipped: false
+        }
+    }
+
+    func exitForKey(keyCode: UInt16, command: Bool, characters: String?) -> OnboardingExit? {
+        guard permitsManualExit else { return nil }
+        return keyCode == 53 || (command && characters?.lowercased() == "w") ? .closed : nil
+    }
+}
 
 /// One clock drives the score, sprite selection, title beats and 22-second end.
 /// AVAudioPlayer's device time is monotonic; uptime is the silent fallback.
@@ -34,17 +56,6 @@ private final class OnboardingWindow: NSWindow {
 }
 
 @MainActor
-private final class OnboardingControlsHostingView<Content: View>: NSHostingView<Content> {
-    override var isOpaque: Bool { false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-    }
-}
-
-@MainActor
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var scene: OnboardingSceneView?
@@ -56,17 +67,22 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var motionObserver: NSObjectProtocol?
     private var originalPresentation: NSApplication.PresentationOptions?
     private var completion: ((OnboardingExit) -> Void)?
+    private var playbackMode: OnboardingPlaybackMode = .explicitReplay
     private var state = OnboardingPlaybackState()
     private var hapticsEnabled = false
     private var nextHaptic = 0
     private let hapticTimes = [3.0, 8.2, 10.7, 15.7, 20.7]
     var isPresenting: Bool { window != nil }
+    /// The app delegate uses this to refuse ordinary menu/Cmd-Q termination.
+    /// Force Quit, signals and shutdown are outside this controller's policy.
+    var isMandatoryPlayback: Bool { isPresenting && playbackMode == .autoMandatory }
     private(set) var lastError: String?
 
     /// Persistence is the caller's responsibility so hook migration can finish
     /// before claiming automatic presentation. Settings replay bypasses that gate.
     @discardableResult
-    func present(language: OnboardingLanguage, initiallyMuted: Bool = false,
+    func present(language: OnboardingLanguage, mode: OnboardingPlaybackMode = .autoMandatory,
+                 initiallyMuted: Bool = false,
                  hapticFeedbackEnabled: Bool = false,
                  completion: @escaping (OnboardingExit) -> Void) -> Bool {
         guard !isPresenting else { window?.makeKeyAndOrderFront(nil); return false }
@@ -78,6 +94,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         catch { lastError = "Welcome media could not be loaded: \(error.localizedDescription)"; return false }
         lastError = nil
         self.completion = completion
+        playbackMode = mode
         state = OnboardingPlaybackState()
         state.muted = initiallyMuted
         hapticsEnabled = hapticFeedbackEnabled
@@ -90,10 +107,6 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         scene.reduceMotion = state.reduceMotion
         self.scene = scene
         root.addSubview(scene)
-        let controls = OnboardingControlsHostingView(rootView: OnboardingControls(state: state,language: language) { [weak self] in self?.finish(.skipped) })
-        controls.frame = root.bounds; controls.autoresizingMask = [.width,.height]
-        controls.wantsLayer = true; controls.layer?.backgroundColor = NSColor.clear.cgColor
-        root.addSubview(controls)
         let window = OnboardingWindow(contentRect: screen.frame,styleMask: [.borderless],backing: .buffered,defer: false)
         window.title = language == .chinese ? "欢迎使用 AIsland" : "Welcome to AIsland"
         window.delegate = self; window.isReleasedWhenClosed = false
@@ -103,7 +116,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentView = root; window.setFrame(screen.frame,display: false)
         self.window = window
         originalPresentation = NSApp.presentationOptions
-        NSApp.presentationOptions = [.hideDock,.hideMenuBar]
+        NSApp.presentationOptions = mode == .autoMandatory
+            ? [.hideDock, .hideMenuBar, .disableHideApplication]
+            : [.hideDock, .hideMenuBar]
         installObservers()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -154,9 +169,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private func installObservers() {
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.isPresenting else { return event }
-            if event.keyCode == 53 { self.finish(.skipped); return nil }
-            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" {
-                self.finish(.closed); return nil
+            let command = event.modifierFlags.contains(.command)
+            if event.keyCode == 53 || (command && event.charactersIgnoringModifiers?.lowercased() == "w") {
+                if let exit = self.playbackMode.exitForKey(
+                    keyCode: event.keyCode, command: command,
+                    characters: event.charactersIgnoringModifiers
+                ) { self.finish(exit) }
+                // Consume these shortcuts even when mandatory playback refuses
+                // them, so the underlying Settings window cannot handle them.
+                return nil
             }
             return event
         }
@@ -172,10 +193,12 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool { !isMandatoryPlayback }
+
     func windowWillClose(_ notification: Notification) { finish(.closed) }
 
     private func finish(_ result: OnboardingExit) {
-        guard window != nil else { return }
+        guard window != nil, playbackMode.permitsFinish(result, elapsed: state.elapsed) else { return }
         let callback = completion
         stop()
         callback?(result)
@@ -191,45 +214,8 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if let motionObserver { NSWorkspace.shared.notificationCenter.removeObserver(motionObserver) }; motionObserver = nil
         window?.delegate = nil; window?.orderOut(nil); window?.close(); window = nil
         scene = nil
+        playbackMode = .explicitReplay
         if let originalPresentation { NSApp.presentationOptions = originalPresentation }
         originalPresentation = nil
-    }
-}
-
-private struct OnboardingControls: View {
-    @Bindable var state: OnboardingPlaybackState
-    let language: OnboardingLanguage
-    let skip: () -> Void
-    private var chinese: Bool { language == .chinese }
-    private var light: Bool { state.elapsed >= 6 && state.elapsed < 8.2 || state.elapsed >= 13.9 }
-    var body: some View {
-        VStack {
-            HStack {
-                Text("AIsland").font(.system(size: 15,weight: .semibold))
-                Spacer()
-                Button(chinese ? "跳过开场" : "Skip intro",action: skip)
-                    .keyboardShortcut(.escape,modifiers: [])
-            }
-            Spacer()
-            HStack(spacing: 24) {
-                Toggle(chinese ? "静音" : "Mute",isOn: $state.muted)
-                Toggle(chinese ? "减少动态效果" : "Reduce motion",isOn: $state.reduceMotion)
-                Spacer()
-                Text(String(format: "%.0f / 22 s",state.elapsed)).monospacedDigit().font(.system(size: 11))
-            }
-        }
-        .font(.system(size: 13))
-        .foregroundStyle(light ? Color(red: 0.14,green: 0.21,blue: 0.31) : .white)
-        .buttonStyle(.bordered)
-        .toggleStyle(.checkbox)
-        .padding(.horizontal,30)
-        .padding(.top, max(40, NSApplication.shared.mainWindow?.screen?.safeAreaInsets.top ?? 0)+12)
-        .padding(.bottom,26)
-        .overlay(alignment: .bottom) {
-            GeometryReader { geometry in
-                Rectangle().fill(Color(red: 0.44,green: 0.61,blue: 1))
-                    .frame(width: geometry.size.width*state.elapsed/OnboardingTimeline.duration,height: 2)
-            }.frame(height: 2).accessibilityHidden(true)
-        }
     }
 }

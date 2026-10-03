@@ -23,6 +23,7 @@ This index is the repository map for humans and coding agents. Read these files 
 ## Harness And Planning
 
 - [docs/exec-plans/README.md](./exec-plans/README.md) for the active and completed execution-plan convention
+- [docs/exec-plans/active/aisland-v0.1.1-handoff.md](./exec-plans/active/aisland-v0.1.1-handoff.md) for the verified build 5 baseline, prepared v0.1.1 worktree, and development/release handoff
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines
 
 ## Superpowers Plans

@@ -21,7 +21,9 @@ enum NotificationSoundAcceptanceRecorder {
         guard let config = try? RuntimeAcceptanceConfiguration.current() else { return }
         let directory = config.socketURL.deletingLastPathComponent()
         guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
-              directory.resolvingSymlinksInPath().path == directory.path else { return }
+              let resolved = realpath(directory.path, nil) else { return }
+        defer { free(resolved) }
+        guard String(cString: resolved) == directory.path else { return }
         let url = directory.appendingPathComponent("sound-receipts.jsonl")
         let value = Receipt(category: category, timestamp: Date().timeIntervalSince1970,
                             muted: muted, started: started, customAudioPlaying: customAudioPlaying,

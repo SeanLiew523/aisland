@@ -48,17 +48,14 @@ final class CodexAppServerCoordinator {
         ) else {
             return
         }
-        let codexPath = bundleURL
-            .appendingPathComponent("Contents/Resources/codex")
-            .path
-        guard FileManager.default.isExecutableFile(atPath: codexPath) else {
+        guard let codexExecutable = CodexAppServerExecutable.resolve(in: bundleURL) else {
             return
         }
 
         connectTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let newClient = CodexAppServerClient(codexPath: codexPath)
+                let newClient = CodexAppServerClient(codexPath: codexExecutable.path)
                 newClient.onNotification = { [weak self] notification in
                     Task { @MainActor [weak self] in
                         self?.handleNotification(notification)

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm, cp, writeFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, cp, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { projectHook, validConfig, readBoundedInput, sendOnce } from '../scripts/core.mjs';
 import { buildPlan } from '../plan.mjs';
@@ -63,13 +63,24 @@ test('Real command process sends metadata only and writes no source decision to 
   await new Promise(resolve => server.listen(socketPath, resolve));
   try {
     await cp(join(root, 'scripts'), join(dir, 'scripts'), { recursive: true });
-    await writeFile(join(dir, 'config.json'), JSON.stringify({ ...config, bridgeSocketPath: socketPath }));
+    const app = join(dir, 'Source.app'); const prefix = join(dir, 'prefix'); const probePath = join(dir, 'fixture-probe');
+    await mkdir(app); await mkdir(prefix);
+    await writeFile(probePath, `#!${process.execPath}\nconst fs = require('node:fs'); const pid = Number(process.argv[2]); const app = fs.realpathSync(process.argv[3]); const now = Date.now(); console.log(JSON.stringify({ schemaVersion: 1, ancestors: [{ pid, parentPID: 100, executablePath: process.execPath, startedAtMs: now - 10 }, { pid: 100, parentPID: 1, executablePath: app + '/Contents/MacOS/Source', startedAtMs: now - 100 }], desktopApp: { path: app, bundleID: 'com.minimax.agent', version: '3.1.0' } }));`, { mode: 0o700 });
+    await writeFile(join(dir, 'config.json'), JSON.stringify({ ...config, bridgeSocketPath: socketPath,
+      sourceDiscovery: { probePath, desktopAppPath: app, cliPrefix: prefix, allowedSources: ['minimaxCodeDesktop'] } }));
+    await new Promise((resolve, reject) => execFile(probePath, [String(process.pid), app], { timeout: 5000 }, error => error ? reject(error) : resolve()));
     const child = spawn(process.execPath, [join(dir, 'scripts/hook.mjs')], { env: { PATH: process.env.PATH }, stdio: 'pipe' });
     let output = ''; child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
     child.stdin.end(JSON.stringify({ ...input, prompt: 'PRIVATE_PROMPT' }));
     const exit = await new Promise(resolve => child.once('close', resolve));
     assert.equal(exit, 0); assert.equal(output, ''); assert.equal(received.length, 1);
     assert.equal(received[0].command.runtimeLifecycleHook.event, 'sessionObserved'); assert.ok(!JSON.stringify(received).includes('PRIVATE_PROMPT'));
+    // Same shared configuration with no proof is silent, even though its source field says Desktop.
+    await writeFile(probePath, `#!${process.execPath}\nconsole.log('{}');`, { mode: 0o700 });
+    const unknown = spawn(process.execPath, [join(dir, 'scripts/hook.mjs')], { stdio: 'pipe' });
+    unknown.stdin.end(JSON.stringify(input));
+    assert.equal(await new Promise(resolve => unknown.once('close', resolve)), 0);
+    assert.equal(received.length, 1);
   } finally { await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); }
 });
 

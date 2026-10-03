@@ -7,13 +7,13 @@ Desktop is first; CLI installation stays gated until desktop runtime acceptance.
 Supported source baselines: MiniMaxCode desktop 3.1.0 / bundle 3.1.0.176
 (`com.minimax.agent`) and MiniMaxCode CLI `mcode` 0.5.3. A version update requires
 rechecking the source hook/ingress contract and native metadata reader. A copied
-version number in `config.json` is a configured contract guard; the installer must
-verify the actual installed source version before writing it.
+version number in `config.json` is a configured contract guard. Each native Hook
+additionally proves the actual source through process metadata before emitting.
 
 ## Native package and wire contract
 
 Copy only `.minimax-plugin/plugin.json`, `hooks/hooks.json`, `scripts/core.mjs`,
-`scripts/hook.mjs`, and `icon.png` to the actual source
+`scripts/source.mjs`, `scripts/hook.mjs`, and `icon.png` to the actual source
 `<dataDir>/plugins/aisland-minimaxcode-passive/`. The native local-directory watcher
 rescans that root; source recognition and explicit enablement still need real UI
 verification. Do not symlink the repository or modify installed source packages.
@@ -26,7 +26,35 @@ are in `config.example.json`. Set `sourceRuntimeVersion` to the verified baselin
 that same source data directory's `v2/sqlite/runtime-state.sqlite`. Desktop dataDir
 defaults to `~/.minimax`; explicit `MINIMAX_DATA_DIR`, `MAVIS_DATA_DIR`, custom data
 parent, and profile selection can change it. Inspect the selected active directory;
-do not assume the default. CLI config uses `minimaxCodeCLI` and `0.5.3`.
+do not assume the default. Desktop and CLI can share this same plugin/dataDir;
+the configured `source` does not determine the observed runtime.
+
+Compile the reviewable `scripts/source-probe.swift` outside the native plugin
+directory with `swiftc -O <source> -o <owned-helper>`. Native plugin packages do
+not need a bundled executable. Add this required discovery configuration:
+
+```json
+{"sourceDiscovery":{"probePath":"/absolute/owned/source-probe","desktopAppPath":"/Applications/MiniMax Code.app","cliPrefix":"/Users/example/.minimax-code","allowedSources":["minimaxCodeDesktop"],"profileIDs":{"minimaxCodeDesktop":"desktop","minimaxCodeCLI":"cli"}}}
+```
+
+The installer must validate its owned helper and preflight it once using its own
+PID and the app path. macOS first-launch validation can exceed the Hook's 200 ms
+probe deadline. Preflight reads metadata only. Allow CLI only after real desktop
+acceptance by adding `minimaxCodeCLI` to `allowedSources`; a proven CLI remains
+silent while gated, and cannot fall back to Desktop.
+
+The helper walks at most 16 ancestors, reading only PID, parent PID, executable
+path, kernel birth time and controlling TTY. Desktop proof requires a canonical
+application path plus actual `com.minimax.agent` bundle/version 3.1.0. CLI proof
+requires the installed public `@minimax-ai/code` package version 0.5.3 and its
+native `<cliPrefix>/.mcode-active/<ancestorPID>.json` marker. Marker PID must match
+that exact ancestor and its timestamp must fall between kernel birth and Hook
+birth, preventing stale PID reuse. Only exact ancestor markers are read, each
+capped at 1 KiB; symlinks and nonregular files are rejected. The Hook process is
+skipped because its interpreter can come from either application. A nearer CLI
+proof wins when `mcode` runs inside Desktop's terminal. Unknown Node ancestors,
+missing markers, source-version drift or unavailable helper produce no event.
+Neither helper nor adapter reads process argv/environment, task content or auth.
 
 The adapter emits newline-delimited local bridge commands:
 
@@ -84,7 +112,9 @@ production renderer uses private MessagePort. This package uses neither route.
 
 `node plan.mjs '<JSON inputs>'` prints a plan only. Inputs:
 `source`, `profileID`, absolute `dataDir`, absolute `bridgeSocketPath`, and absolute
-`nodePath`. CLI also requires the caller to supply `desktopVerified: true` after
+`nodePath`. The existing dry-run plan describes the package/config skeleton;
+the installer must add `scripts/source.mjs`, compile/preflight the external
+helper and add `sourceDiscovery` before it is usable. CLI also requires the caller to supply `desktopVerified: true` after
 actual desktop acceptance; the flag does not constitute acceptance evidence.
 
 Before installation, record active source dataDir/version, chosen Node executable,
@@ -94,7 +124,8 @@ rendered Hook document, preserve other plugins, and explicitly enable only this
 plugin in MiniMaxCode. Main source/runtime installer owns these reversible changes.
 Remove by disabling this plugin and deleting only its recorded owned installation;
 restore the previous exact backup when applicable. Preserve source database,
-source sessions, source plugin data and all unrelated profile files.
+source sessions, source plugin data and all unrelated profile files. Remove only
+the separately recorded owned helper as part of rollback.
 
 ## Navigation and remaining runtime checks
 
@@ -104,13 +135,16 @@ Deep Link contract in desktop 3.1.0. Main's Deep Link handler focuses a window a
 broadcasts input; renderer's `navigate` listener consumes URL/payment parameters.
 Do not fabricate a session URL or report application activation as exact selection.
 The native navigator must prove selection through a supported source/UI contract
-or expose unavailable navigation honestly. CLI must map exact native session to
-its original terminal pane via user-startup registration. Hook child `tty` and
-safe-env cannot recover original pane metadata; never resume a second `mcode`
-process as a substitute for selecting the original pane.
+or expose unavailable navigation honestly. For CLI, the source ancestor's
+controlling terminal becomes `terminal_tty`; a recognized original terminal app
+ancestor becomes `terminal_app`. This association uses the normal user-started
+`mcode` process, with no startup wrapper. Hook child TTY and safe-env alone do not
+provide this identity. Exact pane selection still requires native UI validation;
+never resume another `mcode` process as a substitute for selecting the original.
 
 Run `npm test` and `npm run check` in this directory. Tests verify native-baseline
 source schema, metadata projection, malformed inputs, absent native IDs, bounded
-failure and real command/socket delivery. They do not replace live source loading,
+failure, shared-source classification/PID reuse and real command/socket delivery.
+The compiled helper test reads its own test process metadata only. They do not replace live source loading,
 normal/failed/aborted final results, Stop continuation, exact navigation, frontmost,
 terminal association, restart recovery, or completion audio acceptance.

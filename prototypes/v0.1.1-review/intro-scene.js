@@ -7,6 +7,9 @@ window.AIslandIntroScene = (() => {
   const lerp = (a, b, t) => a + (b - a) * t;
   const ink = "#202d43", blue = "#3878f4", paper = "#f7f5ee";
   const timeline = {agents:3, gather:5.3, running:8.2, approval:8.2, answer:10.7, back:13.2, completed:15.7, dock:18.1, settled:20.7, duration:22};
+  // At 7.95 the final native card is fully inside the unchanged V6 shell.
+  // Keep every existing card path, clock, shell dimension and audio cue.
+  const tasksArrived = 7.95;
   // Logos are a separate brand scene, never a claim about runtime capability.
   const agents = [
     ["claude","Claude","png"],["chatgpt","ChatGPT","png"],["gemini","Gemini","png"],
@@ -262,11 +265,13 @@ window.AIslandIntroScene = (() => {
     } else if(!nativeAlpha) {
       c.save();c.translate(x,y);island(c,iw,ih,t,s,0,host);c.restore();
     }
+    window.AIslandIntroBloub.render({w,h,t,x,y,iw,ih,gather:timeline.gather,arrived:tasksArrived,
+      approval:timeline.approval,dock:timeline.dock,motion,setup});
     // Native clips provide their own production animation; only the opening gets an extra pulse.
     if(t>=1.35&&t<2.45&&motion){
       const elapsed=(t-1.35)/1.1;c.save();c.translate(x,y);c.globalAlpha=(1-elapsed)*.32;
       c.strokeStyle="#bfd8ff";c.lineWidth=.9;c.beginPath();c.ellipse(0,0,iw*.6+elapsed*75*s,ih*.64+elapsed*28*s,0,0,Math.PI*2);c.stroke();c.restore();
     }
   }
-  return {draw,syncMedia,stopMedia,duration:timeline.duration,timeline,ready};
+  return {draw,syncMedia,stopMedia,duration:timeline.duration,timeline,tasksArrived,ready};
 })();

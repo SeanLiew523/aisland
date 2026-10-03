@@ -9,7 +9,7 @@
 <body>
   <header class="masthead">
     <a class="brand" href="#intro" aria-label="AIsland 效果审阅"><span class="brand-glyph"><i></i><i></i><b></b></span>AIsland</a>
-    <span class="edition">v0.1.1 / 效果审阅 06</span>
+    <span class="edition">v0.1.1 / 效果审阅 07</span>
   </header>
   <main>
     <nav class="review-tabs" aria-label="审阅内容">
@@ -23,8 +23,10 @@
         <div class="stage-shell" id="stage-shell">
           <canvas id="stage" aria-label="AIsland 引导动画预览"></canvas>
           <div class="stage-top"><span>AIsland</span><div><label class="language-switch"><select id="intro-language" aria-label="审阅语言"><option value="system">跟随系统</option><option value="zh">中文</option><option value="en">English</option></select></label><button id="stage-mute" aria-pressed="false">声音开启</button><button id="skip">跳过开场</button></div></div>
+          <div id="gather-bloub" class="gather-bloub" aria-hidden="true" hidden></div>
+          <div id="home-orbit" class="home-orbit" aria-hidden="true" hidden></div>
           <div class="stage-copy" id="stage-copy"><span id="scene-kicker">HELLO, AISLAND</span><h2 id="scene-title">让等待<br>有回应。</h2><p id="scene-caption">任务在继续，你可以做自己的事。</p></div>
-          <div class="start-curtain" id="start-curtain"><span class="curtain-label">A · 温润共鸣 / 第六版</span><button class="play-button" id="play"><span>▶</span> 播放音画预览</button><p>约 22 秒 · 建议全屏并开启声音</p></div>
+          <div class="start-curtain" id="start-curtain"><span class="curtain-label">A · 温润共鸣 / 第七版</span><button class="play-button" id="play"><span>▶</span> 播放音画预览</button><p>约 22 秒 · 建议全屏并开启声音</p></div>
           <div class="setup-preview" id="setup-preview" hidden>
             <span class="eyebrow">YOUR ISLAND, YOUR TOOLS</span><h2>把你的工具，<br>带上小岛。</h2><p>选择常用工具，随后检查接入能力。</p>
             <div class="setup-options">
@@ -36,7 +38,7 @@
           <div class="progress"><div id="progress-fill"></div></div>
         </div>
         <aside class="director-panel">
-          <h3>A · 温润共鸣，第六版</h3>
+          <h3>A · 温润共鸣，第七版</h3>
           <p class="direction-description">让界面自己讲故事。<br>声音随汇聚和归位逐步展开。</p>
           <div class="director-options"><label><input type="checkbox" id="intro-mute">静音观看</label><label><input type="checkbox" id="reduce-motion">减少动态效果</label></div>
           <button id="replay" class="secondary">从头重播</button>
@@ -88,6 +90,7 @@
   </main>
   <script src="assets/native-media.js"></script>
   <script src="intro-i18n.js"></script>
+  <script src="assets/intro-bloub.js"></script>
   <script src="intro-scene.js"></script>
   <script src="intro-audio.js"></script>
   <script src="review.js"></script>

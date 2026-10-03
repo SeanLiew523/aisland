@@ -44,10 +44,18 @@ html[lang=en] .stage-shell:fullscreen .stage-copy h2,html[data-native-review=tru
 
 /* The film leaves the native interaction at center stage. Text appears at two
    deliberate beats; scene descriptions remain on the reviewer and canvas label. */
-.stage-shell .stage-copy,html[lang=en] .stage-shell .stage-copy,html[data-native-review=true] .stage-copy,html[data-native-review=true][lang=en] .stage-copy{left:50%;top:61%;bottom:auto;width:84%;max-width:none;text-align:center;transform:translateX(-50%);transition:none}
+.stage-shell .stage-copy,.stage-shell:fullscreen .stage-copy,html[lang=en] .stage-shell .stage-copy,html[lang=en] .stage-shell:fullscreen .stage-copy,html[data-native-review=true] .stage-copy,html[data-native-review=true][lang=en] .stage-copy{left:50%;right:auto;top:61%;bottom:auto;width:84%;max-width:none;text-align:center;transform:translateX(-50%);transition:none}
 .stage-shell .stage-copy>span,.stage-shell .stage-copy p{display:none}
 .stage-shell .stage-copy[data-copy-mode=visual]{visibility:hidden}
 .stage-shell .stage-copy h2,html[lang=en] .stage-shell .stage-copy h2{font-size:clamp(25px,2.5vw,48px);font-weight:500;line-height:1.2;letter-spacing:-.035em}
-.stage-shell[data-scene="7"] .stage-copy{top:46%}
+.stage-shell[data-scene="7"] .stage-copy,.stage-shell:fullscreen[data-scene="7"] .stage-copy,html[lang=en] .stage-shell[data-scene="7"] .stage-copy,html[lang=en] .stage-shell:fullscreen[data-scene="7"] .stage-copy,html[data-native-review=true] .stage-shell[data-scene="7"] .stage-copy{top:81%}
 .stage-shell:fullscreen .stage-copy h2,html[data-native-review=true] .stage-copy h2,html[lang=en] .stage-shell:fullscreen .stage-copy h2,html[data-native-review=true][lang=en] .stage-copy h2{font-size:clamp(34px,3.8vw,74px)}
-@media(max-width:640px){.stage-shell .stage-copy h2,html[lang=en] .stage-shell .stage-copy h2{font-size:25px}}
+@media(max-width:640px){.stage-shell .stage-copy h2,.stage-shell:fullscreen .stage-copy h2,html[lang=en] .stage-shell .stage-copy h2,html[lang=en] .stage-shell:fullscreen .stage-copy h2,html[data-native-review=true] .stage-copy h2,html[data-native-review=true][lang=en] .stage-copy h2{font-size:25px}}
+
+/* SVG bodies use the exact website engine. They share the existing scene clock. */
+.gather-bloub,.home-orbit{position:absolute;z-index:1;pointer-events:none;transform:translate(-50%,-50%)}
+.gather-bloub[hidden],.home-orbit[hidden]{display:none}
+.gather-bloub svg,.home-agent svg{display:block;width:100%;height:100%;overflow:visible;fill:initial}
+.home-orbit{border:1px solid #6c7dca30;border-radius:50%}
+.home-agent{position:absolute;width:var(--agent-size);height:var(--agent-size);transform:translate(-50%,-50%)}
+.home-agent span{position:absolute;left:50%;bottom:0;transform:translate(-50%,100%);font:400 clamp(7px,1vw,11px)/1.4 "SFMono-Regular",Menlo,monospace;white-space:nowrap;color:#60718f}

@@ -44,3 +44,9 @@ Official web assets, retrieved 2026-10-03; PNG marks were reduced to 128 px, SVG
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/web/public/favicon.svg): exact SVG from the official repository at that commit. [Official brand usage guidance](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/BRAND_GUIDELINES.md).
 
 No logo is used as a substitute for task content. The nine-logo segment ends before the native task demonstration starts.
+
+## R7 Bloub SVG adapter
+
+`../intro-bloub.ts` imports the repository website's unchanged `aisland-website/src/vendor/bloub` engine. Its SVG painter keeps the website's `integrated-motion.ts` masks and back/body/front layer order. Only placement, colors and the intro-owned time vary. The six states and order are exactly the website's egg, hexagon, play, idle, thinking, notify satellites. The gather left-wing uses the same idle/thinking states; it does not replace the existing island or task form.
+
+`intro-bloub-source.json` records upstream commit, current source hashes and bundle hash. `bloub-MIT.txt` retains the upstream license. The adapter bundles offline with the website lockfile's esbuild 0.25.11: `npm exec --offline --package=esbuild@0.25.11 -- esbuild prototypes/v0.1.1-review/intro-bloub.ts --bundle --format=iife --target=es2022 --outfile=prototypes/v0.1.1-review/assets/intro-bloub.js`. This is presentation animation, not a new supported runtime state.

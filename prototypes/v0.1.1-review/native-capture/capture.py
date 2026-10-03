@@ -12,13 +12,16 @@ HERE = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--source", type=Path, default=HERE.parents[2])
 parser.add_argument("--output", type=Path)
+parser.add_argument("--language", choices=["zh-Hans", "en"], action="append",
+                    help="Fixed capture language; repeat to export both with one build (default: zh-Hans)")
 args = parser.parse_args()
+languages = list(dict.fromkeys(args.language or ["zh-Hans"]))
 repo = args.source.resolve()
 output = (args.output or repo / "output/verification/v0.1.1-intro-revision-3/native-rows").resolve()
 output.mkdir(parents=True, exist_ok=True)
 provenance = {"sourceRepository": str(repo), "sourceCommit": subprocess.check_output(
     ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip(), "sources": [],
-    "transformations": ["Only LanguageManager preference IO replaced with fixed zh-Hans language; drawing source unchanged",
+    "transformations": ["Only LanguageManager preference IO replaced with explicit CLI language; drawing source unchanged",
                         "Bundle.appResources points to the isolated capture target's localization bundle",
                         "Private row and helper declarations remain in one compilation unit"]}
 
@@ -60,7 +63,8 @@ with tempfile.TemporaryDirectory(prefix="aisland-native-rows-") as temp:
     original_init = '''        let saved = UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "system"
         let lang = AppLanguage(rawValue: saved) ?? .system'''
     assert language.count(original_state) == 1 and language.count(original_init) == 1, "LanguageManager changed; review isolation transformation"
-    language = language.replace(original_state, "").replace(original_init, "        let lang = AppLanguage.zhHans")
+    language = language.replace(original_state, "").replace(original_init,
+        '        let lang: AppLanguage = CommandLine.arguments[2] == "en" ? .en : .zhHans')
     assert "UserDefaults.standard" not in language, "Capture must not access preferences"
     (target / "LanguageManager.swift").write_text(language)
     (target / "ResourceBundle.swift").write_text("import Foundation\nextension Bundle { static var appResources: Bundle { .module } }\n")
@@ -84,13 +88,19 @@ let package = Package(name: "NativeRowsCapture", defaultLocalization: "en", plat
     (package / "Package.swift").write_text(manifest)
     subprocess.run(["swift", "build", "--package-path", str(package), "--product", "NativeRows", "-c", "debug"], check=True)
     executable = package / ".build/debug/NativeRows"
-    subprocess.run([str(executable), str(output)], check=True)
     for path in sorted((repo / "Sources/OpenIslandCore").glob("*.swift")):
         provenance["sources"].append({"path": str(path.relative_to(repo)), "fileSHA256": hashlib.sha256(path.read_bytes()).hexdigest(), "usage": "compiled OpenIslandCore dependency; no runtime services instantiated"})
     dependencies = package / "Package.resolved"
     if dependencies.exists():
         provenance["resolvedPackages"] = json.loads(dependencies.read_text())
-    provenance["artifacts"] = [{"file": path.name, "SHA256": hashlib.sha256(path.read_bytes()).hexdigest()}
-                               for path in sorted(output.glob("native-row-*"))]
-    (output / "native-row-provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n")
+    provenance["captureTool"] = [{"file": path.name, "SHA256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                                  for path in [HERE / "capture.py", HERE / "capture.swift"]]
+    for locale in languages:
+        subprocess.run([str(executable), str(output), locale], check=True)
+        provenance["language"] = locale
+        artifacts = list(output.glob(f"native-row-*-{locale}@2x.png"))
+        artifacts.append(output / f"native-row-manifest-{locale}.json")
+        provenance["artifacts"] = [{"file": path.name, "SHA256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                                   for path in sorted(artifacts)]
+        (output / f"native-row-provenance-{locale}.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n")
 print(f"Native row assets and provenance: {output}")

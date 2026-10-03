@@ -94,6 +94,7 @@ private enum MiniMaxCodeAXNavigation {
         case titleMenuMatches = "title-menu-matches"
         case titleMenuTimeout = "title-menu-timeout"
         case copySubmenu = "copy-submenu"
+        case copyKeyDelivery = "copy-key-delivery"
         case copyIDItem = "copy-id-item"
         case pasteboardCapture = "pasteboard-capture"
         case pasteboardIdentity = "pasteboard-identity"
@@ -290,11 +291,15 @@ private enum MiniMaxCodeAXNavigation {
         }
         let app = AXUIElementCreateApplication(source.processID)
         guard let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
-              CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline),
-              let down = CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: true),
-              let up = CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: false) else { return false }
-        down.flags = []; up.flags = []
-        down.postToPid(source.processID); up.postToPid(source.processID)
+              CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline) else { return false }
+        // The native menu tracking loop ignored CGEvent.postToPid in the live
+        // build. Target the admitted application's Accessibility endpoint;
+        // never use the system-wide object or change an input permission.
+        let down = AXUIElementPostKeyboardEvent(app, 0xF703, 124, true)
+        let up = AXUIElementPostKeyboardEvent(app, 0xF703, 124, false)
+        acceptanceLog(.copyKeyDelivery, count: Int(down.rawValue), error: Int(up.rawValue),
+                      flag: down == .success && up == .success)
+        guard down == .success, up == .success else { return false }
         pause(deadline)
         return remaining(deadline)
     }
@@ -311,6 +316,7 @@ private enum MiniMaxCodeAXNavigation {
               let panel = parent(controls), role(panel) == "AXGroup", remaining(deadline) else { return nil }
         let controlMembers = nodes(controls, deadline, maximum: 17, depth: 4)
         guard controlMembers.count <= 16, remaining(deadline),
+              controlMembers.contains(where: { CFEqual($0, choosers[0]) }),
               controlMembers.contains(where: { CFEqual($0, terminals[0]) }),
               !controlMembers.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") }) else { return nil }
         let children = elements(panel, kAXChildrenAttribute)

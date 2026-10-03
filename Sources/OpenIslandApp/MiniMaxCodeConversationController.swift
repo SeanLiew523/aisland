@@ -321,6 +321,16 @@ private enum MiniMaxCodeAXNavigation {
             if acceptanceDiagnosticsEnabled, index == 1 {
                 let headings = visited.filter { role($0) == "AXStaticText" && text($0) == title }
                 acceptanceLog(.titleLayout, count: headings.count, nodes: elements(node, kAXChildrenAttribute).count)
+                for (childIndex, child) in elements(node, kAXChildrenAttribute).prefix(8).enumerated() {
+                    let childMembers = nodes(child, deadline, maximum: 41, depth: 4)
+                    let labels = childMembers.filter { role($0) == "AXStaticText" && text($0) == title }.count
+                    let menu = role(child) == "AXButton" && (exactLabel(child) ?? "").isEmpty && action(child, kAXPressAction)
+                    let chooser = childMembers.contains { CFEqual($0, choosers[0]) }
+                    let terminal = childMembers.contains { CFEqual($0, terminals[0]) }
+                    NSLog("aisland_minimax_navigation stage=title-child index=%ld role=%@ nodes=%ld titles=%ld menu=%d chooser=%d terminal=%d",
+                          childIndex + 1, DiagnosticRole(role(child)).rawValue, childMembers.count,
+                          labels, menu ? 1 : 0, chooser ? 1 : 0, terminal ? 1 : 0)
+                }
                 for heading in headings.prefix(4) {
                     var titleNode = heading
                     for distance in 1...8 where remaining(deadline) {

@@ -18,7 +18,44 @@ struct ZCodeConversationJumpControllerTests {
                 workspacePath: "/Users/demo/open-vibe-island"
             )
         )
+        #expect(fixture.taskIndex.hasUniqueTitle(for: try #require(record)))
         #expect(fixture.taskIndex.conversation(id: "missing") == nil)
+    }
+
+    @Test
+    func duplicateTitleInAnotherWorkspaceDisablesStandaloneLookup() throws {
+        let fixture = try makeTaskIndex(extraSQL: """
+        INSERT INTO tasks VALUES ('sess_other', 'Watch配对与新增Agent支持', '/Users/demo/other', 43, 0);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let record = try #require(fixture.taskIndex.conversation(id: "sess_exact"))
+
+        #expect(!fixture.taskIndex.hasUniqueTitle(for: record))
+    }
+
+    @Test
+    func duplicateTitleInSameWorkspaceDisablesStandaloneLookup() throws {
+        let fixture = try makeTaskIndex(extraSQL: """
+        INSERT INTO tasks VALUES ('sess_other', ' Watch配对与新增Agent支持 ', '/Users/demo/open-vibe-island', 43, 0);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let record = try #require(fixture.taskIndex.conversation(id: "sess_exact"))
+
+        #expect(!fixture.taskIndex.hasUniqueTitle(for: record))
+    }
+
+    @Test
+    func deletedDuplicateDoesNotBlockAnExistingStandaloneTask() throws {
+        let fixture = try makeTaskIndex(extraSQL: """
+        INSERT INTO tasks VALUES ('sess_deleted', 'Watch配对与新增Agent支持', '/Users/demo/other', 43, 1);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let record = try #require(fixture.taskIndex.conversation(id: "sess_exact"))
+
+        #expect(fixture.taskIndex.hasUniqueTitle(for: record))
+        #expect(!fixture.taskIndex.hasUniqueTitle(for: ZCodeConversationRecord(
+            id: "missing", title: record.title, workspacePath: record.workspacePath
+        )))
     }
 
     @Test
@@ -35,7 +72,7 @@ struct ZCodeConversationJumpControllerTests {
         #expect(controller.focus(conversationID: "sess_exact") == .unavailable("focus-timeout"))
     }
 
-    private func makeTaskIndex() throws -> (rootURL: URL, taskIndex: ZCodeTaskIndex) {
+    private func makeTaskIndex(extraSQL: String = "") throws -> (rootURL: URL, taskIndex: ZCodeTaskIndex) {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("open-island-zcode-index-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -63,7 +100,7 @@ struct ZCodeConversationJumpControllerTests {
             0
         );
         """
-        #expect(sqlite3_exec(openedDatabase, schema, nil, nil, nil) == SQLITE_OK)
+        #expect(sqlite3_exec(openedDatabase, schema + extraSQL, nil, nil, nil) == SQLITE_OK)
 
         return (rootURL, ZCodeTaskIndex(databasePath: databaseURL.path))
     }

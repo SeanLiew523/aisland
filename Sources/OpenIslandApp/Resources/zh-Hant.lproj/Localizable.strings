@@ -170,6 +170,9 @@
 "island.quit.confirmTitle" = "結束 AIsland？";
 "island.quit.confirmAction" = "結束";
 "island.quit.confirmMessage" = "確定要結束嗎？";
+"island.accessibility.openPanel" = "展開 AIsland 工作階段";
+"island.accessibility.openSession" = "開啟工作階段：%@";
+"island.accessibility.sessionCount" = "%lld 個工作階段";
 
 /* Settings - Update */
 "settings.update.available" = "v%@ 可更新 — 點擊更新";

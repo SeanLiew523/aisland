@@ -170,6 +170,9 @@
 "island.quit.confirmTitle" = "退出 AIsland？";
 "island.quit.confirmAction" = "退出";
 "island.quit.confirmMessage" = "确定要退出吗？";
+"island.accessibility.openPanel" = "展开 AIsland 会话";
+"island.accessibility.openSession" = "打开会话：%@";
+"island.accessibility.sessionCount" = "%lld 个会话";
 
 /* Settings - Update */
 "settings.update.available" = "v%@ 可更新 — 点击更新";

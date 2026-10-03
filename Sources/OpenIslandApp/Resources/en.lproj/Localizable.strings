@@ -170,6 +170,9 @@
 "island.quit.confirmTitle" = "Quit AIsland?";
 "island.quit.confirmAction" = "Quit";
 "island.quit.confirmMessage" = "Are you sure you want to quit?";
+"island.accessibility.openPanel" = "Open AIsland sessions";
+"island.accessibility.openSession" = "Open session: %@";
+"island.accessibility.sessionCount" = "%lld sessions";
 
 /* Settings - Update */
 "settings.update.available" = "v%@ Available — Update";

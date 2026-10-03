@@ -1,12 +1,12 @@
 # AIsland v0.1.1 原生第一切片与效果停止节点
 
-日期：2026-10-03。状态：`IMPLEMENTED_EFFECT_ACCEPTANCE_PENDING`。按用户后续选择，首轮推进 Hermes CLI、DeepSeek Harness 桌面端和原生三类 MP3；引导已修订为 A 第五版，原生引导等待阶段性效果确认。
+日期：2026-10-03。状态：`IMPLEMENTED_EFFECT_ACCEPTANCE_PENDING`。按用户后续选择，首轮推进 Hermes CLI、DeepSeek Harness 桌面端和原生三类 MP3；引导第五版已被用户选为回退基线，现交付 A 第六版；原生引导等待新的阶段性效果确认。
 
 ## 当前交付与验收状态
 
 | 需求 | 当前可检查结果 | 当前效果节点 |
 | --- | --- | --- |
-| 安装引导 | [A 第五版](aisland-v0.1.1-intro-revision-5.md)：22 秒连续音画、独立九 Logo、四个原生任务模块、角色与数量格真实刘海归位、中英文自动选择；独立原生审阅壳完整播放已检查 | `PENDING`：等待音画效果反馈，未继续正式原生引导移植 |
+| 安装引导 | [A 第六版](aisland-v0.1.1-intro-revision-6.md)：22 秒连续音画与声音递进、独立九 Logo、四个原生任务模块、以画面表达中间阶段、角色与数量格真实刘海归位、中英文自动选择；第五版 `86f2865` 冻结保留 | `PENDING`：等待音画效果反馈，未继续正式原生引导移植 |
 | 自定义声音 | [原生实现](v0.1.1-custom-sounds-implementation.md)：三类别、本地托管、迁移、回退、单播放器、完整试听/自动时长；已接真实事件入口及全局静音/退出收束 | `PENDING`：原生导入、真实三类事件播放、文件移动与重启效果待真人验收 |
 | Hermes / DeepSeek | [原生接收与导航](v0.1.1-hermes-implementation.md)、[DS 插件](v0.1.1-deepseek-implementation.md)：namespace/turn 归属、显式结果、恢复去重、受管理安装、确切 ID 导航派发 | `PENDING`：真实来源加载、hook 授权、并行状态、正确会话和应用前台待真人验收 |
 | mcode 比较 | [版本与路线比较](../../references/aisland-v0.1.1-mcode-comparison.md) | 静态比较完成；不自动替换桌面范围或新增正式来源 |
@@ -29,7 +29,7 @@
 - 53 项中包含一次跨组件检查：由真实 JS LifecycleProjection 生成合成 NDJSON，交给当前 Swift BridgeCodec/RuntimeLifecycleReducer/SessionState，核对正常成功、失败及插件重建后静默结束。这里的数据为构造任务，不是 Harness 真实任务。
 - DS 插件 **22 项 Node 确定性检查**通过；配置安装脚本仅 dry-run。
 - 前述各独立 worktree 的相关 Core/App 检查及声音专项记录保留在对应实施文档。常规全量测试入口仍受现有 CLT Testing overlay / Test.cancel 缺口影响，不能宣称全套测试通过；没有修改机器工具链或仓库测试配置来掩盖失败。
-- 文档与 Git 差异检查通过；当前预览的浏览器及独立原生壳验证见第五版记录。
+- 文档与 Git 差异检查通过；当前预览的浏览器及独立原生壳验证见第六版记录。
 
 本地整合日志保留在 `output/verification/v0.1.1-native-check.log` 和 `v0.1.1-app-build.log`；临时测试 package、合成文件及只读研究工作树收尾清理。生产偏好、用户 MP3、第三方 profile、已安装 AIsland 和公证发布线均未被本轮操作修改。
 
@@ -37,4 +37,4 @@
 
 使用单一 AIsland bridge、独立来源 profile 和可丢弃测试目录，分别检查成功、失败、取消、两任务并行、重复标题、来源与 AIsland 的退出恢复。每次跳转同时核对正确会话/pane 与应用前台；不能以派发或唤起代替。声音用三份独立 MP3 检查完成/审批/回答、静音与完整试听、连续打断、原文件移动和重启恢复。
 
-本轮还没有安装或运行第三方接入，没有付费真实任务。应先交付这些真实效果给用户确认，再进入该需求后续范围。A 第五版仍等待用户反馈，时间经过、编译成功和隔离检查都不替代用户认可。
+本轮还没有安装或运行第三方接入，没有付费真实任务。应先交付这些真实效果给用户确认，再进入该需求后续范围。A 第六版仍等待用户反馈，时间经过、编译成功和隔离检查都不替代用户认可。

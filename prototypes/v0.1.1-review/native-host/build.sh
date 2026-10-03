@@ -6,7 +6,7 @@ HOST_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_REPO="${1:-$(cd "$HOST_DIR/../../.." && pwd)}"
 SOURCE_REPO="$(cd "$SOURCE_REPO" && pwd)"
 PROTOTYPE="$SOURCE_REPO/prototypes/v0.1.1-review"
-OUTPUT="$SOURCE_REPO/output/verification/v0.1.1-intro-revision-5"
+OUTPUT="$SOURCE_REPO/output/verification/v0.1.1-intro-revision-6"
 APP="$OUTPUT/AIsland Intro Review.app"
 mkdir -p "$OUTPUT"
 BUILD_DIR="$(mktemp -d "$OUTPUT-build.XXXXXX")"
@@ -33,7 +33,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>AIsland Intro Review</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.1</string>
-  <key>CFBundleVersion</key><string>5</string>
+  <key>CFBundleVersion</key><string>6</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

@@ -49,7 +49,6 @@ window.AIslandIntroScene = (() => {
     loads.push(loadImage(image,`assets/native-row-${key}-${lang==="zh"?"zh-Hans":"en"}@2x.png`));
   }
   const ready=Promise.all(loads);
-  const cueTimes = [1.35,4.47,5.45,7.74,timeline.completed,timeline.approval,timeline.answer];
   const palettes = [
     {at: 0, top: "#030711", bottom: "#091638", glow: "#2050c4"},
     {at: 1.35, top: "#071d53", bottom: "#123987", glow: "#487ffa"},
@@ -121,16 +120,20 @@ window.AIslandIntroScene = (() => {
     // No label replacement or synthetic re-drawing of the native task form.
     images.rows[language].forEach((image,i)=>{
       const enter=motion?ease((t-timeline.gather-i*.09)/.45):1;
-      const exit=motion?1-smooth((t-7.55)/.45):1;
-      const travel=motion?smooth((t-7.55)/.45):0;
+      const travel=motion?smooth((t-7.24-i*.075)/.62):0;
+      const exit=motion?1-smooth((travel-.46)/.54):1;
       const side=i%2===0?-1:1;
-      const xx=x+side*(240+(1-enter)*70-travel*28)*s,yy=y+(i<2?-52:52)*s+(1-enter)*18*s;
-      nativeTile(c,image,[0,0,image.naturalWidth,image.naturalHeight],xx,yy,(190-travel*40)*s,side*.025,enter*exit);
+      const dx=side*(258+(1-enter)*72)*s,dy=(i<2?-53:53)*s;
+      const xx=x+dx*(1-travel),yy=y+dy*(1-travel)+(1-enter)*18*s;
+      if(motion&&travel<.85){
+        // The path ties a visible native task to its destination. It carries no
+        // synthetic progress or approval result and disappears behind the island.
+        c.save();c.globalAlpha=enter*(1-travel)*.32;
+        c.beginPath();c.moveTo(x+side*110*s,y);c.bezierCurveTo(x+side*150*s,y,x+side*160*s,y+dy,xx,y+dy);
+        c.strokeStyle=["#d58b68","#6fa2e5","#92bb95","#a092c8"][i];c.lineWidth=1.15*s;c.stroke();c.restore();
+      }
+      nativeTile(c,image,[0,0,image.naturalWidth,image.naturalHeight],xx,yy,(190-travel*130)*s,side*.02*(1-travel),enter*exit);
     });
-    if(motion&&t>=7.55){
-      c.save();c.globalAlpha=(1-smooth((t-7.55)/.55))*.3;
-      [-1,1].forEach(side=>{c.beginPath();c.moveTo(x+side*145*s,y);c.quadraticCurveTo(x+side*113*s,y-29*s,x+side*106*s,y);c.strokeStyle="#6088c4";c.lineWidth=.8;c.stroke();});c.restore();
-    }
   }
   function mediaScene(t) {
     if(t>=timeline.completed&&t<timeline.dock)return {key:"completion",start:timeline.completed,end:timeline.dock};
@@ -142,21 +145,20 @@ window.AIslandIntroScene = (() => {
   // Captured sprites share the same clock as the audio. No decoder drift or hidden loop.
   function stopMedia() {}
   function syncMedia() {}
-  function nativeScene(c,t,x,y,s,motion,playing,language) {
+  function nativeScene(c,t,w,h,s,motion,playing,language) {
     const scene=mediaScene(t);if(!scene)return 0;
     const enter=motion?ease((t-scene.start)/.16):1;
     const {frames,still,meta}=clips[`${language}:${scene.key}`],useMovie=playing&&motion&&frames.length===meta.frames;
     const index=Math.min(meta.frames-1,Math.floor(Math.max(0,t-scene.start)*meta.fps));
     const frame=useMovie?frames[index]:still;if(!frame?.width)return 1;
-    const width=490*s,height=width*meta.height/meta.width;
+    const width=Math.min(560*s,w*.78,h*.65*meta.width/meta.height),height=width*meta.height/meta.width;
+    const panelTop=h*.2;
     // A single opaque panel reveals vertically. Never crossfade two black surfaces,
     // and never play the source's translucent expansion a second time.
-    c.save();c.translate(x,y-32*s);
+    c.save();c.translate(w/2,panelTop);
     c.beginPath();c.rect(-width/2-2,0,width+4,height*enter);c.clip();
     c.drawImage(frame,-width/2,0,width,height);
     c.restore();
-    const visible=meta.visible_heights[useMovie?index:meta.still_frame]/meta.width*width;
-    if(enter>.98)text(c,language==="zh"?"AISLAND · 站点原生录制 / 示例会话":"AISLAND · Native recording / example sessions",x-width/2,y-32*s+visible+14*s,7*s,t>=timeline.back?"#6a7f9f":"#8fa4c6",500);
     return 1;
   }
   function closedIsland(c,x,y,width,height,t,playing,motion,language) {
@@ -181,14 +183,14 @@ window.AIslandIntroScene = (() => {
     c.globalAlpha = .45; c.fillStyle = halo; c.fillRect(0, 0, w, h); c.globalAlpha = 1;
     if (time < timeline.gather) {
       const opening = motion ? ease((time - .4) / 2.2) : 1;
-      c.save(); c.translate(w * .64, h * .36); c.rotate(-.28);
+      c.save(); c.translate(w * .5, h * .36); c.rotate(-.28);
       const sweep = c.createLinearGradient(-w * .7, 0, w * .7, 0);
       sweep.addColorStop(0, "#6c9aff00"); sweep.addColorStop(.5, "#91b4ff"); sweep.addColorStop(1, "#6c9aff00");
       c.globalAlpha = opening * .15; c.fillStyle = sweep; c.fillRect(-w, -h * .12, w * 2, h * .17);
       c.globalAlpha = opening * .12; c.fillRect(-w, h * .11, w * 2, 1);
       c.restore();
       // A continuous aperture opens into depth; no brightness flashes or camera shake.
-      c.save(); c.translate(w * .64, h * .36); c.scale(1, .45);
+      c.save(); c.translate(w * .5, h * .36); c.scale(1, .45);
       for (let i = 0; i < 5; i++) {
         const radius = (w * .13 + i * w * .056) * (.35 + opening * .9);
         c.globalAlpha = opening * (.17 - i * .025); c.strokeStyle = "#adc9ff"; c.lineWidth = i === 0 ? 1.5 : .6;
@@ -200,8 +202,8 @@ window.AIslandIntroScene = (() => {
       c.fillStyle = "#7f9cca"; c.fillRect(-w * .08, -h, w * .17, h * 2);
       c.fillStyle = "#ffffff"; c.fillRect(-w * .22, -h, w * .12, h * 2); c.restore();
       if (time >= timeline.dock) {
-        c.globalAlpha = smooth((time - timeline.dock) / 1.1) * .52;
-        rect(c, w * .18, h * .33, w * .7, h * .57, 16, "#ffffff88", "#ffffffa0");
+        c.globalAlpha = smooth((time - timeline.dock) / 1.1) * .2;
+        rect(c, w * .13, h * .3, w * .74, h * .55, 16, "#ffffff60", "#ffffff80");
         c.globalAlpha = 1;
       }
     } else {
@@ -238,8 +240,8 @@ window.AIslandIntroScene = (() => {
   function draw(c,w,h,t,{reduceMotion=false,setup=false,playing=false,language="zh"}={}) {
     const motion=!reduceMotion;c.clearRect(0,0,w,h);background(c,w,h,t,motion,setup);
     const narrow=w<640;
-    const s=Math.min(w/(narrow?740:1010),h/630);
-    const cx=w*(narrow?.53:.65),cy=h*(narrow?.27:.34);
+    const s=Math.min(w/(narrow?780:1040),h/720);
+    const cx=w*.5,cy=h*lerp(.37,.43,motion?smooth((t-2.4)/.8):t>=timeline.agents?1:0);
     const awaken=motion?ease((t-.4)/.95):t>=.4?1:0;
     const collapse=motion?smooth((t-timeline.dock)/2.6):t>=timeline.dock?1:0;
     const host=window.AIslandReviewHost?.notch;
@@ -250,7 +252,7 @@ window.AIslandIntroScene = (() => {
     const iw=lerp(lerp(20,282*s,awaken)*(1-gather*.23),targetW,collapse);
     const ih=lerp(lerp(20,83*s,awaken)*(1-gather*.16),targetH,collapse);
     if(!setup){logoScene(c,t,cx,cy,s,motion);gatherScene(c,t,cx,cy,s,motion,language);}
-    const nativeAlpha=setup?0:nativeScene(c,t,cx,cy,s*(narrow?.88:1),motion,playing,language);
+    const nativeAlpha=setup?0:nativeScene(c,t,w,h,s,motion,playing,language);
     if(setup||t>=timeline.dock) {
       // The actual website collapsed pill: character on the left, agent grid on the
       // right. Its empty middle lies behind the hardware notch in the native host.
@@ -266,5 +268,5 @@ window.AIslandIntroScene = (() => {
       c.strokeStyle="#bfd8ff";c.lineWidth=.9;c.beginPath();c.ellipse(0,0,iw*.6+elapsed*75*s,ih*.64+elapsed*28*s,0,0,Math.PI*2);c.stroke();c.restore();
     }
   }
-  return {draw,syncMedia,stopMedia,duration:timeline.duration,timeline,cueTimes,ready};
+  return {draw,syncMedia,stopMedia,duration:timeline.duration,timeline,ready};
 })();

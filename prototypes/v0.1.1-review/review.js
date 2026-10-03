@@ -31,17 +31,20 @@
     }
     if (audioContext.state === "suspended") await audioContext.resume();
     if (audioContext.state !== "running") throw new Error(introText().status.audioUnavailable);
+    canvas.dataset.audioState=audioContext.state;
     return audioContext;
   }
   function track(node) {
     activeSources.add(node);
-    node.onended = () => { activeSources.delete(node); node.disconnect(); };
+    canvas.dataset.activeAudioSources=String(activeSources.size);
+    node.onended = () => { activeSources.delete(node);canvas.dataset.activeAudioSources=String(activeSources.size); node.disconnect(); };
     return node;
   }
   function stopSounds() {
     soundGeneration++;
     for (const source of activeSources) { try { source.stop(); } catch (_) {} }
     activeSources.clear();
+    canvas.dataset.activeAudioSources="0";
   }
   function tone(freq, at, length, volume = 0.16, type = "sine", endFreq = freq) {
     const osc = track(audioContext.createOscillator()), gain = audioContext.createGain();
@@ -83,30 +86,8 @@
     if(key==="answer") { tone(329.63,at,.72,.1,"sine",392); tone(659.25,at,.48,.035); }
   }
   function scheduleIntro(base) {
-    // Anticipation, a low/mid resonant arrival, then space. Impact is not a global volume increase.
-    swell(65.41,base+.08,1.27,.12,-.25);
-    swell(130.81,base+.2,1.12,.065,.25);
-    air(base+.28,1.06,.095,-.45);
-    tone(65.41,base+1.35,1.45,.23,"sine",49);
-    tone(130.81,base+1.35,1.1,.14,"sine",123.47);
-    tone(196,base+1.37,1,.075);
-    signature(base+1.35);
-    air(base+1.42,1.18,.038,.5);
-    // Each convergence has its own gesture; nine logos share one sound envelope.
-    // The rejected opening tail stays removed. This begins in the separate logo scene.
-    air(base+timeline.agents+.62,1.05,.08,-.3);
-    swell(174.61,base+timeline.agents+.83,.83,.085,.3);
-    tone(349.23,base+timeline.agents+1.47,.38,.065,"sine",261.63);
-    // Task rows arrive with a short, low landing rather than the opening motif.
-    tone(146.83,base+timeline.gather+.15,.23,.12,"sine",82.41);
-    air(base+timeline.gather+.08,.32,.045,.25);
-    tone(220,base+7.74,.24,.075,"sine",164.81);
-    // A quiet mechanical seating sound lands at the hardware notch, not another fanfare.
-    tone(110,base+timeline.settled,.2,.085,"sine",73.42);
-    air(base+timeline.settled,.13,.035);
-    eventSound("completion",base+timeline.completed);
-    eventSound("approval",base+timeline.approval);
-    eventSound("answer",base+timeline.answer);
+    const score=AIslandIntroAudio.schedule(base,timeline,{tone,air,swell});
+    canvas.dataset.introAudioScore=JSON.stringify(score.map(({label,at,stopAt})=>({label,at,stopAt})));
   }
   const clamp=(x)=>Math.max(0,Math.min(1,x));
   function fitCanvas() { const r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);stageWidth=r.width;stageHeight=r.height;canvas.width=Math.round(r.width*d);canvas.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);draw(lastTime); }
@@ -120,8 +101,14 @@
     const scene=introText().scenes[index];
     if(index!==copyIndex){
       copyIndex=index;$("scene-kicker").textContent=scene.kicker;$("scene-title").innerHTML=scene.title;$("scene-caption").textContent=nativeReview&&scene.nativeCaption?scene.nativeCaption:scene.caption;
+      $("stage-shell").dataset.scene=String(index);
+      $("stage-copy").dataset.copyMode=index===0||index===7?"visible":"visual";
+      canvas.setAttribute("aria-label",scene.title.replace(/<br>/g," ")+" "+scene.caption);
       document.querySelectorAll(".scene-list li").forEach((el,i)=>el.classList.toggle("active",i===index));
     }
+    const smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
+    const opacity=reduceMotion?1:index===0?smooth((t-.6)/.6)*(1-smooth((t-2.5)/.42)):index===7?smooth((t-20.2)/.5):0;
+    $("stage-copy").style.opacity=String(opacity);
     $("progress-fill").style.transform=`scaleX(${clamp(t/duration)})`;
     $("play-state").textContent=playing?format(introText().status.playing,{time:t.toFixed(1),duration,muted:muted?introText().status.mutedSuffix:""}):introText().status.waiting;
   }

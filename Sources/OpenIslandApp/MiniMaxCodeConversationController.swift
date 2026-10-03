@@ -99,6 +99,7 @@ private enum MiniMaxCodeAXNavigation {
     }
     private enum DiagnosticRole: String {
         case group = "AXGroup", button = "AXButton", staticText = "AXStaticText"
+        case textField = "AXTextField", textArea = "AXTextArea", heading = "AXHeading"
         case scrollArea = "AXScrollArea", webArea = "AXWebArea", toolbar = "AXToolbar"
         case list = "AXList", outline = "AXOutline", splitGroup = "AXSplitGroup"
         case menu = "AXMenu", menuItem = "AXMenuItem", other = "AXOther"
@@ -278,6 +279,14 @@ private enum MiniMaxCodeAXNavigation {
         for surface in surfaces {
             let branch = nodes(surface, deadline, maximum: 81, depth: 8)
             guard branch.count <= 80, remaining(deadline) else { return nil }
+            if acceptanceDiagnosticsEnabled {
+                for (index, child) in branch.prefix(16).enumerated() {
+                    NSLog("aisland_minimax_navigation stage=title-branch-node index=%ld role=%@ text_matches=%d children=%ld empty_label=%d press=%d",
+                          index, DiagnosticRole(role(child)).rawValue, text(child) == title ? 1 : 0,
+                          elements(child, kAXChildrenAttribute).count,
+                          (exactLabel(child) ?? "").isEmpty ? 1 : 0, action(child, kAXPressAction) ? 1 : 0)
+                }
+            }
             let titles = branch.filter { role($0) == "AXStaticText" && text($0) == title }
             acceptanceLog(.titleBranchTitles, count: titles.count, nodes: branch.count, flag: remaining(deadline))
             guard titles.count <= 1 else { return nil }

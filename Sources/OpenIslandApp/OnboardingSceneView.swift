@@ -74,6 +74,12 @@ final class OnboardingSceneView: NSView {
             c.strokeEllipse(in: CGRect(x: x-rx, y: y-ry, width: rx*2, height: ry*2)); c.restoreGState()
         }
         title(t, w, h, motion)
+        let lightBackground = t >= 5.3 && t < 8.2 || t >= 13.2
+        let brand = NSAttributedString(string: "AIsland", attributes: [
+            .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+            .foregroundColor: NSColor(cgColor: color(lightBackground ? "24354f" : "f7f5ee"))!
+        ])
+        brand.draw(at: CGPoint(x: 30, y: max(40, window?.screen?.safeAreaInsets.top ?? 0) + 12))
     }
 
     private func background(_ c: CGContext, _ w: Double, _ h: Double, _ t: Double, _ motion: Bool) {

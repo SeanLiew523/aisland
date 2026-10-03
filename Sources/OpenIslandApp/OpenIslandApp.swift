@@ -48,7 +48,7 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
             model.disablesOverlayEventMonitoringDuringHarness =
                 harnessLaunchConfiguration.disablesOverlayEventMonitoring
             model.onStartupSetupReady = { [weak self] in self?.presentAutomaticWelcome() }
-            model.replayWelcome = { [weak self] in self?.presentWelcome() }
+            model.replayWelcome = { [weak self] in self?.presentWelcome(mode: .explicitReplay) }
             model.startIfNeeded(
                 startBridge: harnessLaunchConfiguration.shouldStartBridge,
                 shouldPerformBootAnimation: harnessLaunchConfiguration.shouldPerformBootAnimation,
@@ -102,6 +102,10 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        welcomeController.isMandatoryPlayback ? .terminateCancel : .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -158,13 +162,13 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
                 firstLaunchCompleted: model.firstLaunchCompleted
               ) else { return }
         recordWelcomeReceipt(event: .claimed, language: resolvedWelcomeLanguage())
-        presentWelcome()
+        presentWelcome(mode: .autoMandatory)
     }
 
-    private func presentWelcome() {
+    private func presentWelcome(mode: OnboardingPlaybackMode) {
         let language = resolvedWelcomeLanguage()
         let shown = welcomeController.present(
-            language: language, initiallyMuted: model.isSoundMuted,
+            language: language, mode: mode, initiallyMuted: model.isSoundMuted,
             hapticFeedbackEnabled: model.hapticFeedbackEnabled,
             completion: { [weak self] result in
                 guard let self else { return }

@@ -25,6 +25,7 @@ with tempfile.TemporaryDirectory(prefix="aisland-onboarding-tests-") as director
     shutil.copytree(root / "Sources/OpenIslandApp/Resources/Onboarding", package / "Sources/OpenIslandApp/Resources/Onboarding")
     shutil.copy2(root / "Tests/OpenIslandCoreTests/OnboardingPresentationTests.swift", package / "Tests/OpenIslandCoreTests")
     shutil.copy2(root / "Tests/OpenIslandAppTests/OnboardingRuntimeTests.swift", package / "Tests/OpenIslandAppTests")
+    shutil.copy2(root / "Tests/OpenIslandAppTests/OnboardingMandatoryPlaybackTests.swift", package / "Tests/OpenIslandAppTests")
     (package / "Package.swift").write_text('''// swift-tools-version: 6.2
 import PackageDescription
 let package = Package(name: "OnboardingVerification", platforms: [.macOS(.v14)], targets: [

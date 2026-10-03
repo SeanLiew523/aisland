@@ -14,3 +14,7 @@ This directory is reserved for durable external references that the repository w
 - summarize copyrighted material instead of copying it wholesale
 - link back to the original source whenever possible
 - use this directory for long-lived background material, not for temporary task notes
+
+## Current References
+
+- [AIsland v0.1.1 接入与 Dia 引导调研](./aisland-v0.1.1-discovery.md): installed runtime identities, current sound/onboarding behavior, and the evidence still needed for audiovisual acceptance

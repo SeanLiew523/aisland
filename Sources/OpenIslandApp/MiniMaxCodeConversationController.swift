@@ -95,6 +95,11 @@ private enum MiniMaxCodeAXNavigation {
         case titleBranchTitles = "title-branch-titles"
         case titleMenuMatches = "title-menu-matches"
         case titleMenuTimeout = "title-menu-timeout"
+        case copySubmenu = "copy-submenu"
+        case copyIDItem = "copy-id-item"
+        case pasteboardCapture = "pasteboard-capture"
+        case pasteboardIdentity = "pasteboard-identity"
+        case pasteboardRestore = "pasteboard-restore"
         case selectionTimeout = "selection-timeout"
     }
     private enum DiagnosticRole: String {
@@ -242,26 +247,58 @@ private enum MiniMaxCodeAXNavigation {
                        _ deadline: TimeInterval) -> String? {
         guard remaining(deadline), frontmost(source), let root = window(source),
               let more = titleMenuButton(root, title: record.title, deadline: deadline), press(more, deadline) else { return nil }
-        guard let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline), press(copy, deadline),
-              let copyID = waitForMenuLabel(["复制会话 ID", "Copy session ID"], source: source, deadline: deadline),
-              frontmost(source), remaining(deadline) else { return nil }
+        guard let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline), press(copy, deadline) else { return nil }
+        let opened = openCopySubmenu(copy, source: source, deadline: deadline)
+        acceptanceLog(.copySubmenu, flag: opened)
+        guard opened else { return nil }
+        let item = waitForMenuLabel(["复制会话 ID", "Copy session ID"], source: source, deadline: deadline)
+        acceptanceLog(.copyIDItem, flag: item != nil)
+        guard let copyID = item, frontmost(source), remaining(deadline) else { return nil }
         let pasteboard = NSPasteboard.general
-        guard let snapshot = MiniMaxCodePasteboardSnapshot.capture(pasteboard), remaining(deadline),
+        let captured = MiniMaxCodePasteboardSnapshot.capture(pasteboard)
+        acceptanceLog(.pasteboardCapture, flag: captured != nil)
+        guard let snapshot = captured, remaining(deadline),
               pasteboard.changeCount == snapshot.originalChangeCount, press(copyID, deadline) else { return nil }
         while remaining(deadline) {
             let producedCount = pasteboard.changeCount
             if producedCount != snapshot.originalChangeCount {
-                defer { snapshot.restore(pasteboard, ifUnchangedSince: producedCount) }
+                defer {
+                    let restored = snapshot.restore(pasteboard, ifUnchangedSince: producedCount)
+                    acceptanceLog(.pasteboardRestore, flag: restored)
+                }
                 // Read only the bounded plain text produced by the explicit
                 // public Copy session ID action; never log/persist clipboard.
                 guard let data = pasteboard.data(forType: .string), data.count <= 512,
                       pasteboard.changeCount == producedCount,
-                      let value = String(data: data, encoding: .utf8), value == record.sessionID else { return nil }
+                      let value = String(data: data, encoding: .utf8), value == record.sessionID else {
+                    acceptanceLog(.pasteboardIdentity); return nil
+                }
+                acceptanceLog(.pasteboardIdentity, flag: true)
                 return value
             }
             pause(deadline)
         }
         return nil
+    }
+    /// Native NSMenu AXPress focuses the Copy item without opening its submenu.
+    /// Use the standard right-arrow only for that exact focused menu item, in
+    /// the admitted frontmost source process. No global keyboard shortcut.
+    static func openCopySubmenu(_ copy: AXUIElement, source: MiniMaxCodeConversationUI.Source,
+                                deadline: TimeInterval) -> Bool {
+        guard remaining(deadline), AXIsProcessTrusted(), frontmost(source),
+              role(copy) == "AXMenuItem" else { return false }
+        if action(copy, kAXShowMenuAction) {
+            return AXUIElementPerformAction(copy, kAXShowMenuAction as CFString) == .success
+        }
+        let app = AXUIElementCreateApplication(source.processID)
+        guard let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
+              CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline),
+              let down = CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: false) else { return false }
+        down.flags = []; up.flags = []
+        down.postToPid(source.processID); up.postToPid(source.processID)
+        pause(deadline)
+        return remaining(deadline)
     }
 
     /// Public 3.1.0 title and global controls are separately nested. Locate

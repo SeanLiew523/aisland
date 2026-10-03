@@ -210,7 +210,7 @@ struct ZCodeConversationJumpController: Sendable {
                application: application,
                before: deadline
            ) {
-            return .focused
+            return verifyForeground(of: application, before: deadline)
         }
 
         // ZCode initially renders only a bounded number of conversations for
@@ -243,7 +243,7 @@ struct ZCodeConversationJumpController: Sendable {
                    application: application,
                    before: deadline
                ) {
-                return .focused
+                return verifyForeground(of: application, before: deadline)
             }
         }
 
@@ -251,6 +251,21 @@ struct ZCodeConversationJumpController: Sendable {
             return .unavailable("focus-timeout")
         }
         return .unavailable("sidebar-conversation-miss")
+    }
+
+    private func verifyForeground(
+        of application: NSRunningApplication,
+        before deadline: TimeInterval
+    ) -> ZCodeConversationFocusResult {
+        // Activation is asynchronous. Selecting the correct sidebar item
+        // alone does not prove that the user can see the resulting window.
+        for attempt in 0..<30 where hasTimeRemaining(before: deadline) {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+                return .focused
+            }
+            if attempt < 29 { sleep(0.05, before: deadline) }
+        }
+        return .unavailable("app-not-frontmost")
     }
 
     private func pressConversation(

@@ -403,14 +403,20 @@ struct TerminalJumpService {
                 if let conversationID = target.appConversationID?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                     !conversationID.isEmpty {
+                    // AX can select a conversation in a background Electron
+                    // window without activating its app. Ask LaunchServices
+                    // to bring the existing app forward before navigating.
+                    if appIsRunning {
+                        try openAction(["-b", "dev.zcode.app"])
+                    }
                     switch zcodeConversationFocuser(conversationID) {
                     case .focused:
-                        logJumpDiagnostics("zcode conversation focus ok")
+                        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+                        logJumpDiagnostics("zcode conversation focus ok frontmost=\(frontmost)")
                         return "Focused the ZCode conversation."
                     case let .unavailable(reason):
                         logJumpDiagnostics("zcode conversation focus miss reason=\(reason)")
                         if reason == "accessibility-unavailable", appIsRunning {
-                            try openAction(["-b", "dev.zcode.app"])
                             return "Activated ZCode. Accessibility permission is required for conversation focus."
                         }
                     }

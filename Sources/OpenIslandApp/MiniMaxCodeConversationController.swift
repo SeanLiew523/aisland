@@ -286,14 +286,13 @@ private enum MiniMaxCodeAXNavigation {
                                 deadline: TimeInterval) -> Bool {
         guard remaining(deadline), AXIsProcessTrusted(), frontmost(source),
               role(copy) == "AXMenuItem" else { return false }
-        if action(copy, kAXShowMenuAction) {
-            return AXUIElementPerformAction(copy, kAXShowMenuAction as CFString) == .success
-        }
+        // This item exposes AXShowMenu, but its success only focused Copy in
+        // the live build; it did not expose the submenu. Verify keyboard focus
+        // explicitly instead of treating an action return code as expansion.
         let app = AXUIElementCreateApplication(source.processID)
         guard let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
               CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline) else { return false }
-        // NSMenu's tracking loop needs WindowServer session delivery. Direct
-        // process posting was ignored in the live build. This is one fixed
+        // Deliver the ordinary menu arrow through WindowServer. This is one fixed
         // arrow on the exact focused Copy item, with no global shortcut and
         // no permission request. A user focus change cancels delivery.
         let canPost = CGPreflightPostEventAccess()

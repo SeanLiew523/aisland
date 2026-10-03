@@ -1717,7 +1717,11 @@ enum TerminalJumpError: Error, LocalizedError {
         case let .appleScriptFailed(message):
             "Terminal automation failed: \(message)"
         case let .conversationUnavailable(app, reason):
-            "Could not verify the \(app) conversation (\(reason))."
+            if app == "MiniMaxCode", reason == "accessibility-unavailable" {
+                "Enable Accessibility for this AIsland app in System Settings → Privacy & Security to return to the MiniMaxCode conversation."
+            } else {
+                "Could not verify the \(app) conversation (\(reason))."
+            }
         }
     }
 }

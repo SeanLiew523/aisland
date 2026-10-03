@@ -692,6 +692,22 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
+        // Hermes hooks own task state; only an unambiguous terminal locator or cwd keeps the process alive.
+        let hermesProcesses = activeProcesses.filter { $0.tool == .hermesCLI }
+        for session in sessions where session.tool == .hermesCLI && !session.isDemoSession && !session.isSessionEnded {
+            let matches = hermesProcesses.filter { process in
+                if let tty = session.jumpTarget?.terminalTTY, let processTTY = process.terminalTTY { return tty == processTTY }
+                guard let cwd = session.jumpTarget?.workingDirectory, let processCwd = process.workingDirectory else { return false }
+                return cwd == processCwd
+            }
+            if matches.count == 1 { aliveIDs.insert(session.id) }
+        }
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.deepseek.dsh").isEmpty {
+            for session in sessions where session.tool == .deepseekHarness && !session.isDemoSession && !session.isSessionEnded {
+                aliveIDs.insert(session.id)
+            }
+        }
+
         // Synthetic sessions: always alive if the process exists.
         let syntheticSessions = sessions.filter { isSyntheticClaudeSession($0) }
         for session in syntheticSessions {
@@ -1654,6 +1670,8 @@ final class ProcessMonitoringCoordinator {
             return "Oh My Pi \(session.id.prefix(8))"
         case .zcode:
             return "ZCode \(session.id.prefix(8))"
+        case .hermesCLI: return "Hermes CLI"
+        case .deepseekHarness: return "DeepSeek Harness"
         case .workbuddy:
             return "WorkBuddy \(session.id.prefix(8))"
         }

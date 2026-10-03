@@ -91,6 +91,7 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
     case processGeminiHook(GeminiHookPayload)
     case processGrokHook(GrokHookPayload)
     case processPiHook(PiHookPayload)
+    case processRuntimeLifecycleHook(RuntimeLifecycleHookPayload)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -106,6 +107,7 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
         case geminiHook
         case grokHook
         case piHook
+        case runtimeLifecycleHook
     }
 
     private enum CommandType: String, Codable {
@@ -120,6 +122,7 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
         case processGeminiHook
         case processGrokHook
         case processPiHook
+        case processRuntimeLifecycleHook
     }
 
     public init(from decoder: any Decoder) throws {
@@ -156,6 +159,8 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
             self = .processGeminiHook(try container.decode(GeminiHookPayload.self, forKey: .geminiHook))
         case .processGrokHook:
             self = .processGrokHook(try container.decode(GrokHookPayload.self, forKey: .grokHook))
+        case .processRuntimeLifecycleHook:
+            self = .processRuntimeLifecycleHook(try container.decode(RuntimeLifecycleHookPayload.self, forKey: .runtimeLifecycleHook))
         case .processPiHook:
             self = .processPiHook(try container.decode(PiHookPayload.self, forKey: .piHook))
         }
@@ -198,6 +203,9 @@ public enum BridgeCommand: Equatable, Codable, Sendable {
         case let .processGrokHook(payload):
             try container.encode(CommandType.processGrokHook, forKey: .type)
             try container.encode(payload, forKey: .grokHook)
+        case let .processRuntimeLifecycleHook(payload):
+            try container.encode(CommandType.processRuntimeLifecycleHook, forKey: .type)
+            try container.encode(payload, forKey: .runtimeLifecycleHook)
         case let .processPiHook(payload):
             try container.encode(CommandType.processPiHook, forKey: .type)
             try container.encode(payload, forKey: .piHook)

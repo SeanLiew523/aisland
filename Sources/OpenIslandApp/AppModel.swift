@@ -575,7 +575,7 @@ final class AppModel {
     private var hasStarted = false
 
     @ObservationIgnored
-    private let bridgeServer = BridgeServer()
+    private let bridgeServer = BridgeServer(runtimeLifecycleRegistryURL: BridgeSocketLocation.defaultURL.deletingLastPathComponent().appendingPathComponent("runtime-lifecycle.json"))
 
     @ObservationIgnored
     private var bridgeClient = LocalBridgeClient()

@@ -16,6 +16,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
     case ohMyPi
     case zcode
     case workbuddy
+    case hermesCLI
+    case deepseekHarness
 
     public var displayName: String {
         switch self {
@@ -47,6 +49,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "Oh My Pi"
         case .zcode:
             "ZCode"
+        case .hermesCLI: "Hermes CLI"
+        case .deepseekHarness: "DeepSeek Harness"
         case .workbuddy:
             "WorkBuddy"
         }
@@ -82,6 +86,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
             "OMP"
         case .zcode:
             "ZCODE"
+        case .hermesCLI: "HERMES"
+        case .deepseekHarness: "DEEPSEEK"
         case .workbuddy:
             "WORKBUDDY"
         }
@@ -117,6 +123,8 @@ public enum AgentTool: String, CaseIterable, Codable, Sendable {
         case .ohMyPi:     "#f472b6"
         case .zcode:      "#2dd4bf"
         case .workbuddy:  "#818cf8"
+        case .hermesCLI: "#f2ae52"
+        case .deepseekHarness: "#4d6bfe"
         }
     }
 }
@@ -187,6 +195,8 @@ public struct JumpTarget: Equatable, Codable, Sendable {
     /// `terminalApp` tag (e.g. `workbuddy://chat/<sessionID>` for WorkBuddy,
     /// `zcode://workspace/open?path=<cwd>` for ZCode); the jump opens it
     /// before falling back to plain app activation.
+    public var runtimeProfileID: String?
+    public var runtimeNavigationSocketPath: String?
     public var appDeepLinkURL: String?
 
     public init(
@@ -201,7 +211,9 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         warpPaneUUID: String? = nil,
         codexThreadID: String? = nil,
         appConversationID: String? = nil,
-        appDeepLinkURL: String? = nil
+        appDeepLinkURL: String? = nil,
+        runtimeProfileID: String? = nil,
+        runtimeNavigationSocketPath: String? = nil
     ) {
         self.terminalApp = terminalApp
         self.workspaceName = workspaceName
@@ -215,6 +227,8 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         self.codexThreadID = codexThreadID
         self.appConversationID = appConversationID
         self.appDeepLinkURL = appDeepLinkURL
+        self.runtimeProfileID = runtimeProfileID
+        self.runtimeNavigationSocketPath = runtimeNavigationSocketPath
     }
 
     /// A hook without host information must not erase an already resolved
@@ -411,6 +425,10 @@ public enum PermissionResolution: Equatable, Codable, Sendable {
     }
 }
 
+public enum RuntimeTurnOutcome: String, Codable, Sendable {
+    case succeeded, failed, interrupted, ended
+}
+
 public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     public var id: String
     public var title: String
@@ -418,6 +436,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
     public var origin: SessionOrigin?
     public var attachmentState: SessionAttachmentState
     public var phase: SessionPhase
+    public var runtimeOutcome: RuntimeTurnOutcome?
     public var summary: String
     public var updatedAt: Date
     /// First time this session appeared in local state. Written once and
@@ -488,8 +507,10 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         geminiMetadata: GeminiSessionMetadata? = nil,
         openCodeMetadata: OpenCodeSessionMetadata? = nil,
         cursorMetadata: CursorSessionMetadata? = nil,
-        piMetadata: PiSessionMetadata? = nil
+        piMetadata: PiSessionMetadata? = nil,
+        runtimeOutcome: RuntimeTurnOutcome? = nil
     ) {
+        self.runtimeOutcome = runtimeOutcome
         self.id = id
         self.title = title
         self.tool = tool
@@ -517,6 +538,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         case origin
         case attachmentState
         case phase
+        case runtimeOutcome
         case summary
         case updatedAt
         case firstSeenAt
@@ -538,6 +560,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         tool = try container.decode(AgentTool.self, forKey: .tool)
         origin = try container.decodeIfPresent(SessionOrigin.self, forKey: .origin)
         attachmentState = try container.decodeIfPresent(SessionAttachmentState.self, forKey: .attachmentState) ?? .stale
+        runtimeOutcome = try container.decodeIfPresent(RuntimeTurnOutcome.self, forKey: .runtimeOutcome)
         phase = try container.decode(SessionPhase.self, forKey: .phase)
         summary = try container.decode(String.self, forKey: .summary)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -560,6 +583,7 @@ public struct AgentSession: Equatable, Identifiable, Codable, Sendable {
         try container.encode(tool, forKey: .tool)
         try container.encodeIfPresent(origin, forKey: .origin)
         try container.encode(attachmentState, forKey: .attachmentState)
+        try container.encodeIfPresent(runtimeOutcome, forKey: .runtimeOutcome)
         try container.encode(phase, forKey: .phase)
         try container.encode(summary, forKey: .summary)
         try container.encode(updatedAt, forKey: .updatedAt)

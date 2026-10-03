@@ -151,6 +151,7 @@ public struct SessionState: Equatable, Sendable {
                 return
             }
 
+            session.runtimeOutcome = payload.runtimeOutcome
             session.phase = .completed
             session.summary = payload.summary
             session.permissionRequest = nil

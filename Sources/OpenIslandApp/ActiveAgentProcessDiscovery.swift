@@ -216,6 +216,15 @@ struct ActiveAgentProcessDiscovery {
                 continue
             }
 
+            if isHermesProcess(command: process.command) {
+                let claimKey = "hermes:\(process.pid)"
+                guard claimedKeys.insert(claimKey).inserted else { continue }
+                snapshots.append(ProcessSnapshot(tool: .hermesCLI, sessionID: nil,
+                    workingDirectory: lsofOutput(pid: process.pid).flatMap(workingDirectory(from:)),
+                    terminalTTY: process.terminalTTY, terminalApp: terminalApp(for: process, processesByPID: processesByPID)))
+                continue
+            }
+
             if isGrokProcess(command: process.command) {
                 let claimKey = "grok:\(process.pid)"
                 guard claimedKeys.insert(claimKey).inserted else {
@@ -828,6 +837,14 @@ struct ActiveAgentProcessDiscovery {
     /// Matches the Grok Build / Grok CLI entry-point (`grok` under `~/.grok/bin`
     /// or on PATH). Avoids matching incidental paths that merely contain the
     /// substring "grok".
+    private func isHermesProcess(command: String) -> Bool {
+        let tokens = command.split(separator: " ").map(String.init)
+        guard let first = tokens.first else { return false }
+        if (first as NSString).lastPathComponent == "hermes" { return true }
+        guard (first as NSString).lastPathComponent.hasPrefix("python") else { return false }
+        return tokens.dropFirst().contains { $0.hasSuffix("/hermes_cli/main.py") || $0 == "hermes_cli.main" || $0.hasSuffix("/bin/hermes") }
+    }
+
     private func isGrokProcess(command: String) -> Bool {
         let lowered = command.lowercased()
         guard let firstToken = lowered.split(separator: " ").first.map(String.init) else {

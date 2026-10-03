@@ -89,11 +89,14 @@ public final class BridgeServer: @unchecked Sendable {
     /// state — it only contains sessions created via bridge hooks and is
     /// overwritten whenever AppModel pushes a fresh snapshot.
     private var localState = SessionState()
+    private var runtimeLifecycleReducer: RuntimeLifecycleReducer
 
     public init(
-        socketURL: URL = BridgeSocketLocation.defaultURL
+        socketURL: URL = BridgeSocketLocation.defaultURL,
+        runtimeLifecycleRegistryURL: URL? = nil
     ) {
         self.socketURL = socketURL
+        self.runtimeLifecycleReducer = RuntimeLifecycleReducer(registryURL: runtimeLifecycleRegistryURL)
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -318,6 +321,10 @@ public final class BridgeServer: @unchecked Sendable {
             client.role = role
             clients[clientID] = client
             send(.response(.acknowledged), to: clientID)
+            for event in runtimeLifecycleReducer.restoredEvents {
+                localState.apply(event)
+                send(.event(event), to: clientID)
+            }
 
         case let .requestQuestion(sessionID, prompt):
             guard hasSession(id: sessionID) else {
@@ -480,6 +487,9 @@ public final class BridgeServer: @unchecked Sendable {
 
         case let .processGrokHook(payload):
             handleGrokHook(payload, from: clientID)
+        case let .processRuntimeLifecycleHook(payload):
+            for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
+            send(.response(.acknowledged), to: clientID)
         case let .processPiHook(payload):
             handlePiHook(payload, from: clientID)
         }

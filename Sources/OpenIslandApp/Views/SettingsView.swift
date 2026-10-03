@@ -776,6 +776,8 @@ struct SetupSettingsPane: View {
                     Text("This will remove AIsland hooks from ~/.grok/hooks/open-island.json.")
                 }
 
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang)
+
                 hookRow(
                     name: "Pi",
                     installed: model.piExtensionInstalled,

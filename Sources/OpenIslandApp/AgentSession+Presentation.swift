@@ -86,7 +86,31 @@ extension AgentSession {
         return URL(fileURLWithPath: transcriptPath).lastPathComponent
     }
 
+    var runtimeOutcomeLabel: String? {
+        guard tool == .hermesCLI || tool == .deepseekHarness else { return nil }
+        switch runtimeOutcome {
+        case .succeeded: return "Turn completed"
+        case .failed: return "Turn failed"
+        case .interrupted: return "Turn interrupted"
+        case .ended: return "Session ended"
+        case nil: return nil
+        }
+    }
+
+    func localizedRuntimeStatus(using lang: LanguageManager) -> String? {
+        guard tool == .hermesCLI || tool == .deepseekHarness else { return nil }
+        guard lang.language.resolvedCode.hasPrefix("zh") else { return runtimeOutcomeLabel ?? (phase == .running ? "Running" : nil) }
+        switch runtimeOutcome {
+        case .succeeded: return "回合已完成"
+        case .failed: return "回合失败"
+        case .interrupted: return "回合已中断"
+        case .ended: return "会话已结束"
+        case nil: return phase == .running ? "运行中" : nil
+        }
+    }
+
     var spotlightStatusLabel: String {
+        if let label = runtimeOutcomeLabel, phase == .completed { return label }
         switch phase {
         case .running:
             if let currentTool = spotlightCurrentToolLabel {
@@ -236,6 +260,8 @@ extension AgentSession {
             return "Oh My Pi"
         case .zcode:
             return "ZCode"
+        case .hermesCLI: return "Hermes CLI"
+        case .deepseekHarness: return "DeepSeek Harness"
         case .workbuddy:
             return "WorkBuddy"
         }
@@ -280,7 +306,7 @@ extension AgentSession {
                 return assistantMessage
             }
 
-            return jumpTarget != nil ? "Ready" : "Completed"
+            return runtimeOutcomeLabel ?? (jumpTarget != nil ? "Ready" : "Completed")
         }
     }
 
@@ -307,6 +333,7 @@ extension AgentSession {
     }
 
     func spotlightShowsDetailLines(at referenceDate: Date) -> Bool {
+        if runtimeOutcome != nil { return true }
         if phase == .running || phase.requiresAttention {
             return true
         }

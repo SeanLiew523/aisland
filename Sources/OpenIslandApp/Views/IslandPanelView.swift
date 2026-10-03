@@ -1391,7 +1391,7 @@ private struct IslandSessionRow: View {
     private func rowAuxiliaryDetails(presence: IslandSessionPresence) -> some View {
         if !shouldShowEmbeddedDetailBody,
            let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
-            Text(activityLine)
+            Text(session.localizedRuntimeStatus(using: lang) ?? activityLine)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(activityColor(for: presence).opacity(0.94))
                 .lineLimit(2)
@@ -1870,6 +1870,7 @@ private struct IslandSessionRow: View {
     // MARK: - Actionable helpers
 
     private var completionMessageText: String {
+        if let runtimeStatus = session.localizedRuntimeStatus(using: lang) { return runtimeStatus }
         if let text = session.completionAssistantMessageText?.trimmedForNotificationCard, !text.isEmpty {
             return text
         }
@@ -2006,7 +2007,10 @@ private struct IslandSessionRow: View {
     }
 
     private var statusGlyphName: String {
-        switch session.phase {
+        if session.runtimeOutcome == .failed { return "xmark.circle.fill" }
+        if session.runtimeOutcome == .interrupted { return "pause.circle.fill" }
+        if session.runtimeOutcome == .ended { return "minus.circle.fill" }
+        return switch session.phase {
         case .waitingForApproval:
             "exclamationmark.triangle.fill"
         case .waitingForAnswer:
@@ -2102,7 +2106,9 @@ private struct IslandSessionRow: View {
     }
 
     private func statusTint(for presence: IslandSessionPresence) -> Color {
-        IslandDesignPalette.Status.tint(for: session.phase, presence: presence)
+        if session.runtimeOutcome == .failed { return .red.opacity(presence == .inactive ? 0.45 : 0.9) }
+        if session.runtimeOutcome == .interrupted || session.runtimeOutcome == .ended { return .gray }
+        return IslandDesignPalette.Status.tint(for: session.phase, presence: presence)
     }
 
     private func activityColor(for presence: IslandSessionPresence) -> Color {

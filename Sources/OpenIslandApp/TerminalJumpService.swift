@@ -11,6 +11,7 @@ struct TerminalJumpService {
     typealias ProcessRunner = @Sendable (String, [String]) -> Bool
     typealias WarpFocusedPaneReader = @Sendable () -> String?
     typealias WarpTabCountReader = @Sendable () -> Int
+    typealias DeepSeekNavigator = @Sendable (JumpTarget) throws -> Void
     typealias ZCodeConversationFocuser = @Sendable (String) -> ZCodeConversationFocusResult
     /// Returns true when Warp is the system's frontmost app and ready to
     /// receive the next tab-advance command. Production asks
@@ -145,6 +146,11 @@ struct TerminalJumpService {
             aliases: ["zcode", "zcode.app"]
         ),
         TerminalAppDescriptor(
+            displayName: "DeepSeek Harness.app",
+            bundleIdentifier: "com.deepseek.dsh",
+            aliases: ["deepseek harness.app", "deepseek harness"]
+        ),
+        TerminalAppDescriptor(
             displayName: "WorkBuddy.app",
             bundleIdentifier: "com.tencent.workbuddy.mac",
             aliases: ["workbuddy", "workbuddy.app"]
@@ -243,6 +249,7 @@ struct TerminalJumpService {
     private let warpTabCountReader: WarpTabCountReader
     private let warpKeystroker: KeystrokeInjector
     private let warpFrontmostChecker: WarpFrontmostChecker
+    private let deepseekNavigator: DeepSeekNavigator
     private let zcodeConversationFocuser: ZCodeConversationFocuser
 
     init(
@@ -265,6 +272,7 @@ struct TerminalJumpService {
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 == "dev.warp.Warp-Stable"
         },
+        deepseekNavigator: @escaping DeepSeekNavigator = { try DeepSeekNavigationClient().dispatch(target: $0) },
         zcodeConversationFocuser: @escaping ZCodeConversationFocuser = { conversationID in
             ZCodeConversationJumpController().focus(conversationID: conversationID)
         }
@@ -278,6 +286,7 @@ struct TerminalJumpService {
         self.warpTabCountReader = warpTabCountReader
         self.warpKeystroker = warpKeystroker
         self.warpFrontmostChecker = warpFrontmostChecker
+        self.deepseekNavigator = deepseekNavigator
         self.zcodeConversationFocuser = zcodeConversationFocuser
     }
 
@@ -367,6 +376,10 @@ struct TerminalJumpService {
 
         if let descriptor {
             switch resolvedBundleIdentifier ?? descriptor.bundleIdentifier {
+            case "com.deepseek.dsh":
+                try deepseekNavigator(target)
+                try openAction(["-b", "com.deepseek.dsh"])
+                return "Sent the DeepSeek conversation navigation request. Verify the selected conversation in DeepSeek."
             case "com.openai.codex":
                 // If we have a thread ID, use the codex:// URL scheme to
                 // open the specific conversation directly.  Otherwise just

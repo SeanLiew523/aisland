@@ -1,0 +1,10 @@
+{
+  "name": "@aisland/minimaxcode-passive-plugin",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check scripts/core.mjs && node --check scripts/hook.mjs && node --check plan.mjs"
+  }
+}

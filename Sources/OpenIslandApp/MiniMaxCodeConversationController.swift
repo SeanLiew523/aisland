@@ -267,7 +267,27 @@ private enum MiniMaxCodeAXNavigation {
     /// English captions come from bundled 3.1.0 locale chunk 88822.
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval) -> AXUIElement? {
         var matches: [AXUIElement] = []
-        for group in nodes(root, deadline) {
+        let visited = nodes(root, deadline)
+        if acceptanceDiagnosticsEnabled {
+            let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
+            let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
+            let titles = visited.filter { text($0) == title }
+            NSLog("aisland_minimax_navigation stage=topbar-anchors chooser=%ld terminal=%ld title=%ld nodes=%ld",
+                  choosers.count, terminals.count, titles.count, visited.count)
+            if choosers.count == 1 {
+                var node = choosers[0]
+                for index in 0..<3 where remaining(deadline) {
+                    guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
+                    node = unsafeDowncast(parent, to: AXUIElement.self)
+                    let children = elements(node, kAXChildrenAttribute)
+                    let directTitles = children.filter { text($0) == title }.count
+                    NSLog("aisland_minimax_navigation stage=topbar-parent index=%ld role=%@ children=%ld direct_titles=%ld child_roles=%@",
+                          index + 1, DiagnosticRole(role(node)).rawValue, children.count, directTitles,
+                          children.prefix(12).map { DiagnosticRole(role($0)).rawValue }.joined(separator: ","))
+                }
+            }
+        }
+        for group in visited {
             let children = elements(group, kAXChildrenAttribute)
             if acceptanceDiagnosticsEnabled, children.count >= 5 {
                 let titleChildren = children.filter {

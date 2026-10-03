@@ -95,6 +95,7 @@ private enum MiniMaxCodeAXNavigation {
         case titleMenuTimeout = "title-menu-timeout"
         case copySubmenu = "copy-submenu"
         case copyKeyDelivery = "copy-key-delivery"
+        case copyFocus = "copy-focus"
         case copyIDItem = "copy-id-item"
         case pasteboardCapture = "pasteboard-capture"
         case pasteboardIdentity = "pasteboard-identity"
@@ -284,14 +285,29 @@ private enum MiniMaxCodeAXNavigation {
     /// the admitted frontmost source process. No global keyboard shortcut.
     static func openCopySubmenu(_ copy: AXUIElement, source: MiniMaxCodeConversationUI.Source,
                                 deadline: TimeInterval) -> Bool {
+        if acceptanceDiagnosticsEnabled {
+            NSLog("aisland_minimax_navigation stage=copy-guard role=%@ frontmost=%d trusted=%d remaining=%d",
+                  DiagnosticRole(role(copy)).rawValue, frontmost(source) ? 1 : 0,
+                  AXIsProcessTrusted() ? 1 : 0, remaining(deadline) ? 1 : 0)
+        }
         guard remaining(deadline), AXIsProcessTrusted(), frontmost(source),
               role(copy) == "AXMenuItem" else { return false }
         // This item exposes AXShowMenu, but its success only focused Copy in
         // the live build; it did not expose the submenu. Verify keyboard focus
         // explicitly instead of treating an action return code as expansion.
         let app = AXUIElementCreateApplication(source.processID)
-        guard let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
-              CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline) else { return false }
+        var focusedCopy = false
+        // AXPress updates the native menu focus asynchronously. Do not send
+        // any input until the exact item is observed, within the same deadline.
+        while remaining(deadline), frontmost(source) {
+            if let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
+               CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy) {
+                focusedCopy = true; break
+            }
+            pause(deadline)
+        }
+        acceptanceLog(.copyFocus, flag: focusedCopy)
+        guard focusedCopy, remaining(deadline), frontmost(source) else { return false }
         // Deliver the ordinary menu arrow through WindowServer. This is one fixed
         // arrow on the exact focused Copy item, with no global shortcut and
         // no permission request. A user focus change cancels delivery.

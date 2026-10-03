@@ -40,7 +40,7 @@ struct NotificationSoundService {
     static func play(_ name: String) -> Bool {
         stop()
         guard let player = systemPlayer(name) else { return false }
-        return playback.play(player)
+        return playback.play(player, fallback: { systemPlayer(defaultSoundName) })
     }
 
     /// Explicit previews ignore automatic-notification mute and play the full audio.
@@ -48,14 +48,15 @@ struct NotificationSoundService {
     static func preview(category: NotificationSoundCategory) -> Bool {
         stop()
         guard let player = player(for: category) else { return false }
-        return playback.play(player)
+        return playback.play(player, fallback: { systemPlayer(defaultSoundName) })
     }
 
     static func playNotification(category: NotificationSoundCategory, isMuted: Bool) {
+        guard !isMuted else { return }
         stop()
-        guard !isMuted, let player = player(for: category) else { return }
+        guard let player = player(for: category) else { return }
         let limit: TimeInterval? = store.playbackMode == .shortFade ? 5 : nil
-        playback.play(player, limit: limit)
+        playback.play(player, limit: limit, fallback: { systemPlayer(defaultSoundName) })
     }
 
     static func playNotification(isMuted: Bool) {
@@ -81,9 +82,19 @@ struct NotificationSoundService {
 }
 
 @MainActor
-private final class MP3Player: NotificationSoundPlayer {
+private final class MP3Player: NSObject, NotificationSoundPlayer, AVAudioPlayerDelegate {
     let audio: AVAudioPlayer
-    init(_ audio: AVAudioPlayer) { self.audio = audio }
+    var failureHandler: (@MainActor () -> Void)?
+    init(_ audio: AVAudioPlayer) {
+        self.audio = audio
+        super.init()
+        audio.delegate = self
+    }
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        // Each service request creates a distinct wrapper. The playback owner also checks
+        // generation and player identity before accepting this asynchronously delivered failure.
+        Task { @MainActor [weak self] in self?.failureHandler?() }
+    }
     var duration: TimeInterval { audio.duration }
     var volume: Float { get { audio.volume } set { audio.volume = newValue } }
     func play() -> Bool { audio.numberOfLoops = 0; return audio.play() }
@@ -93,6 +104,7 @@ private final class MP3Player: NotificationSoundPlayer {
 @MainActor
 private final class SystemPlayer: NotificationSoundPlayer {
     let sound: NSSound
+    var failureHandler: (@MainActor () -> Void)?
     init(_ sound: NSSound) { self.sound = sound }
     var duration: TimeInterval { sound.duration }
     var volume: Float { get { sound.volume } set { sound.volume = newValue } }

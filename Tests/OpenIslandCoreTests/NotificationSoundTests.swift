@@ -218,6 +218,7 @@ private final class TestSoundPlayer: NotificationSoundPlayer {
     let duration: TimeInterval
     var volume: Float = 1 { didSet { volumes.append(volume) } }
     var volumes: [Float] = []
+    var failureHandler: (@MainActor () -> Void)?
     var plays = 0
     var stops = 0
     var succeeds = true
@@ -287,4 +288,128 @@ struct NotificationSoundPlaybackTests {
         #expect(!(owner.isPlaying))
         #expect(failed.stops == 1)
     }
+
+    @MainActor
+    @Test
+    func testMutedAutomaticEventLeavesManualPreviewUntilGlobalMuteChanges() {
+        let owner = NotificationSoundPlayback()
+        let preview = TestSoundPlayer(duration: 1)
+        let suppressed = TestSoundPlayer(duration: 1)
+        var fallbackAttempts = 0
+        #expect(owner.play(preview))
+        #expect(!owner.play(suppressed, isMuted: true, fallback: { fallbackAttempts += 1; return nil }))
+        #expect(owner.isPlaying)
+        #expect(preview.stops == 0)
+        #expect(suppressed.plays == 0)
+        #expect(suppressed.stops == 0)
+        #expect(fallbackAttempts == 0)
+        owner.setMuted(true)
+        #expect(!owner.isPlaying)
+        #expect(preview.stops == 1)
+    }
+
+    @MainActor
+    @Test
+    func testStartFailureUsesExactlyOneFallbackAndFallbackFailureStops() {
+        let owner = NotificationSoundPlayback()
+        let failed = TestSoundPlayer(duration: 1)
+        failed.succeeds = false
+        let replacement = TestSoundPlayer(duration: 1)
+        var attempts = 0
+        #expect(owner.play(failed, fallback: { attempts += 1; return replacement }))
+        #expect(failed.stops == 1)
+        #expect(failed.failureHandler == nil)
+        #expect(replacement.plays == 1)
+        #expect(attempts == 1)
+        owner.stop()
+        replacement.succeeds = false
+        #expect(!owner.play(failed, fallback: { attempts += 1; return replacement }))
+        #expect(!owner.isPlaying)
+        #expect(attempts == 2)
+        #expect(replacement.plays == 2)
+        #expect(replacement.failureHandler == nil)
+    }
+
+    @MainActor
+    @Test
+    func testDecodeFailureFallsBackOnceAndRejectsStaleCallbacks() {
+        let owner = NotificationSoundPlayback()
+        let decoded = TestSoundPlayer(duration: 1)
+        let replacement = TestSoundPlayer(duration: 1)
+        var attempts = 0
+        owner.play(decoded, fallback: { attempts += 1; return replacement })
+        let oldCallback = decoded.failureHandler
+        oldCallback?()
+        #expect(attempts == 1)
+        #expect(decoded.stops == 1)
+        #expect(replacement.plays == 1)
+        oldCallback?()
+        #expect(attempts == 1)
+        #expect(replacement.stops == 0)
+        // A failure in the fallback terminates playback rather than retrying again.
+        replacement.failureHandler?()
+        #expect(!owner.isPlaying)
+        #expect(attempts == 1)
+        #expect(replacement.stops == 1)
+        let newest = TestSoundPlayer(duration: 1)
+        owner.play(newest)
+        oldCallback?()
+        #expect(newest.stops == 0)
+        #expect(attempts == 1)
+        owner.stop()
+    }
+
+    @MainActor
+    @Test
+    func testQueuedFailureAfterStopOrReplacementCannotStartFallback() {
+        let owner = NotificationSoundPlayback()
+        let original = TestSoundPlayer(duration: 1)
+        var attempts = 0
+        owner.play(original, fallback: { attempts += 1; return TestSoundPlayer(duration: 1) })
+        let stale = original.failureHandler
+        owner.setMuted(true)
+        stale?()
+        #expect(!owner.isPlaying)
+        #expect(attempts == 0)
+        owner.play(original, fallback: { attempts += 1; return TestSoundPlayer(duration: 1) })
+        let beforeReplacement = original.failureHandler
+        let current = TestSoundPlayer(duration: 1)
+        owner.play(current)
+        beforeReplacement?()
+        #expect(attempts == 0)
+        #expect(current.stops == 0)
+        owner.stop()
+    }
+
+    @MainActor
+    @Test
+    func testRuntimeFallbackKeepsAutomaticDeadlineInsteadOfRestartingLimit() async throws {
+        let owner = NotificationSoundPlayback()
+        let original = TestSoundPlayer(duration: 1)
+        let replacement = TestSoundPlayer(duration: 1)
+        owner.play(original, limit: 0.4, fadeDuration: 0, fallback: { replacement })
+        try await Task.sleep(for: .milliseconds(200))
+        original.failureHandler?()
+        #expect(replacement.plays == 1)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!owner.isPlaying)
+        #expect(replacement.stops == 1)
+    }
+
+    @MainActor
+    @Test
+    func testPreviewStartFailureStillPlaysFullFallback() async throws {
+        let owner = NotificationSoundPlayback()
+        let original = TestSoundPlayer(duration: 1)
+        original.succeeds = false
+        let replacement = TestSoundPlayer(duration: 0.3)
+        #expect(owner.play(original, fallback: { replacement }))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(owner.isPlaying)
+        #expect(replacement.volume == 1)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!owner.isPlaying)
+        #expect(replacement.stops == 1)
+    }
+
 }

@@ -27,11 +27,15 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/exec-plans/active/aisland-v0.1.1-requirements.md](./exec-plans/active/aisland-v0.1.1-requirements.md) for the confirmed v0.1.1 scope and staged acceptance plan
 - [docs/exec-plans/active/aisland-v0.1.1-runtime-acceptance.md](./exec-plans/active/aisland-v0.1.1-runtime-acceptance.md) for approved intro finalization, passive MiniMaxCode desktop/CLI scope and real app verification
 - [docs/exec-plans/active/aisland-v0.1.1-stage-1.md](./exec-plans/active/aisland-v0.1.1-stage-1.md) for the first audiovisual prototype, integration capability review, and required user effect checkpoints
-- [docs/exec-plans/active/aisland-v0.1.1-intro-revision-6.md](./exec-plans/active/aisland-v0.1.1-intro-revision-6.md) for the current visual storytelling and progressive audio prototype, verified playback and pending effect confirmation
+- [docs/exec-plans/active/aisland-v0.1.1-intro-revision-6.md](./exec-plans/active/aisland-v0.1.1-intro-revision-6.md) for the current visual storytelling and progressive audio prototype, verified playback and the user-approved V6 baseline
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-5.md](./exec-plans/active/aisland-v0.1.1-intro-revision-5.md) for the user-selected rollback baseline at 86f2865
 - [docs/exec-plans/active/aisland-v0.1.1-intro-next-iteration.md](./exec-plans/active/aisland-v0.1.1-intro-next-iteration.md) for the authorized sound progression and visual storytelling iteration and its review gate
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-2.md](./exec-plans/active/aisland-v0.1.1-intro-revision-2.md), [revision 3](./exec-plans/active/aisland-v0.1.1-intro-revision-3.md) and [revision 4](./exec-plans/active/aisland-v0.1.1-intro-revision-4.md) for the previous effect feedback and revisions
 - [docs/exec-plans/active/aisland-v0.1.1-native-first-slice.md](./exec-plans/active/aisland-v0.1.1-native-first-slice.md) for integrated source/sound checks and the next real effect acceptance checkpoints
+- [docs/exec-plans/active/v0.1.1-native-intro-implementation.md](./exec-plans/active/v0.1.1-native-intro-implementation.md) for the approved native introduction, first-launch persistence, language and isolated acceptance bundle
+- [docs/exec-plans/active/v0.1.1-minimaxcode-passive.md](./exec-plans/active/v0.1.1-minimaxcode-passive.md) for passive desktop/CLI identity, committed-result observation and verification boundaries
+- [docs/exec-plans/active/v0.1.1-hermes-live-verification.md](./exec-plans/active/v0.1.1-hermes-live-verification.md) for the real isolated Hermes task and remaining native checks
+- [docs/exec-plans/active/v0.1.1-deepseek-live-verification.md](./exec-plans/active/v0.1.1-deepseek-live-verification.md) for actual Desktop plugin loading, success and interruption evidence
 - [docs/exec-plans/active/v0.1.1-hermes-implementation.md](./exec-plans/active/v0.1.1-hermes-implementation.md) for Hermes lifecycle, shared metadata bridge, restoration and DeepSeek navigation
 - [docs/exec-plans/active/v0.1.1-custom-sounds-implementation.md](./exec-plans/active/v0.1.1-custom-sounds-implementation.md) for managed MP3 storage, playback and native acceptance boundaries
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines

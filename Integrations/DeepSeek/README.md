@@ -1,6 +1,6 @@
 # DeepSeek Harness 桌面源插件（v0.1.1 第一切片）
 
-插件为官方 DeepSeek Harness Desktop 提供未来任务的元数据事件与精确 ID 导航桥。当前状态为代码和隔离测试通过；尚未安装进真实桌面 profile，真实任务、会话选择、前台与通知声音均未验收。审批/问答本轮未提供可操作按钮。
+插件为官方 DeepSeek Harness Desktop 提供未来任务的元数据事件与精确 ID 导航桥。当前已在本机真实桌面 profile 加载，并验证专用任务的成功与中止事件；会话选择、前台与 native 通知声音仍待正式验收 App 检查。详细证据见 [真实接入验证](../../docs/exec-plans/active/v0.1.1-deepseek-live-verification.md)。审批/问答本轮未提供可操作按钮。
 
 ## 来源与版本边界
 
@@ -57,7 +57,7 @@ Bridge 使用 UTF-8 newline JSON，结构为：
 
 宿主通过 source 的认证 `/aisland-deepseek` RPC channel 提供 `poll` 与 `ack`。浏览器默认每 500ms 领取一个导航请求，调用 `openSession(request.session_id)`，回传相同身份与 `dispatched/failed`。源客户端退出或卸载后过期请求回失败；没有执行真实任务的外部 API。`dsh://open` 只可用于独立窗口聚焦步骤，不拼造 `/session` 深链接。
 
-## 安装与卸载（本轮未执行）
+## 安装与卸载
 
 先运行只检查插件本身并打印命令的 dry-run：
 
@@ -65,7 +65,7 @@ Bridge 使用 UTF-8 newline JSON，结构为：
 node Integrations/DeepSeek/plan.mjs
 ```
 
-该脚本不运行 DeepSeek CLI、不读写真实 profile、不退出或打开任何 app。正式安装需要在下一阶段效果验证获准后进行，按官方桌面流程：先启动桌面一次初始化 profile，然后完全退出桌面。保持同一个 `DSH_HOME`，用随包 CLI；npm 安装的 dsh 不能修改 desktop profile。
+该脚本不运行 DeepSeek CLI、不读写真实 profile、不退出或打开任何 app。用户已授权本机四来源真实验收；后续安装按官方桌面流程：先启动桌面一次初始化 profile，然后完全退出桌面。保持同一个 `DSH_HOME`，用随包 CLI；npm 安装的 dsh 不能修改 desktop profile。
 
 执行前另存 `$DSH_HOME/profiles/desktop` 下已有 `package.json`、`cordis.patch.yml`、pnpm lock/workspace 配置（默认 DSH_HOME 为 `~/.dsh`），并记录原 bundles 与 dependencies。随后：
 
@@ -114,7 +114,7 @@ node Integrations/DeepSeek/plan.mjs
 
 最终 22 项通过；另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
 
-下一效果节点应先评审该代码与 native 联调结果，再获准安装；用可丢弃测试目录与专用会话检查成功、失败、取消、两个并行任务、重复标题、源退出/恢复、AIsland 重启与桥断连。分别记录确切会话选中、内容加载、macOS 前台及通知声音；完成后卸载确认原 profile 保留。审批/问答下一切片再核对 `approval/request` waterfall 与 userQuestions 的归属、取消及操作回传，未接通前不可显示可操作审批/回答。
+已用可丢弃测试目录与专用会话验证成功和取消；后续继续检查成功、失败、取消、两个并行任务、重复标题、源退出/恢复、AIsland 重启与桥断连。分别记录确切会话选中、内容加载、macOS 前台及通知声音；完成后卸载确认原 profile 保留。审批/问答下一切片再核对 `approval/request` waterfall 与 userQuestions 的归属、取消及操作回传，未接通前不可显示可操作审批/回答。
 
 ## Official linked-plugin loading compatibility
 

@@ -31,14 +31,14 @@ func captureRows() throws {
                                    useDrawingGroup: false, isInteractive: false,
                                    onApprove: nil, onAnswer: nil, onReply: nil,
                                    onJump: {}, onDismiss: nil)
-            .frame(width: 640)
+            .frame(width: 360)
             .fixedSize(horizontal: false, vertical: true)
             .background(V6Palette.ink)
             .environment(\.colorScheme, .dark)
             .environment(\.locale, Locale(identifier: language))
         let renderer = ImageRenderer(content: row)
         renderer.scale = 2
-        renderer.proposedSize = ProposedViewSize(width: 640, height: nil)
+        renderer.proposedSize = ProposedViewSize(width: 360, height: nil)
         guard let cgImage = renderer.cgImage else {
             throw NSError(domain: "NativeRows", code: 2, userInfo: [NSLocalizedDescriptionKey: "ImageRenderer failed for \(slug)"])
         }

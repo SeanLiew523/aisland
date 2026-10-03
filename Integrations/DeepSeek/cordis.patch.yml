@@ -1,0 +1,3 @@
+- insert:
+    - id: aisland-deepseek
+      name: '@aisland/deepseek-harness-plugin'

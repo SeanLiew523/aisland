@@ -1,0 +1,14 @@
+{
+  "name": "@aisland/deepseek-harness-plugin",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.mjs", "./client": "./client.js" },
+  "files": ["index.mjs", "core.mjs", "client.js", "cordis.patch.yml"],
+  "scripts": { "test": "node --test test/*.test.mjs", "check": "node --check index.mjs && node --check core.mjs && node --check client.js" },
+  "dependencies": { "@deepseek-ai/schemastery": "~3.18.4" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-workspace"] }
+  }
+}

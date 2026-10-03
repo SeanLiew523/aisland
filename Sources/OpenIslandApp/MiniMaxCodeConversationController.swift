@@ -80,6 +80,8 @@ private enum MiniMaxCodeAXNavigation {
         .hasPrefix("dev.aisland.v011.acceptance.") == true
     private enum AcceptanceStage: String {
         case windowQuery = "window-query"
+        case windowSnapshot = "window-snapshot"
+        case windowCandidates = "window-candidates"
         case projectHeaders = "project-headers"
         case projectHeaderLabelUnavailable = "project-header-label-unavailable"
         case projectParent = "project-parent"
@@ -97,9 +99,45 @@ private enum MiniMaxCodeAXNavigation {
         case scrollArea = "AXScrollArea", webArea = "AXWebArea", toolbar = "AXToolbar"
         case list = "AXList", outline = "AXOutline", splitGroup = "AXSplitGroup"
         case menu = "AXMenu", menuItem = "AXMenuItem", other = "AXOther"
+        case window = "AXWindow"
         init(_ value: String?) {
             self = Self(rawValue: value ?? "") ?? .other
         }
+    }
+    private enum DiagnosticWindowSubrole: String {
+        case standard = "AXStandardWindow", dialog = "AXDialog", systemDialog = "AXSystemDialog"
+        case floating = "AXFloatingWindow", systemFloating = "AXSystemFloatingWindow", other = "AXOther"
+        init(_ value: String?) {
+            self = Self(rawValue: value ?? "") ?? .other
+        }
+    }
+    private static func acceptanceWindowLog(_ windows: [AXUIElement]) {
+        // Ordinary bundles must not make these additional AX queries.
+        guard acceptanceDiagnosticsEnabled else { return }
+        var titleCandidates = 0, mainCandidates = 0, focusedCandidates = 0
+        let sampled = windows.prefix(4)
+        for (index, window) in sampled.enumerated() {
+            let windowRole = DiagnosticRole(role(window))
+            let subrole = DiagnosticWindowSubrole(value(window, kAXSubroleAttribute) as? String)
+            let main = bool(window, kAXMainAttribute)
+            let focused = bool(window, kAXFocusedAttribute)
+            let minimized = bool(window, kAXMinimizedAttribute)
+            let titleMatches = (value(window, kAXTitleAttribute) as? String) == "MiniMax Code"
+            let canRaise = action(window, kAXRaiseAction)
+            if windowRole == .window && titleMatches { titleCandidates += 1 }
+            if main == true { mainCandidates += 1 }
+            if focused == true { focusedCandidates += 1 }
+            // Titles are compared in memory; all printed strings are closed enums.
+            // AX booleans use -1 for unavailable, 0 for false, and 1 for true.
+            NSLog("aisland_minimax_navigation stage=%@ index=%ld role=%@ subrole=%@ main=%ld focused=%ld minimized=%ld title_matches=%d can_raise=%d",
+                  AcceptanceStage.windowSnapshot.rawValue, index + 1, windowRole.rawValue, subrole.rawValue,
+                  main.map { $0 ? 1 : 0 } ?? -1, focused.map { $0 ? 1 : 0 } ?? -1,
+                  minimized.map { $0 ? 1 : 0 } ?? -1, titleMatches ? 1 : 0, canRaise ? 1 : 0)
+        }
+        // These are diagnostic counts within the sample, not a selection policy.
+        NSLog("aisland_minimax_navigation stage=%@ count=%ld sampled=%ld truncated=%d title_candidates=%ld main_candidates=%ld focused_candidates=%ld",
+              AcceptanceStage.windowCandidates.rawValue, windows.count, sampled.count,
+              sampled.count < windows.count ? 1 : 0, titleCandidates, mainCandidates, focusedCandidates)
     }
     private static func acceptanceLog(_ stage: AcceptanceStage, count: Int = 0,
                                       nodes: Int = 0, error: Int = 0, flag: Bool = false) {
@@ -313,6 +351,7 @@ private enum MiniMaxCodeAXNavigation {
         let error = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &output)
         let values = error == .success ? (output as? [AXUIElement] ?? []) : []
         acceptanceLog(.windowQuery, count: values.count, error: Int(error.rawValue), flag: error == .success)
+        acceptanceWindowLog(values)
         // Multiple source windows require an explicit discriminator; don't
         // choose the first one or open/close a source window to manufacture it.
         return values.count == 1 ? values[0] : nil

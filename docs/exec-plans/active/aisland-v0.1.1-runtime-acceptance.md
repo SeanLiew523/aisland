@@ -20,3 +20,16 @@
 ## 完成判据
 
 每个来源分别给出真实验证结果与缺口；引导提供原生首启和再次启动的实际窗口/持久化证据。只有通过四来源及应用检查后才报告整体验收包可审阅；不自动发布、推送、公证或接手 v0.1.0 发布。
+
+## 实际进度（四来源 gate 未全部通过）
+
+Hermes CLI 的隔离真实任务已成功，DeepSeek Harness Desktop 已验证真实成功与中止；
+DeepSeek exact ID 导航 RPC 实际返回 dispatched，并通过来源 UI 确认对应会话已选中及
+完成内容已显示。MiniMaxCode Desktop 已验证真实成功与中止，CLI 普通 mcode 当前
+因未登录而未能开始真实任务，等待用户选择账号区域/登录。三者的 native AIsland
+通知、最终 App 点击导航与声音还不能只凭 bridge/source UI 报告通过。
+
+原生 V6 引导、首次 claim/持久化、系统语言解析、独立验收构建基础设施已实现；
+Core 与 App 目标构建及相关隔离检查已通过。已准备完整验收包的 plan-only 输出，
+但尚未执行 --build、安装或启动整体 App；按用户顺序等待四来源实测 gate。独立
+验收 App 的偏好、socket、registry、上传声音文件与回执均不使用生产路径。

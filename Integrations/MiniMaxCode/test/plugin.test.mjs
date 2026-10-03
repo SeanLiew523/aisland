@@ -29,7 +29,7 @@ test('No invented native identity, timestamps, or private content', () => {
     last_assistant_message: 'PRIVATE_RESPONSE', tool_input: { command: 'PRIVATE_ARG' }, error: 'PRIVATE_ERROR' }, config, 100).command.runtimeLifecycleHook;
   assert.equal(hook.turn_id, undefined); assert.equal(hook.event, 'sessionObserved');
   assert.ok(!JSON.stringify(hook).includes('PRIVATE'));
-  assert.deepEqual(Object.keys(hook).sort(), ['app_bundle_id', 'app_conversation_id', 'cwd', 'event', 'metadata_database_path', 'profile_id', 'session_id', 'source', 'terminal_app', 'timestamp'].sort());
+  assert.deepEqual(Object.keys(hook).sort(), ['app_bundle_id', 'app_conversation_id', 'cwd', 'event', 'metadata_database_path', 'profile_id', 'session_id', 'source', 'source_runtime_version', 'terminal_app', 'timestamp'].sort());
 });
 test('Reject malformed identities, source-version drift, config paths and non-object input', () => {
   for (const value of [null, [], 'text', 3, { ...input, session_id: '\ninvalid' }, { ...input, session_id: 'x'.repeat(513) }, { ...input, cwd: {} }]) assert.equal(projectHook(value, config), null);

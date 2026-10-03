@@ -8,11 +8,25 @@ struct NotificationSoundService {
     private static let soundsDirectory = "/System/Library/Sounds"
     private static let defaultsKey = "notification.sound.name"
     static let defaultSoundName = NotificationSoundStore.defaultSoundName
-    static let store = NotificationSoundStore(
-        defaults: .standard,
-        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("dev.aisland.app/NotificationSounds", isDirectory: true)
-    )
+    static let store: NotificationSoundStore = {
+        do {
+            if let acceptance = try RuntimeAcceptanceConfiguration.current() {
+                return NotificationSoundStore(
+                    defaults: try acceptance.isolatedPreferences(),
+                    directory: acceptance.socketURL.deletingLastPathComponent()
+                        .appendingPathComponent("NotificationSounds", isDirectory: true)
+                )
+            }
+        } catch {
+            // An invalid opted-in bundle must never import into production storage.
+            fatalError("Invalid runtime acceptance sound configuration")
+        }
+        return NotificationSoundStore(
+            defaults: .standard,
+            directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("dev.aisland.app/NotificationSounds", isDirectory: true)
+        )
+    }()
     private static let playback = NotificationSoundPlayback()
 
     static func availableSounds() -> [String] {
@@ -52,11 +66,19 @@ struct NotificationSoundService {
     }
 
     static func playNotification(category: NotificationSoundCategory, isMuted: Bool) {
-        guard !isMuted else { return }
+        guard !isMuted else {
+            NotificationSoundAcceptanceRecorder.record(category: category, muted: true)
+            return
+        }
         stop()
         guard let player = player(for: category) else { return }
         let limit: TimeInterval? = store.playbackMode == .shortFade ? 5 : nil
-        playback.play(player, limit: limit, fallback: { systemPlayer(defaultSoundName) })
+        let started = playback.play(player, limit: limit, fallback: { systemPlayer(defaultSoundName) })
+        NotificationSoundAcceptanceRecorder.record(
+            category: category, started: started,
+            customAudioPlaying: (player as? MP3Player)?.audio.isPlaying ?? false,
+            duration: player.duration, limit: limit
+        )
     }
 
     static func playNotification(isMuted: Bool) {

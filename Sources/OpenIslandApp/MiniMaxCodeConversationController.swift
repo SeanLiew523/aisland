@@ -292,14 +292,19 @@ private enum MiniMaxCodeAXNavigation {
         let app = AXUIElementCreateApplication(source.processID)
         guard let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
               CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy), remaining(deadline) else { return false }
-        // The native menu tracking loop ignored CGEvent.postToPid in the live
-        // build. Target the admitted application's Accessibility endpoint;
-        // never use the system-wide object or change an input permission.
-        let down = AXUIElementPostKeyboardEvent(app, 0xF703, 124, true)
-        let up = AXUIElementPostKeyboardEvent(app, 0xF703, 124, false)
-        acceptanceLog(.copyKeyDelivery, count: Int(down.rawValue), error: Int(up.rawValue),
-                      flag: down == .success && up == .success)
-        guard down == .success, up == .success else { return false }
+        // NSMenu's tracking loop needs WindowServer session delivery. Direct
+        // process posting was ignored in the live build. This is one fixed
+        // arrow on the exact focused Copy item, with no global shortcut and
+        // no permission request. A user focus change cancels delivery.
+        let canPost = CGPreflightPostEventAccess()
+        acceptanceLog(.copyKeyDelivery, flag: canPost)
+        guard canPost, let keyboard = CGEventSource(stateID: .combinedSessionState),
+              let down = CGEvent(keyboardEventSource: keyboard, virtualKey: 124, keyDown: true),
+              let up = CGEvent(keyboardEventSource: keyboard, virtualKey: 124, keyDown: false),
+              frontmost(source), let current = value(app, kAXFocusedUIElementAttribute),
+              CFGetTypeID(current) == AXUIElementGetTypeID(), CFEqual(unsafeDowncast(current, to: AXUIElement.self), copy) else { return false }
+        down.flags = []; up.flags = []
+        down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
         pause(deadline)
         return remaining(deadline)
     }

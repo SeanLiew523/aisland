@@ -265,28 +265,22 @@ private enum MiniMaxCodeAXNavigation {
                                           isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
         acceptanceLog(.copyIDPress, flag: activated)
         guard activated else { return nil }
-        // Observe and restore an explicit copy even if delivery exhausts the
-        // deadline. The result, rather than an input return code, proves copy.
+        // Success retains the navigation deadline. A dispatched asynchronous
+        // copy gets at least 300 ms of bounded cleanup observation; a late
+        // matching result is restored but never reported as navigation success.
+        let cleanupDeadline = max(deadline, ProcessInfo.processInfo.systemUptime + 0.3)
         repeat {
-            let producedCount = pasteboard.changeCount
-            if producedCount != snapshot.originalChangeCount {
-                defer {
-                    let restored = snapshot.restore(pasteboard, ifUnchangedSince: producedCount)
-                    acceptanceLog(.pasteboardRestore, flag: restored)
-                }
-                // Read only the bounded plain text produced by the explicit
-                // public Copy session ID action; never log/persist clipboard.
-                guard remaining(deadline), let data = pasteboard.data(forType: .string), data.count <= 512,
-                      pasteboard.changeCount == producedCount,
-                      let value = String(data: data, encoding: .utf8), value == record.sessionID else {
-                    acceptanceLog(.pasteboardIdentity); return nil
-                }
-                acceptanceLog(.pasteboardIdentity, flag: true)
-                return value
+            if pasteboard.changeCount != snapshot.originalChangeCount {
+                let result = snapshot.consumeMatchingCopy(pasteboard, expectedID: record.sessionID)
+                acceptanceLog(.pasteboardIdentity, flag: result != nil)
+                guard let result else { return nil }
+                acceptanceLog(.pasteboardRestore, flag: result.restored)
+                guard remaining(deadline) else { return nil }
+                return result.sessionID
             }
-            guard remaining(deadline) else { break }
-            pause(deadline)
-        } while remaining(deadline)
+            guard remaining(cleanupDeadline) else { break }
+            pause(cleanupDeadline)
+        } while remaining(cleanupDeadline)
         return nil
     }
     /// Desktop AXPress focuses the Copy item without opening its submenu.
@@ -589,34 +583,4 @@ private enum MiniMaxCodeAXNavigation {
     }
     static func remaining(_ deadline: TimeInterval) -> Bool { ProcessInfo.processInfo.systemUptime < deadline }
     static func pause(_ deadline: TimeInterval) { Thread.sleep(forTimeInterval: max(0, min(0.04, deadline - ProcessInfo.processInfo.systemUptime))) }
-}
-
-/// Clipboard bytes stay in memory. Restore only if no subsequent producer
-/// changed the pasteboard; never overwrite a new user copy during navigation.
-struct MiniMaxCodePasteboardSnapshot {
-    let originalChangeCount: Int
-    private let items: [NSPasteboardItem]
-    static func capture(_ pasteboard: NSPasteboard) -> Self? {
-        let count = pasteboard.changeCount
-        let originals = pasteboard.pasteboardItems ?? []
-        guard originals.count <= 16 else { return nil }
-        var copies: [NSPasteboardItem] = []; var total = 0
-        for original in originals {
-            guard original.types.count <= 16 else { return nil }
-            let item = NSPasteboardItem()
-            for type in original.types {
-                guard let data = original.data(forType: type) else { return nil }
-                total += data.count
-                guard total <= 1_048_576, item.setData(data, forType: type) else { return nil }
-            }
-            copies.append(item)
-        }
-        guard pasteboard.changeCount == count else { return nil }
-        return Self(originalChangeCount: count, items: copies)
-    }
-    @discardableResult func restore(_ pasteboard: NSPasteboard, ifUnchangedSince changeCount: Int) -> Bool {
-        guard pasteboard.changeCount == changeCount else { return false }
-        pasteboard.clearContents()
-        return items.isEmpty || pasteboard.writeObjects(items)
-    }
 }

@@ -27,7 +27,7 @@
 
 每个来源分别给出真实验证结果与缺口；引导提供原生首启和再次启动的实际窗口/持久化证据。只有通过四来源及应用检查后才报告整体验收包可审阅；不自动发布、推送、公证或接手 v0.1.0 发布。
 
-## 实际进度（四来源 gate 未全部通过）
+## 早期进度（后续实际验收结果见下文）
 
 Hermes CLI 的隔离真实任务已成功，DeepSeek Harness Desktop 已验证真实成功与中止；
 DeepSeek exact ID 导航 RPC 实际返回 dispatched，并通过来源 UI 确认对应会话已选中及
@@ -105,6 +105,21 @@ Build 14 增加仅验收 bundle 启用的固定阶段日志。实际 App 会话�
 `sidebar-conversation-unavailable`。这次实际原因是窗口边界，不是标题或项目路径
 不匹配；标题和路径已单独以专用任务元数据与可见行核对一致。
 
-下轮先核对主窗口/辅助窗口的固定可访问属性，再决定严格的主窗口辨认方式。
-不选第一个窗口，不关闭来源窗口制造单窗口，不扩展为整个侧栏的同名搜索。
-阶段日志不含自由文本、名称、路径、会话 ID、正文或剪贴板。
+后续按实际辅助 dialog 与唯一 standard main window 区分窗口，未选第一个窗口、
+关闭来源窗口或扩大为整个侧栏搜索。完整修复与实測见
+`v0.1.1-minimaxcode-desktop-navigation.md`。阶段日志不含自由文本、名称、路径、
+会话 ID、正文或剪贴板。
+
+### MiniMaxCode 完整 App 点击验收通过
+
+Build 36（源码 `4b7b1db`，独立 bundle/socket/偏好）从另一条专用任务点击 AIsland
+会话行，实际进入已有 `生成虚构天体名称` 并显示 `AISLAND-MINIMAXCODE-LABEL-OK`。
+App 从公开 Copy session ID 菜单取得的结果与准入 ID 完全一致，剪贴板恢复返回 true；
+元数据重读、同一来源进程与 macOS 前台均通过。实际日志为
+`2026-10-03T20:44:34Z minimaxcode conversation focus ok frontmost=com.minimax.agent`。
+对应截图保存在 ignored MiniMaxCode evidence 目录。不是仅激活应用或查看同名标题。
+
+当前仍未整体验收完成：Hermes GUI 终端 pane/前台、三类声音中的审批/回答真实
+事件、必要既有来源导航回归仍待验证。R7 原型效果待用户阶段确认，Native 仍保留
+已批准 V6。mcode 按用户要求延期；GitHub 在线完整安装升级仍需发布已签名的
+appcast/升级包，本轮本地真实更新链路和设置查询已验证，未接手 v0.1.0 公证或发布。

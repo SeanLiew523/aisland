@@ -105,7 +105,8 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
                    workingDirectory: cwd.isEmpty ? nil : cwd, terminalSessionID: terminalSessionID,
                    terminalTTY: terminalTTY, tmuxTarget: tmuxTarget, tmuxSocketPath: tmuxSocketPath,
                    warpPaneUUID: warpPaneUUID, appConversationID: appConversationID,
-                   runtimeProfileID: profileID, runtimeNavigationSocketPath: navigationSocketPath)
+                   runtimeProfileID: profileID, runtimeNavigationSocketPath: navigationSocketPath,
+                   runtimeMetadataDatabasePath: metadataDatabasePath, runtimeSourceVersion: sourceRuntimeVersion)
     }
 }
 

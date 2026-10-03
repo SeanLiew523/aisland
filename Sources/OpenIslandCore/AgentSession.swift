@@ -208,6 +208,10 @@ public struct JumpTarget: Equatable, Codable, Sendable {
     /// before falling back to plain app activation.
     public var runtimeProfileID: String?
     public var runtimeNavigationSocketPath: String?
+    /// Explicit metadata source admitted by a runtime Hook, used only for
+    /// bounded lookup of this already-observed native conversation.
+    public var runtimeMetadataDatabasePath: String?
+    public var runtimeSourceVersion: String?
     public var appDeepLinkURL: String?
 
     public init(
@@ -224,7 +228,9 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         appConversationID: String? = nil,
         appDeepLinkURL: String? = nil,
         runtimeProfileID: String? = nil,
-        runtimeNavigationSocketPath: String? = nil
+        runtimeNavigationSocketPath: String? = nil,
+        runtimeMetadataDatabasePath: String? = nil,
+        runtimeSourceVersion: String? = nil
     ) {
         self.terminalApp = terminalApp
         self.workspaceName = workspaceName
@@ -240,6 +246,8 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         self.appDeepLinkURL = appDeepLinkURL
         self.runtimeProfileID = runtimeProfileID
         self.runtimeNavigationSocketPath = runtimeNavigationSocketPath
+        self.runtimeMetadataDatabasePath = runtimeMetadataDatabasePath
+        self.runtimeSourceVersion = runtimeSourceVersion
     }
 
     /// A hook without host information must not erase an already resolved

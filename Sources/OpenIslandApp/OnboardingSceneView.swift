@@ -204,6 +204,10 @@ final class OnboardingSceneView: NSView {
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineHeightMultiple = 1.2
         let fontSize = min(74,max(34,w*0.038))
         let text = NSAttributedString(string: copy, attributes: [.font: NSFont(name: language == .chinese ? "PingFangSC-Medium" : "AvenirNext-Medium",size: fontSize) ?? NSFont.systemFont(ofSize: fontSize,weight: .medium), .foregroundColor: NSColor(cgColor: color(opening ? "f7f5ee" : "24354f",opacity))!, .paragraphStyle: paragraph, .kern: -fontSize*0.035])
-        text.draw(in: CGRect(x: w*0.08,y: h*(opening ? 0.61 : 0.46),width: w*0.84,height: fontSize*3))
+        let size = text.boundingRect(with: CGSize(width: w*0.84, height: .greatestFiniteMagnitude),
+                                     options: [.usesLineFragmentOrigin, .usesFontLeading]).size
+        text.draw(with: CGRect(x: w*0.08, y: h*(opening ? 0.61 : 0.46), width: w*0.84,
+                               height: ceil(size.height) + 2),
+                  options: [.usesLineFragmentOrigin, .usesFontLeading])
     }
 }

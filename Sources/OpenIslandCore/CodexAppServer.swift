@@ -1,5 +1,19 @@
 import Foundation
 
+/// Resolve only the CLI shipped with the selected Desktop app. A CLI from PATH
+/// may use a different protocol or account than the running Desktop app.
+public enum CodexAppServerExecutable {
+    public static func resolve(in bundleURL: URL) -> URL? {
+        let nestedURL = bundleURL.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app")
+        if let executable = Bundle(url: nestedURL)?.executableURL,
+           FileManager.default.isExecutableFile(atPath: executable.path) {
+            return executable
+        }
+        let legacy = bundleURL.appendingPathComponent("Contents/Resources/codex")
+        return FileManager.default.isExecutableFile(atPath: legacy.path) ? legacy : nil
+    }
+}
+
 // MARK: - Protocol models
 
 /// A Codex thread as reported by the app-server JSON-RPC protocol.
@@ -50,8 +64,42 @@ public enum CodexThreadSource: String, Codable, Sendable {
     case unknown
 
     public init(from decoder: Decoder) throws {
-        let value = try decoder.singleValueContainer().decode(String.self)
-        self = CodexThreadSource(rawValue: value) ?? .unknown
+        let container = try decoder.singleValueContainer()
+        // Newer versions also encode custom and sub-agent sources as objects.
+        // They do not establish a Desktop host, but must not break the list.
+        let value = try? container.decode(String.self)
+        self = value.flatMap(CodexThreadSource.init(rawValue:)) ?? .unknown
+    }
+}
+
+struct CodexThreadListResult: Decodable {
+    let threads: [CodexThread]
+    private enum CodingKeys: String, CodingKey { case data, threads }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        threads = try container.contains(.data)
+            ? container.decode([CodexThread].self, forKey: .data)
+            : container.decode([CodexThread].self, forKey: .threads)
+    }
+}
+
+struct CodexLoadedThreadListResult: Decodable {
+    let ids: [String]
+    let legacyThreads: [CodexThread]
+    let nextCursor: String?
+    private enum CodingKeys: String, CodingKey { case data, threads, nextCursor }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+        if container.contains(.data) {
+            ids = try container.decode([String].self, forKey: .data)
+            legacyThreads = []
+        } else {
+            legacyThreads = try container.decode([CodexThread].self, forKey: .threads)
+            ids = []
+        }
     }
 }
 
@@ -203,20 +251,39 @@ public final class CodexAppServerClient: @unchecked Sendable {
 
     /// List currently loaded threads from the app-server.
     public func listLoadedThreads() async throws -> [CodexThread] {
-        struct Params: Encodable {}
-        struct Result: Decodable { let threads: [CodexThread] }
-        let data = try await sendRequest(method: "thread/loaded/list", params: Params())
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.threads
+        struct Params: Encodable { let cursor: String? }
+        var cursor: String?
+        var seenCursors = Set<String>()
+        var threads: [CodexThread] = []
+        repeat {
+            let data = try await sendRequest(method: "thread/loaded/list", params: Params(cursor: cursor))
+            let result = try JSONDecoder().decode(CodexLoadedThreadListResult.self, from: data)
+            threads.append(contentsOf: result.legacyThreads)
+            for id in result.ids {
+                // Metadata-only read: never resume a conversation to discover it.
+                threads.append(try await readThread(id: id))
+            }
+            cursor = result.nextCursor
+            if let cursor, !seenCursors.insert(cursor).inserted { break }
+        } while cursor != nil
+        return threads
     }
 
     /// List all threads (including not-loaded) from the app-server.
     public func listThreads(limit: Int? = nil) async throws -> [CodexThread] {
         struct Params: Encodable { let limit: Int? }
-        struct Result: Decodable { let threads: [CodexThread] }
         let data = try await sendRequest(method: "thread/list", params: Params(limit: limit))
-        let result = try JSONDecoder().decode(Result.self, from: data)
+        let result = try JSONDecoder().decode(CodexThreadListResult.self, from: data)
         return result.threads
+    }
+
+    public func readThread(id: String) async throws -> CodexThread {
+        struct Params: Encodable { let threadId: String; let includeTurns: Bool }
+        struct Result: Decodable { let thread: CodexThread }
+        let data = try await sendRequest(
+            method: "thread/read", params: Params(threadId: id, includeTurns: false)
+        )
+        return try JSONDecoder().decode(Result.self, from: data).thread
     }
 
     // MARK: - JSON-RPC transport

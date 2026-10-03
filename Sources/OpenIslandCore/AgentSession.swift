@@ -216,6 +216,22 @@ public struct JumpTarget: Equatable, Codable, Sendable {
         self.appConversationID = appConversationID
         self.appDeepLinkURL = appDeepLinkURL
     }
+
+    /// A hook without host information must not erase an already resolved
+    /// Desktop conversation. Explicit terminal/IDE targets remain authoritative.
+    public func preservingCodexDesktopIdentity(from existing: JumpTarget?) -> JumpTarget {
+        guard let existing, existing.terminalApp == "Codex.app" else { return self }
+        let host = terminalApp.trimmingCharacters(in: .whitespacesAndNewlines)
+        if host.isEmpty || host.caseInsensitiveCompare("Unknown") == .orderedSame {
+            return existing
+        }
+        var result = self
+        if host == "Codex.app",
+           codexThreadID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            result.codexThreadID = existing.codexThreadID
+        }
+        return result
+    }
 }
 
 public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {

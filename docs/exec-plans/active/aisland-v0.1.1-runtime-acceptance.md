@@ -74,7 +74,7 @@ DeepSeek Harness Desktop 重新加载官方插件到独立 App socket；在已�
 或点击导航。元数据与声音回执只记录专用任务，保存于 ignored
 `output/verification/v0.1.1-live/native-app/real-source-completion-and-mp3.json`。
 
-真实 App 点击确切会话/前台仍待验证，MiniMax 旧 build 7 的实际失败为
+DeepSeek 的真实 App 点击确切会话/前台已通过下述复测。MiniMax 旧 build 7 的实际失败为
 `sidebar-conversation-unavailable`。新版控制器已区分 AX 权限不可用与侧栏结构
 缺失，不能把 OS entitlement warning 当成权限拒绝。辅助技术的面板/行可操作性
 正单独处理；不把 source RPC、当前已选中会话或进程激活冒充 App 点击成功。
@@ -87,9 +87,24 @@ DeepSeek Harness Desktop 重新加载官方插件到独立 App socket；在已�
 完整 build 12 的实际 AX 树显示“展开 AIsland 会话”，按该动作可展开列表；会话
 容器与原独立 chevron 按钮均可见。实际 MiniMaxCode 行触发导航并记录
 `sidebar-conversation-unavailable`，证明新版 permission probe 没有返回权限拒绝。
-其现有侧栏 label 读取仍在修复，不能报告准确会话成功。
+build 13 已修复 Description 缺失时使用原生 Title；实际点击仍失败，不能报告准确
+会话成功。
 
 DeepSeek 来源先选中另一条专用中止会话，再从完整 App 的 DeepSeek 会话行点击，
 来源实际改选 `AISLAND-DEEPSEEK-OK 测试` 并加载 `AISLAND-DEEPSEEK-NATIVE-OK`
-完成内容。这是实际 App 点击后的选择证据，已经超出单独 RPC dispatch；macOS
-前台的独立观测仍待验证，来源窗口截图本身不证明前台。
+完成内容。Build 13 再次从另一条专用中止会话点击跳转：来源 UI 确认相同目标和
+完成回复，App 在官方 RPC 与公开打开动作之后独立读取 macOS 的当前前台应用，
+实际记录 `2026-10-03T18:57:43Z deepseek navigation dispatched sourceFrontmost=true`。
+正确会话与前台分别有证据；单独 dispatch 或来源截图不作为前台证明。
+
+### MiniMaxCode 窗口定位实测
+
+Build 14 增加仅验收 bundle 启用的固定阶段日志。实际 App 会话行点击在整个
+三秒时限内收到 `AXWindows` 查询成功、`count=2`、`error=0`，因此原有“恰好一个
+窗口”的规则没有进入项目/任务搜索，最终为 `selection-timeout` 与
+`sidebar-conversation-unavailable`。这次实际原因是窗口边界，不是标题或项目路径
+不匹配；标题和路径已单独以专用任务元数据与可见行核对一致。
+
+下轮先核对主窗口/辅助窗口的固定可访问属性，再决定严格的主窗口辨认方式。
+不选第一个窗口，不关闭来源窗口制造单窗口，不扩展为整个侧栏的同名搜索。
+阶段日志不含自由文本、名称、路径、会话 ID、正文或剪贴板。

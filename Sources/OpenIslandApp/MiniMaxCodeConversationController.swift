@@ -76,6 +76,62 @@ struct MiniMaxCodeConversationController: Sendable {
 }
 
 private enum MiniMaxCodeAXNavigation {
+    private static let acceptanceDiagnosticsEnabled = Bundle.main.bundleIdentifier?
+        .hasPrefix("dev.aisland.v011.acceptance.") == true
+    private enum AcceptanceStage: String {
+        case windowQuery = "window-query"
+        case projectHeaders = "project-headers"
+        case projectHeaderLabelUnavailable = "project-header-label-unavailable"
+        case projectParent = "project-parent"
+        case projectParentUnavailable = "project-parent-unavailable"
+        case projectParentDeadline = "project-parent-deadline"
+        case projectRows = "project-rows"
+        case projectHeaderPress = "project-header-press"
+        case projectRowPress = "project-row-press"
+        case titleMenuMatches = "title-menu-matches"
+        case titleMenuTimeout = "title-menu-timeout"
+        case selectionTimeout = "selection-timeout"
+    }
+    private enum DiagnosticRole: String {
+        case group = "AXGroup", button = "AXButton", staticText = "AXStaticText"
+        case scrollArea = "AXScrollArea", webArea = "AXWebArea", toolbar = "AXToolbar"
+        case list = "AXList", outline = "AXOutline", splitGroup = "AXSplitGroup"
+        case menu = "AXMenu", menuItem = "AXMenuItem", other = "AXOther"
+        init(_ value: String?) {
+            self = Self(rawValue: value ?? "") ?? .other
+        }
+    }
+    private static func acceptanceLog(_ stage: AcceptanceStage, count: Int = 0,
+                                      nodes: Int = 0, error: Int = 0, flag: Bool = false) {
+        guard acceptanceDiagnosticsEnabled else { return }
+        NSLog("aisland_minimax_navigation stage=%@ count=%ld nodes=%ld error=%ld flag=%d",
+              stage.rawValue, count, nodes, error, flag ? 1 : 0)
+    }
+    private static func acceptanceParentLog(_ node: AXUIElement, header: AXUIElement, index: Int,
+                                            classCount: Int, rendererGroup: Bool, eligible: Bool,
+                                            containsHeader: Int, deadline: TimeInterval) {
+        guard acceptanceDiagnosticsEnabled else { return }
+        guard remaining(deadline) else {
+            acceptanceLog(.projectParentDeadline, count: index); return
+        }
+        let parentRole = DiagnosticRole(role(node))
+        let hasDescription = (value(node, kAXDescriptionAttribute) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasTitle = (value(node, kAXTitleAttribute) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let children = remaining(deadline) ? elements(node, kAXChildrenAttribute) : []
+        var childRoles: [DiagnosticRole] = []
+        for child in children.prefix(8) where remaining(deadline) {
+            childRoles.append(DiagnosticRole(role(child)))
+        }
+        // Every printed role comes from a closed enum; never print AX free text.
+        NSLog("aisland_minimax_navigation stage=%@ parent=%ld role=%@ description=%d title=%d classes=%ld renderer=%d eligible=%d contains_header=%ld direct_header=%d children=%ld sampled=%ld child_roles=%@ truncated=%d",
+              AcceptanceStage.projectParent.rawValue, index, parentRole.rawValue, hasDescription ? 1 : 0, hasTitle ? 1 : 0,
+              classCount, rendererGroup ? 1 : 0, eligible ? 1 : 0, containsHeader,
+              children.contains(where: { CFEqual($0, header) }) ? 1 : 0,
+              children.count, childRoles.count, childRoles.map(\.rawValue).joined(separator: ","),
+              childRoles.count < children.count ? 1 : 0)
+    }
     static let ui = MiniMaxCodeConversationUI(isAccessibilityAvailable: { AXIsProcessTrusted() }, source: source, select: select,
                                              copyActiveSessionID: copyID, isFrontmost: frontmost)
     static func source() -> MiniMaxCodeConversationUI.Source? {
@@ -105,7 +161,9 @@ private enum MiniMaxCodeAXNavigation {
             guard headers.count == 1 else { return false }
             let header = headers[0]
             if bool(header, kAXExpandedAttribute) == false, !expandedOnce {
-                guard press(header, deadline) else { return false }
+                let pressed = press(header, deadline)
+                acceptanceLog(.projectHeaderPress, flag: pressed)
+                guard pressed else { return false }
                 expandedOnce = true
                 pause(deadline); continue
             }
@@ -113,21 +171,29 @@ private enum MiniMaxCodeAXNavigation {
             // its exact header button and child task buttons. DOM classes are
             // optional in Electron AX. Never widen this search to the sidebar.
             let rows = projectRows(header, title: record.title, deadline: deadline) ?? []
+            acceptanceLog(.projectRows, count: rows.count, flag: remaining(deadline))
             if rows.isEmpty, bool(header, kAXExpandedAttribute) == nil, !expandedOnce {
                 // Some Electron AX trees omit aria-expanded. One ordinary
                 // project-header press may reveal its own child rows.
-                guard press(header, deadline) else { return false }
+                let pressed = press(header, deadline)
+                acceptanceLog(.projectHeaderPress, flag: pressed)
+                guard pressed else { return false }
                 expandedOnce = true
                 pause(deadline); continue
             }
-            guard rows.count == 1, press(rows[0], deadline) else { return false }
+            guard rows.count == 1 else { return false }
+            let pressed = press(rows[0], deadline)
+            acceptanceLog(.projectRowPress, flag: pressed)
+            guard pressed else { return false }
             while remaining(deadline) {
                 if let current = window(source), titleMenuButton(current, title: record.title, deadline: deadline) != nil {
                     return true
                 }
                 pause(deadline)
             }
+            acceptanceLog(.titleMenuTimeout)
         }
+        acceptanceLog(.selectionTimeout)
         return false
     }
     static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
@@ -174,27 +240,45 @@ private enum MiniMaxCodeAXNavigation {
                 if !matches.contains(where: { CFEqual($0, candidate) }) { matches.append(candidate) }
             }
         }
+        acceptanceLog(.titleMenuMatches, count: matches.count, flag: remaining(deadline))
         return matches.count == 1 ? matches[0] : nil
     }
     static func projectHeaders(_ root: AXUIElement, path: String, deadline: TimeInterval) -> [AXUIElement] {
-        nodes(root, deadline).filter {
+        let visited = nodes(root, deadline)
+        let matches = visited.filter {
             role($0) == "AXButton" && (exactLabel($0) ?? "").hasSuffix(", " + path)
                 && action($0, kAXPressAction)
         }
+        acceptanceLog(.projectHeaders, count: matches.count, nodes: visited.count, flag: remaining(deadline))
+        return matches
     }
     static func projectRows(_ header: AXUIElement, title: String, deadline: TimeInterval) -> [AXUIElement]? {
-        guard let label = exactLabel(header) else { return nil }
+        guard let label = exactLabel(header) else {
+            acceptanceLog(.projectHeaderLabelUnavailable); return nil
+        }
         var node = header
         // Exactly the observed header/container/draggable project ancestry.
         // A larger unnamed ancestor is never accepted as a project boundary.
-        for _ in 0..<3 where remaining(deadline) {
-            guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+        for index in 0..<3 where remaining(deadline) {
+            guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else {
+                acceptanceLog(.projectParentUnavailable, count: index + 1); return nil
+            }
             node = unsafeDowncast(parent, to: AXUIElement.self)
             let labelOfGroup = exactLabel(node) ?? ""
-            let rendererGroup = classes(node).contains("space-y-px")
-            guard rendererGroup || labelOfGroup == label || labelOfGroup.hasPrefix(label + " ") else { continue }
+            let nodeClasses = classes(node)
+            let rendererGroup = nodeClasses.contains("space-y-px")
+            let eligible = rendererGroup || labelOfGroup == label || labelOfGroup.hasPrefix(label + " ")
+            guard eligible else {
+                acceptanceParentLog(node, header: header, index: index + 1, classCount: nodeClasses.count,
+                                    rendererGroup: rendererGroup, eligible: false, containsHeader: -1, deadline: deadline)
+                continue
+            }
             let members = nodes(node, deadline, maximum: 500, depth: 8)
-            guard members.contains(where: { CFEqual($0, header) }) else { return nil }
+            let containsHeader = members.contains(where: { CFEqual($0, header) })
+            acceptanceParentLog(node, header: header, index: index + 1, classCount: nodeClasses.count,
+                                rendererGroup: rendererGroup, eligible: true, containsHeader: containsHeader ? 1 : 0,
+                                deadline: deadline)
+            guard containsHeader else { return nil }
             let rows = members.filter {
                 role($0) == "AXButton" && !CFEqual($0, header) && exactLabel($0) == title
                     && action($0, kAXPressAction)
@@ -225,7 +309,10 @@ private enum MiniMaxCodeAXNavigation {
     static func window(_ source: MiniMaxCodeConversationUI.Source) -> AXUIElement? {
         let root = AXUIElementCreateApplication(source.processID)
         AXUIElementSetMessagingTimeout(root, 0.08)
-        let values = elements(root, kAXWindowsAttribute)
+        var output: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &output)
+        let values = error == .success ? (output as? [AXUIElement] ?? []) : []
+        acceptanceLog(.windowQuery, count: values.count, error: Int(error.rawValue), flag: error == .success)
         // Multiple source windows require an explicit discriminator; don't
         // choose the first one or open/close a source window to manufacture it.
         return values.count == 1 ? values[0] : nil

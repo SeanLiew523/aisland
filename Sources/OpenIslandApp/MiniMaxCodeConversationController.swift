@@ -94,6 +94,7 @@ private enum MiniMaxCodeAXNavigation {
         case titleSurfaceRoots = "title-surface-roots"
         case titleBranchTitles = "title-branch-titles"
         case titleAncestor = "title-ancestor"
+        case titleLayout = "title-layout"
         case titleMenuMatches = "title-menu-matches"
         case titleMenuTimeout = "title-menu-timeout"
         case copySubmenu = "copy-submenu"
@@ -317,6 +318,21 @@ private enum MiniMaxCodeAXNavigation {
             node = unsafeDowncast(parent, to: AXUIElement.self)
             guard role(node) == "AXGroup", visited.contains(where: { CFEqual($0, node) }) else { return nil }
             let members = nodes(node, deadline, maximum: 129, depth: 8)
+            if acceptanceDiagnosticsEnabled, index == 1 {
+                let headings = visited.filter { role($0) == "AXStaticText" && text($0) == title }
+                acceptanceLog(.titleLayout, count: headings.count, nodes: elements(node, kAXChildrenAttribute).count)
+                for heading in headings.prefix(4) {
+                    var titleNode = heading
+                    for distance in 1...8 where remaining(deadline) {
+                        guard let parent = value(titleNode, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
+                        titleNode = unsafeDowncast(parent, to: AXUIElement.self)
+                        let nearby = nodes(titleNode, deadline, maximum: 41, depth: 4)
+                        let unlabeled = nearby.filter { role($0) == "AXButton" && (exactLabel($0) ?? "").isEmpty && action($0, kAXPressAction) }.count
+                        acceptanceLog(.titleLayout, count: distance, nodes: nearby.count, error: unlabeled, flag: CFEqual(titleNode, node))
+                        if CFEqual(titleNode, node) { break }
+                    }
+                }
+            }
             let forbidden = members.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") })
             acceptanceLog(.titleAncestor, count: index + 1, nodes: members.count,
                           error: forbidden ? 1 : 0, flag: remaining(deadline))

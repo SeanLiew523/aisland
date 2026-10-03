@@ -260,11 +260,10 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.pasteboardCapture, flag: captured != nil)
         guard let snapshot = captured, remaining(deadline),
               pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
-        let copyResult = AXUIElementPerformAction(copyID, kAXPressAction as CFString)
-        acceptanceLog(.copyIDPress, error: Int(copyResult.rawValue), flag: copyResult == .success)
-        // A native menu can close during AXPress and invalidate its AX reply.
-        // Observe the explicit copy's result even after a non-success return,
-        // and restore it if it changed before the deadline check.
+        let activated = activateCopyLabel(copyID, source: source, deadline: deadline)
+        acceptanceLog(.copyIDPress, flag: activated)
+        // Observe and restore an explicit copy even if delivery exhausts the
+        // deadline. The result, rather than an input return code, proves copy.
         repeat {
             let producedCount = pasteboard.changeCount
             if producedCount != snapshot.originalChangeCount {
@@ -287,7 +286,7 @@ private enum MiniMaxCodeAXNavigation {
         } while remaining(deadline)
         return nil
     }
-    /// Native NSMenu AXPress focuses the Copy item without opening its submenu.
+    /// Desktop AXPress focuses the Copy item without opening its submenu.
     /// Use the standard right-arrow only for that exact focused menu item, in
     /// the admitted frontmost source process. No global keyboard shortcut.
     static func openCopySubmenu(_ copy: AXUIElement, source: MiniMaxCodeConversationUI.Source,
@@ -329,6 +328,40 @@ private enum MiniMaxCodeAXNavigation {
         down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
         pause(deadline)
         return remaining(deadline)
+    }
+
+    /// The public matrix Dropdown binds Copy's callback to its inner label div;
+    /// AXPress on the outer ARIA menuitem only closes the menu. Click the exact
+    /// admitted label with a fresh source-process hit test, never a guessed point.
+    static func activateCopyLabel(_ item: AXUIElement, source: MiniMaxCodeConversationUI.Source,
+                                  deadline: TimeInterval) -> Bool {
+        guard remaining(deadline), frontmost(source), AXIsProcessTrusted(), CGPreflightPostEventAccess(),
+              role(item) == "AXMenuItem" else { return false }
+        let members = nodes(item, deadline, maximum: 17, depth: 4)
+        guard members.count <= 16, remaining(deadline) else { return false }
+        let labels = members.filter { role($0) == "AXStaticText" && ["复制会话 ID", "Copy session ID"].contains(text($0) ?? "") }
+        guard labels.count == 1, let label = labels.first,
+              let pointValue = value(label, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
+              let sizeValue = value(label, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
+        var origin = CGPoint.zero; var size = CGSize.zero
+        guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
+              AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
+              origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return false }
+        let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+        let application = AXUIElementCreateApplication(source.processID)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit) == .success,
+              let hit, members.contains(where: { CFEqual($0, hit) }), remaining(deadline), frontmost(source) else { return false }
+        var owner: pid_t = 0
+        guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
+              let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+              let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { return false }
+        down.flags = []; up.flags = []
+        down.setIntegerValueField(.mouseEventClickState, value: 1)
+        up.setIntegerValueField(.mouseEventClickState, value: 1)
+        down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
+        return true
     }
 
     /// Live 3.1.0 flattens title/menu/controls into adjacent direct children.

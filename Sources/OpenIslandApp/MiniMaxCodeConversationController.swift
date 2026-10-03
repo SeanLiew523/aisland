@@ -265,7 +265,7 @@ private enum MiniMaxCodeAXNavigation {
 
     /// The public 3.1.0 topbar has a title surface and a separate global-controls
     /// branch. Its nested Dropdown/IDE wrappers are not direct siblings in AX.
-    /// Admit the source's unique title-surface class and its small common ancestor
+    /// Admit the unique exact-heading branch among source surface classes and its small common ancestor
     /// with both fixed controls, then search only inside that title branch.
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval) -> AXUIElement? {
         let visited = nodes(root, deadline)
@@ -273,8 +273,18 @@ private enum MiniMaxCodeAXNavigation {
         let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
         let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
         acceptanceLog(.titleSurfaceRoots, count: surfaces.count, nodes: visited.count, flag: remaining(deadline))
-        guard surfaces.count == 1, choosers.count == 1, terminals.count == 1 else { return nil }
-        let surface = surfaces[0]
+        guard !surfaces.isEmpty, surfaces.count <= 4, choosers.count == 1, terminals.count == 1 else { return nil }
+        var titleBranches: [(surface: AXUIElement, members: [AXUIElement], heading: AXUIElement)] = []
+        for surface in surfaces {
+            let branch = nodes(surface, deadline, maximum: 81, depth: 8)
+            guard branch.count <= 80, remaining(deadline) else { return nil }
+            let titles = branch.filter { role($0) == "AXStaticText" && text($0) == title }
+            acceptanceLog(.titleBranchTitles, count: titles.count, nodes: branch.count, flag: remaining(deadline))
+            guard titles.count <= 1 else { return nil }
+            if let heading = titles.first { titleBranches.append((surface, branch, heading)) }
+        }
+        guard titleBranches.count == 1 else { return nil }
+        let (surface, branch, heading) = titleBranches[0]
         var node = surface; var topbarFound = false
         for _ in 0..<8 where remaining(deadline) {
             guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
@@ -287,12 +297,7 @@ private enum MiniMaxCodeAXNavigation {
             }
         }
         guard topbarFound else { return nil }
-        let branch = nodes(surface, deadline, maximum: 81, depth: 8)
-        guard branch.count <= 80, remaining(deadline) else { return nil }
-        let titles = branch.filter { role($0) == "AXStaticText" && text($0) == title }
-        acceptanceLog(.titleBranchTitles, count: titles.count, nodes: branch.count, flag: remaining(deadline))
-        guard titles.count == 1 else { return nil }
-        node = titles[0]
+        node = heading
         for _ in 0..<4 where remaining(deadline) {
             guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
             node = unsafeDowncast(parent, to: AXUIElement.self)

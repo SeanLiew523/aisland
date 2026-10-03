@@ -33,3 +33,11 @@ DeepSeek exact ID 导航 RPC 实际返回 dispatched，并通过来源 UI 确认
 Core 与 App 目标构建及相关隔离检查已通过。已准备完整验收包的 plan-only 输出，
 但尚未执行 --build、安装或启动整体 App；按用户顺序等待四来源实测 gate。独立
 验收 App 的偏好、socket、registry、上传声音文件与回执均不使用生产路径。
+
+### 后续用户指令：先完成桌面，CLI 暂缓
+
+用户明确暂不处理 mcode，先接通 MiniMaxCode 桌面。当前构建门槛因此调整为
+Hermes CLI、DeepSeek Harness Desktop、MiniMaxCode Desktop 的真实基础 flow；CLI
+登录和真实验收延期，不能报告四来源已全部通过。已恢复 desktop-only owned plugin
+配置并退出本轮 CLI。按当前三个来源的真实结果继续 native 交互、整体构建和首次
+欢迎/双语/声音验收；CLI 留在后续清单，原先豆包/千问范围同样尚未验收。

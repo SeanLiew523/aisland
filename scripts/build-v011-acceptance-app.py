@@ -2,7 +2,7 @@
 """Plan/build a separate full v0.1.1 acceptance app; never install or launch it.
 
 Default invocation only prints the plan. The main agent must finish the real
-four-source verification before explicitly invoking --build. This builder does
+currently approved real-source verification before explicitly invoking --build. This builder does
 not claim source acceptance, playback, first launch or integration succeeded.
 """
 import argparse
@@ -156,7 +156,7 @@ def main():
     parser.add_argument("--socket", required=True)
     parser.add_argument("--build-number", type=int, default=6)
     parser.add_argument("--configuration", choices=("debug", "release"), default="debug")
-    parser.add_argument("--build", action="store_true", help="Explicit build only after the main agent's real four-source gate passes.")
+    parser.add_argument("--build", action="store_true", help="Explicit build only after the main agent's approved real-source gate passes.")
     args = parser.parse_args()
     directory, socket = admission(args.case, args.socket, args.build_number)
     commit = run(["git", "rev-parse", "HEAD"], capture=True)

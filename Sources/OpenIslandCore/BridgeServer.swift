@@ -113,7 +113,7 @@ public final class BridgeServer: @unchecked Sendable {
         // Also listen on the legacy /tmp path so that older hook binaries
         // (from already-running Claude Code sessions) can still connect.
         let legacyURL = BridgeSocketLocation.legacyURL
-        if legacyURL != socketURL {
+        if socketURL == BridgeSocketLocation.defaultURL, legacyURL != socketURL {
             if let legacyListener = try? bindListener(at: legacyURL) {
                 listeners.append(legacyListener)
             }

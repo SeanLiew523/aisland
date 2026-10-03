@@ -27,6 +27,7 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/exec-plans/active/aisland-v0.1.1-requirements.md](./exec-plans/active/aisland-v0.1.1-requirements.md) for the confirmed v0.1.1 scope and staged acceptance plan
 - [docs/exec-plans/active/aisland-v0.1.1-stage-1.md](./exec-plans/active/aisland-v0.1.1-stage-1.md) for the first audiovisual prototype, integration capability review, and required user effect checkpoints
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-2.md](./exec-plans/active/aisland-v0.1.1-intro-revision-2.md) for the revised A audiovisual prototype and pending effect review
+- [docs/exec-plans/active/aisland-v0.1.1-native-first-slice.md](./exec-plans/active/aisland-v0.1.1-native-first-slice.md) for integrated source/sound checks and the next real effect acceptance checkpoints
 - [docs/exec-plans/active/v0.1.1-hermes-implementation.md](./exec-plans/active/v0.1.1-hermes-implementation.md) for Hermes lifecycle, shared metadata bridge, restoration and DeepSeek navigation
 - [docs/exec-plans/active/v0.1.1-custom-sounds-implementation.md](./exec-plans/active/v0.1.1-custom-sounds-implementation.md) for managed MP3 storage, playback and native acceptance boundaries
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines

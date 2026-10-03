@@ -1,6 +1,6 @@
 # AIsland v0.1.1 需求与阶段验收计划
 
-日期：2026-10-03（北京时间）。状态：`HERMES_DEEPSEEK_IMPLEMENTATION_AND_INTRO_REVISION`。
+日期：2026-10-03（北京时间）。状态：`NATIVE_FIRST_SLICE_IMPLEMENTED_AND_INTRO_REVIEW_PENDING`。
 
 本文件记录用户已经确认的功能范围、计划和验收目标。用户要求三个需求分别停下来确认阶段效果；现已通过接入路线和 MP3 导入/试听交互，选择引导 A 声音方向，但要求提升背景变化、开场仪式感和任务/文字模块品质。进入 Hermes / DeepSeek 开发与引导 A 修订阶段；新版本尚未安装或发布。具体反馈见 [阶段 1 记录](./aisland-v0.1.1-stage-1.md)。工作目录和构建 5 起点见 [交接文档](./aisland-v0.1.1-handoff.md)，接入证据和视听研究边界见 [调研记录](../../references/aisland-v0.1.1-discovery.md)。
 

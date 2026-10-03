@@ -83,7 +83,9 @@ final class AppModel {
             }
         }
     }
-    let hooks = HookInstallationCoordinator()
+    let hooks: HookInstallationCoordinator
+    @ObservationIgnored let acceptanceConfiguration: RuntimeAcceptanceConfiguration?
+    @ObservationIgnored private let bridgeSocketURL: URL
     let overlay = OverlayUICoordinator()
     let discovery = SessionDiscoveryCoordinator()
     let monitoring = ProcessMonitoringCoordinator()
@@ -332,7 +334,7 @@ final class AppModel {
     }
     var launchAtLoginEnabled: Bool = false {
         didSet {
-            guard !isApplyingLaunchAtLogin, hasFinishedInit, launchAtLoginEnabled != oldValue else { return }
+            guard acceptanceConfiguration == nil, !isApplyingLaunchAtLogin, hasFinishedInit, launchAtLoginEnabled != oldValue else { return }
             do {
                 try LaunchAtLoginService.shared.setEnabled(launchAtLoginEnabled)
             } catch {
@@ -527,7 +529,7 @@ final class AppModel {
     }
 
     private func startWatchRelay() {
-        guard watchRelay == nil else { return }
+        guard acceptanceConfiguration == nil, watchRelay == nil else { return }
         let relay = WatchNotificationRelay()
         setupWatchRelayCallbacks(relay)
         relay.start()
@@ -578,10 +580,10 @@ final class AppModel {
     private var hasStarted = false
 
     @ObservationIgnored
-    private let bridgeServer = BridgeServer(runtimeLifecycleRegistryURL: BridgeSocketLocation.defaultURL.deletingLastPathComponent().appendingPathComponent("runtime-lifecycle.json"))
+    private let bridgeServer: BridgeServer
 
     @ObservationIgnored
-    private var bridgeClient = LocalBridgeClient()
+    private var bridgeClient: LocalBridgeClient
 
     @ObservationIgnored
     private let terminalJumpAction: @Sendable (JumpTarget) throws -> String
@@ -649,6 +651,8 @@ final class AppModel {
     }
 
     init(
+        acceptanceConfiguration: RuntimeAcceptanceConfiguration? = nil,
+        intentDefaults: UserDefaults = .standard,
         terminalJumpAction: @escaping @Sendable (JumpTarget) throws -> String = { target in
             try TerminalJumpService().jump(to: target)
         },
@@ -656,6 +660,20 @@ final class AppModel {
             await ForegroundTerminalSessionProbe().matches(session: session)
         }
     ) {
+        self.acceptanceConfiguration = acceptanceConfiguration
+        let socketURL = acceptanceConfiguration?.socketURL ?? BridgeSocketLocation.defaultURL
+        self.bridgeSocketURL = socketURL
+        self.bridgeServer = BridgeServer(
+            socketURL: socketURL,
+            runtimeLifecycleRegistryURL: acceptanceConfiguration?.runtimeLifecycleRegistryURL
+                ?? socketURL.deletingLastPathComponent().appendingPathComponent("runtime-lifecycle.json"),
+            monitorMiniMaxCode: acceptanceConfiguration == nil || acceptanceConfiguration?.caseName == "runtime-live"
+        )
+        self.bridgeClient = LocalBridgeClient(socketURL: socketURL)
+        self.hooks = HookInstallationCoordinator(
+            intentStore: AgentIntentStore(defaults: intentDefaults),
+            isRuntimeAcceptance: acceptanceConfiguration != nil
+        )
         self.terminalJumpAction = terminalJumpAction
         self.isNotificationSessionAlreadyFrontmost = isNotificationSessionAlreadyFrontmost
         UserDefaults.standard.register(defaults: [
@@ -674,20 +692,20 @@ final class AppModel {
         suppressFrontmostNotifications = UserDefaults.standard.bool(forKey: Self.suppressFrontmostNotificationsDefaultsKey)
         if UserDefaults.standard.object(forKey: Self.showCodexUsageDefaultsKey) != nil {
             showCodexUsage = UserDefaults.standard.bool(forKey: Self.showCodexUsageDefaultsKey)
-        } else {
+        } else if acceptanceConfiguration == nil {
             showCodexUsage = FileManager.default.fileExists(
                 atPath: CodexRolloutDiscovery.defaultRootURL.path
             )
         }
         completionReplyEnabled = UserDefaults.standard.bool(forKey: Self.completionReplyEnabledDefaultsKey)
-        launchAtLoginEnabled = LaunchAtLoginService.shared.isEnabled
+        launchAtLoginEnabled = acceptanceConfiguration == nil ? LaunchAtLoginService.shared.isEnabled : false
         appearanceSettingsProfile = IslandAppearanceDisplayProfile(
             rawValue: UserDefaults.standard.string(forKey: Self.appearanceProfileSettingsDefaultsKey) ?? ""
         ) ?? .topBar
         notchAppearancePreferences = Self.loadAppearancePreferences(for: .notch)
         topBarAppearancePreferences = Self.loadAppearancePreferences(for: .topBar)
         watchNotificationEnabled = UserDefaults.standard.bool(forKey: Self.watchNotificationEnabledKey)
-        if watchNotificationEnabled && !BloubTrialController.isEnabled {
+        if watchNotificationEnabled && !BloubTrialController.isEnabled && acceptanceConfiguration == nil {
             startWatchRelay()
         }
 
@@ -711,68 +729,70 @@ final class AppModel {
             self?.lastActionMessage = message
         }
 
-        discovery.syntheticClaudeSessionPrefix = Self.syntheticClaudeSessionPrefix
-        discovery.onStatusMessage = { [weak self] message in
-            self?.lastActionMessage = message
-        }
-        discovery.stateAccessor = { [weak self] in self?.state ?? SessionState() }
-        discovery.stateUpdater = { [weak self] in self?.state = $0 }
-        discovery.onStateChanged = { [weak self] in
-            self?.synchronizeSelection()
-            self?.refreshOverlayPlacementIfVisible()
-        }
-        discovery.onAgentEvent = { [weak self] event in
-            self?.applyTrackedEvent(
-                event,
-                updateLastActionMessage: false,
-                ingress: .rollout
-            )
-        }
-
-        discovery.codexRolloutWatcher.eventHandler = { [weak self] event in
-            Task { @MainActor [weak self] in
+        if acceptanceConfiguration == nil {
+            discovery.syntheticClaudeSessionPrefix = Self.syntheticClaudeSessionPrefix
+            discovery.onStatusMessage = { [weak self] message in
+                self?.lastActionMessage = message
+            }
+            discovery.stateAccessor = { [weak self] in self?.state ?? SessionState() }
+            discovery.stateUpdater = { [weak self] in self?.state = $0 }
+            discovery.onStateChanged = { [weak self] in
+                self?.synchronizeSelection()
+                self?.refreshOverlayPlacementIfVisible()
+            }
+            discovery.onAgentEvent = { [weak self] event in
                 self?.applyTrackedEvent(
                     event,
                     updateLastActionMessage: false,
                     ingress: .rollout
                 )
             }
-        }
 
-        codexAppServer.onEvent = { [weak self] event in
-            self?.applyTrackedEvent(event, ingress: .bridge)
-        }
-        codexAppServer.onStatusMessage = { [weak self] message in
-            self?.lastActionMessage = message
-        }
-        codexAppServer.isSessionTracked = { [weak self] id in
-            self?.state.session(id: id) != nil
-        }
-
-        monitoring.syntheticClaudeSessionPrefix = Self.syntheticClaudeSessionPrefix
-        monitoring.stateAccessor = { [weak self] in self?.state ?? SessionState() }
-        monitoring.stateUpdater = { [weak self] in self?.state = $0 }
-        monitoring.onSessionsReconciled = { [weak self] in
-            self?.synchronizeSelection()
-            self?.refreshOverlayPlacementIfVisible()
-        }
-        monitoring.onPersistenceNeeded = { [weak self] in
-            self?.discovery.scheduleCodexSessionPersistence()
-            self?.discovery.scheduleClaudeSessionPersistence()
-            self?.discovery.scheduleOpenCodeSessionPersistence()
-            self?.discovery.scheduleCursorSessionPersistence()
-            self?.discovery.schedulePiSessionPersistence()
-        }
-        monitoring.onCodexAppRunningChanged = { [weak self] isRunning in
-            guard let self else { return }
-            if isRunning {
-                self.codexAppServer.ensureConnected()
-            } else {
-                self.codexAppServer.disconnect()
+            discovery.codexRolloutWatcher.eventHandler = { [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.applyTrackedEvent(
+                        event,
+                        updateLastActionMessage: false,
+                        ingress: .rollout
+                    )
+                }
             }
-        }
-        monitoring.onCodexAppMaintenanceTick = { [weak self] in
-            self?.discovery.maintainCodexAppSessionsIfNeeded()
+
+            codexAppServer.onEvent = { [weak self] event in
+                self?.applyTrackedEvent(event, ingress: .bridge)
+            }
+            codexAppServer.onStatusMessage = { [weak self] message in
+                self?.lastActionMessage = message
+            }
+            codexAppServer.isSessionTracked = { [weak self] id in
+                self?.state.session(id: id) != nil
+            }
+
+            monitoring.syntheticClaudeSessionPrefix = Self.syntheticClaudeSessionPrefix
+            monitoring.stateAccessor = { [weak self] in self?.state ?? SessionState() }
+            monitoring.stateUpdater = { [weak self] in self?.state = $0 }
+            monitoring.onSessionsReconciled = { [weak self] in
+                self?.synchronizeSelection()
+                self?.refreshOverlayPlacementIfVisible()
+            }
+            monitoring.onPersistenceNeeded = { [weak self] in
+                self?.discovery.scheduleCodexSessionPersistence()
+                self?.discovery.scheduleClaudeSessionPersistence()
+                self?.discovery.scheduleOpenCodeSessionPersistence()
+                self?.discovery.scheduleCursorSessionPersistence()
+                self?.discovery.schedulePiSessionPersistence()
+            }
+            monitoring.onCodexAppRunningChanged = { [weak self] isRunning in
+                guard let self else { return }
+                if isRunning {
+                    self.codexAppServer.ensureConnected()
+                } else {
+                    self.codexAppServer.disconnect()
+                }
+            }
+            monitoring.onCodexAppMaintenanceTick = { [weak self] in
+                self?.discovery.maintainCodexAppSessionsIfNeeded()
+            }
         }
         refreshOverlayDisplayConfiguration()
         hasFinishedInit = true
@@ -1144,6 +1164,7 @@ final class AppModel {
         }
         hasStarted = true
 
+        let loadRuntimeState = loadRuntimeState && acceptanceConfiguration == nil
         if loadRuntimeState {
             isResolvingInitialLiveSessions = true
 
@@ -1180,6 +1201,14 @@ final class AppModel {
             performBootAnimation()
         }
 
+        if acceptanceConfiguration != nil {
+            hooks.migrateIntentStoreIfNeeded()
+            lastActionMessage = "Isolated runtime acceptance: source discovery and installation disabled."
+            // The delegate hides ordinary launch windows before this runs.
+            // Use the same welcome claim only after the isolated migration.
+            DispatchQueue.main.async { [weak self] in self?.onStartupSetupReady?() }
+        }
+
         guard startBridge else {
             isBridgeReady = false
             lastActionMessage = loadRuntimeState
@@ -1214,7 +1243,7 @@ final class AppModel {
 
         // Create a fresh client for each connection attempt so we don't
         // have to worry about stale file-descriptor state.
-        let client = LocalBridgeClient()
+        let client = LocalBridgeClient(socketURL: bridgeSocketURL)
         bridgeClient = client
 
         let stream: AsyncThrowingStream<AgentEvent, Error>
@@ -1623,18 +1652,20 @@ final class AppModel {
 
         state.apply(event)
         reconcileIslandSurfaceAfterStateChange()
-        if ingress == .bridge {
+        if ingress == .bridge && acceptanceConfiguration == nil {
             monitoring.markSessionAttached(for: event)
             monitoring.markSessionProcessAlive(for: event)
         }
         synchronizeSelection()
-        discovery.refreshCodexRolloutTracking()
         refreshOverlayPlacementIfVisible()
-        discovery.scheduleCodexSessionPersistence()
-        discovery.scheduleClaudeSessionPersistence()
-        discovery.scheduleOpenCodeSessionPersistence()
-        discovery.scheduleCursorSessionPersistence()
-        discovery.schedulePiSessionPersistence()
+        if acceptanceConfiguration == nil {
+            discovery.refreshCodexRolloutTracking()
+            discovery.scheduleCodexSessionPersistence()
+            discovery.scheduleClaudeSessionPersistence()
+            discovery.scheduleOpenCodeSessionPersistence()
+            discovery.scheduleCursorSessionPersistence()
+            discovery.schedulePiSessionPersistence()
+        }
 
         // Push relevant events to the Watch/iPhone via the relay
         if let relay = watchRelay {
@@ -1740,6 +1771,7 @@ final class AppModel {
 
     /// Applies startup discovery results on the main thread after background I/O completes.
     private func applyStartupDiscoveryPayload(_ payload: SessionDiscoveryCoordinator.StartupDiscoveryPayload) {
+        guard acceptanceConfiguration == nil else { return }
         discovery.applyStartupDiscoveryPayload(payload)
 
         // Apply hooks binary URL and update the installed copy if the app ships a newer version.

@@ -7,13 +7,16 @@ import OpenIslandCore
 final class HookInstallationCoordinator {
     @ObservationIgnored
     let intentStore: AgentIntentStore
+    nonisolated let isRuntimeAcceptance: Bool
 
     init(
         intentStore: AgentIntentStore = AgentIntentStore(),
+        isRuntimeAcceptance: Bool = false,
         piExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .pi),
         ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi)
     ) {
         self.intentStore = intentStore
+        self.isRuntimeAcceptance = isRuntimeAcceptance
         self.piExtensionInstallationManager = piExtensionInstallationManager
         self.ohMyPiExtensionInstallationManager = ohMyPiExtensionInstallationManager
     }
@@ -142,6 +145,13 @@ final class HookInstallationCoordinator {
         return formatter
     }
 
+    private var isolatedStatusTitle: String {
+        LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "独立验收 · 未安装" : "Isolated acceptance · not installed"
+    }
+    private var isolatedStatusSummary: String {
+        LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "来源读取与安装已停用。" : "Source reads and installation are disabled."
+    }
+
     // MARK: - Computed display properties
 
     var codexHooksInstalled: Bool {
@@ -209,6 +219,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if claudeHooksInstalled {
             return "Claude hooks installed"
         }
@@ -221,6 +232,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = claudeHookStatus else {
             return "Reading \(ClaudeConfigDirectory.resolved().appendingPathComponent("settings.json").path)."
         }
@@ -244,6 +256,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeUsageStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         guard let status = claudeStatusLineStatus else {
             return "Claude usage status unavailable"
         }
@@ -264,6 +277,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeUsageStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = claudeStatusLineStatus else {
             return "Reading \(ClaudeConfigDirectory.resolved().appendingPathComponent("settings.json").path)."
         }
@@ -305,6 +319,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexUsageStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if codexUsageSnapshot?.isEmpty == false {
             return "Codex rate limits detected"
         }
@@ -313,6 +328,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexUsageStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         if let summary = codexUsageSummaryText {
             return "Reading the latest local rollout token_count snapshots · \(summary)"
         }
@@ -341,6 +357,7 @@ final class HookInstallationCoordinator {
     }
 
     var openCodePluginStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if openCodePluginInstalled {
             return "OpenCode plugin installed"
         }
@@ -349,6 +366,7 @@ final class HookInstallationCoordinator {
     }
 
     var openCodePluginStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = openCodePluginStatus else {
             return "Reading ~/.config/opencode state."
         }
@@ -365,6 +383,7 @@ final class HookInstallationCoordinator {
     }
 
     var cursorHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if cursorHooksInstalled {
             return "Cursor hooks installed"
         }
@@ -377,6 +396,7 @@ final class HookInstallationCoordinator {
     }
 
     var cursorHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard cursorHookStatus != nil else {
             return "Reading ~/.cursor/hooks.json."
         }
@@ -393,11 +413,13 @@ final class HookInstallationCoordinator {
     }
 
     var geminiHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         guard let status = geminiHookStatus else { return "Gemini hooks loading" }
         return status.managedHooksPresent ? "Gemini hooks installed" : "Gemini hooks not installed"
     }
 
     var geminiHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = geminiHookStatus else {
             return "Reading ~/.gemini/settings.json."
         }
@@ -410,6 +432,7 @@ final class HookInstallationCoordinator {
     }
 
     var kimiHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if kimiHooksInstalled {
             return "Kimi hooks installed"
         }
@@ -422,6 +445,7 @@ final class HookInstallationCoordinator {
     }
 
     var kimiHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard kimiHookStatus != nil else {
             return "Reading ~/.kimi/config.toml."
         }
@@ -438,6 +462,7 @@ final class HookInstallationCoordinator {
     }
 
     var grokHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if grokHooksInstalled {
             return "Grok hooks installed"
         }
@@ -450,6 +475,7 @@ final class HookInstallationCoordinator {
     }
 
     var grokHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard grokHookStatus != nil else {
             return "Reading ~/.grok/hooks/open-island.json."
         }
@@ -466,6 +492,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if codexHooksInstalled {
             return "Codex hooks installed"
         }
@@ -478,6 +505,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = codexHookStatus else {
             return "Reading ~/.codex state."
         }
@@ -498,6 +526,7 @@ final class HookInstallationCoordinator {
 
     /// Updates the custom Claude config directory, cleans up old hooks if present, and refreshes status.
     func updateClaudeConfigDirectory(to newDirectory: URL?) {
+        guard !isRuntimeAcceptance else { return }
         let oldDirectory = ClaudeConfigDirectory.resolved()
         let oldHadHooks = claudeHookStatus?.managedHooksPresent == true
 
@@ -523,6 +552,7 @@ final class HookInstallationCoordinator {
     /// Overwrites the installed hooks binary if the app bundle ships a newer version.
     /// Call once at startup after hooksBinaryURL is set.
     func updateHooksBinaryIfNeeded() {
+        guard !isRuntimeAcceptance else { return }
         guard let sourceURL = hooksBinaryURL else { return }
 
         Task { @MainActor [weak self] in
@@ -558,6 +588,7 @@ final class HookInstallationCoordinator {
 
     /// Runs health checks for Claude, Codex and OpenCode hooks.
     func runHealthChecks() {
+        guard !isRuntimeAcceptance else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -586,6 +617,7 @@ final class HookInstallationCoordinator {
     /// Returns true if any repairs were attempted.
     @discardableResult
     func repairHooksIfNeeded() async -> Bool {
+        guard !isRuntimeAcceptance else { return false }
         var repaired = false
 
         // Re-run health checks first
@@ -649,6 +681,7 @@ final class HookInstallationCoordinator {
     // MARK: - Refresh
 
     func refreshCodexHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -662,6 +695,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshClaudeHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -675,6 +709,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCCForkHookStatuses() {
+        guard !isRuntimeAcceptance else { return }
         refreshCCForkHookStatus(manager: qoderHookInstallationManager, name: "Qoder") { [weak self] in self?.qoderHookStatus = $0 }
         refreshCCForkHookStatus(manager: qwenCodeHookInstallationManager, name: "Qwen Code") { [weak self] in self?.qwenCodeHookStatus = $0 }
         refreshCCForkHookStatus(manager: factoryHookInstallationManager, name: "Factory") { [weak self] in self?.factoryHookStatus = $0 }
@@ -688,6 +723,7 @@ final class HookInstallationCoordinator {
         name: String,
         apply: @MainActor @escaping (ClaudeHookInstallationStatus) -> Void
     ) {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -702,6 +738,7 @@ final class HookInstallationCoordinator {
 
     /// Awaitable versions of refresh for use in startup flow to avoid race conditions.
     func refreshAllHookStatusAndWait() async {
+        guard !isRuntimeAcceptance else { return }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
@@ -802,6 +839,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshOpenCodePluginStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -815,6 +853,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCursorHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -828,6 +867,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshGeminiHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -841,6 +881,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshKimiHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -854,6 +895,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshGrokHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -867,6 +909,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshPiExtensionStatuses() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
             self.loadPiExtensionStatuses()
@@ -876,6 +919,7 @@ final class HookInstallationCoordinator {
     /// Reads Pi and Oh My Pi installation status independently so one
     /// corrupted manifest cannot block the other agent's status refresh.
     func loadPiExtensionStatuses() {
+        guard !isRuntimeAcceptance else { return }
         do {
             piExtensionStatus = try piExtensionInstallationManager.status()
         } catch {
@@ -894,6 +938,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshClaudeUsageState() {
+        guard !isRuntimeAcceptance else { return }
         let manager = claudeStatusLineInstallationManager
         Task { [weak self] in
             guard let self else { return }
@@ -921,6 +966,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCodexUsageState() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -948,6 +994,7 @@ final class HookInstallationCoordinator {
     /// untouched agents are surfaced to the user via the first-run
     /// onboarding window and the empty-state banner instead.
     func shouldAutoInstall(_ agent: AgentIdentifier) -> Bool {
+        guard !isRuntimeAcceptance else { return false }
         guard intentStore.intent(for: agent) == .installed else {
             return false
         }
@@ -980,6 +1027,10 @@ final class HookInstallationCoordinator {
     /// will be recorded as `.untouched` and legacy users will have their
     /// installed hooks silently forgotten.
     func migrateIntentStoreIfNeeded() {
+        if isRuntimeAcceptance {
+            intentStore.migrateFromLegacyStateIfNeeded { _ in false }
+            return
+        }
         intentStore.migrateFromLegacyStateIfNeeded { [self] agent in
             switch agent {
             case .claudeCode: return claudeHooksInstalled
@@ -1005,6 +1056,7 @@ final class HookInstallationCoordinator {
     // MARK: - Install / uninstall
 
     func installCodexHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1016,12 +1068,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallCodexHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCodexHooks(userMessage: "Removing Codex hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installClaudeHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1033,56 +1087,69 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallClaudeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeHooks(userMessage: "Removing Claude hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installQoderHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: true)
     }
 
     func uninstallQoderHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: false)
     }
 
     func installQwenCodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: true)
     }
 
     func uninstallQwenCodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: false)
     }
 
     func installFactoryHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: true)
     }
 
     func uninstallFactoryHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: false)
     }
 
     func installCodebuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: true)
     }
 
     func uninstallCodebuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: false)
     }
 
     func installZcodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: zcodeHookInstallationManager, name: "ZCode", agent: .zcode, isBusySetter: { [weak self] in self?.isZcodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.zcodeHookStatus = $0 }, install: true)
     }
 
     func uninstallZcodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: zcodeHookInstallationManager, name: "ZCode", agent: .zcode, isBusySetter: { [weak self] in self?.isZcodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.zcodeHookStatus = $0 }, install: false)
     }
 
     func installWorkbuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: workbuddyHookInstallationManager, name: "WorkBuddy", agent: .workbuddy, isBusySetter: { [weak self] in self?.isWorkbuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.workbuddyHookStatus = $0 }, install: true)
     }
 
     func uninstallWorkbuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: workbuddyHookInstallationManager, name: "WorkBuddy", agent: .workbuddy, isBusySetter: { [weak self] in self?.isWorkbuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.workbuddyHookStatus = $0 }, install: false)
     }
 
@@ -1094,6 +1161,7 @@ final class HookInstallationCoordinator {
         statusSetter: @MainActor @escaping (ClaudeHookInstallationStatus) -> Void,
         install: Bool
     ) {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1125,6 +1193,7 @@ final class HookInstallationCoordinator {
     }
 
     func installOpenCodePlugin() {
+        guard !isRuntimeAcceptance else { return }
         guard let pluginData = loadBundledOpenCodePlugin() else {
             onStatusMessage?("Could not find the bundled OpenCode plugin resource.")
             return
@@ -1154,6 +1223,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallOpenCodePlugin() {
+        guard !isRuntimeAcceptance else { return }
         isOpenCodeSetupBusy = true
         onStatusMessage?("Removing OpenCode plugin.")
 
@@ -1174,6 +1244,7 @@ final class HookInstallationCoordinator {
     }
 
     func installCursorHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1185,12 +1256,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallCursorHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCursorHooks(userMessage: "Removing Cursor hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installGeminiHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1202,12 +1275,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallGeminiHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateGeminiHooks(userMessage: "Removing Gemini hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installKimiHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1219,12 +1294,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallKimiHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateKimiHooks(userMessage: "Removing Kimi hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installGrokHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1236,12 +1313,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallGrokHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateGrokHooks(userMessage: "Removing Grok hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: piExtensionInstallationManager,
             agent: .pi,
@@ -1253,6 +1332,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: piExtensionInstallationManager,
             agent: .pi,
@@ -1264,6 +1344,7 @@ final class HookInstallationCoordinator {
     }
 
     func installOhMyPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: ohMyPiExtensionInstallationManager,
             agent: .ohMyPi,
@@ -1275,6 +1356,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallOhMyPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: ohMyPiExtensionInstallationManager,
             agent: .ohMyPi,
@@ -1293,6 +1375,7 @@ final class HookInstallationCoordinator {
         busy: ReferenceWritableKeyPath<HookInstallationCoordinator, Bool>,
         install: Bool
     ) {
+        guard !isRuntimeAcceptance else { return }
         let sourceData: Data?
         if install {
             sourceData = loadBundledPiExtension()
@@ -1329,6 +1412,7 @@ final class HookInstallationCoordinator {
     }
 
     func installClaudeUsageBridge() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.", intent: .installed) { manager in
             do {
                 return try manager.install()
@@ -1341,6 +1425,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallClaudeUsageBridge() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeUsageBridge(userMessage: "Removing Claude usage bridge.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
@@ -1349,6 +1434,7 @@ final class HookInstallationCoordinator {
     // MARK: - Monitoring
 
     func startClaudeUsageMonitoringIfNeeded() {
+        guard !isRuntimeAcceptance else { return }
         guard claudeUsageMonitorTask == nil else { return }
 
         claudeUsageMonitorTask = Task { @MainActor [weak self] in
@@ -1362,6 +1448,7 @@ final class HookInstallationCoordinator {
     }
 
     func startCodexUsageMonitoringIfNeeded() {
+        guard !isRuntimeAcceptance else { return }
         guard codexUsageMonitorTask == nil else { return }
 
         codexUsageMonitorTask = Task { @MainActor [weak self] in
@@ -1383,6 +1470,7 @@ final class HookInstallationCoordinator {
         snapshot: ClaudeUsageSnapshot?,
         repairedManagedBridge: Bool
     ) {
+        guard !isRuntimeAcceptance else { throw RuntimeAcceptanceConfiguration.ConfigurationError.unsafePath }
         let manager = ClaudeStatusLineInstallationManager()
         var status = try manager.status()
         var repairedManagedBridge = false
@@ -1403,6 +1491,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (CodexHookInstallationManager) throws -> CodexHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isCodexSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1431,6 +1520,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (ClaudeHookInstallationManager) throws -> ClaudeHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isClaudeHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1461,6 +1551,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (CursorHookInstallationManager) throws -> CursorHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isCursorHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1489,6 +1580,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (GeminiHookInstallationManager) throws -> GeminiHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isGeminiHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1517,6 +1609,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (KimiHookInstallationManager) throws -> KimiHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isKimiHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1545,6 +1638,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (GrokHookInstallationManager) throws -> GrokHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isGrokHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1573,6 +1667,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (ClaudeStatusLineInstallationManager) throws -> ClaudeStatusLineInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isClaudeUsageSetupBusy = true
         onStatusMessage?(userMessage)
 

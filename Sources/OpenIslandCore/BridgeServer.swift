@@ -90,14 +90,17 @@ public final class BridgeServer: @unchecked Sendable {
     /// overwritten whenever AppModel pushes a fresh snapshot.
     private var localState = SessionState()
     private var runtimeLifecycleReducer: RuntimeLifecycleReducer
+    private let monitorMiniMaxCode: Bool
     private var miniMaxCodeMonitor = MiniMaxCodeLifecycleMonitor()
     private var miniMaxCodePollTimer: DispatchSourceTimer?
 
     public init(
         socketURL: URL = BridgeSocketLocation.defaultURL,
-        runtimeLifecycleRegistryURL: URL? = nil
+        runtimeLifecycleRegistryURL: URL? = nil,
+        monitorMiniMaxCode: Bool = true
     ) {
         self.socketURL = socketURL
+        self.monitorMiniMaxCode = monitorMiniMaxCode
         self.runtimeLifecycleReducer = RuntimeLifecycleReducer(registryURL: runtimeLifecycleRegistryURL)
         queue.setSpecific(key: queueKey, value: ())
     }
@@ -124,7 +127,7 @@ public final class BridgeServer: @unchecked Sendable {
             }
         }
         queue.async { [weak self] in
-            guard let self, !self.listeners.isEmpty, self.miniMaxCodePollTimer == nil else { return }
+            guard let self, self.monitorMiniMaxCode, !self.listeners.isEmpty, self.miniMaxCodePollTimer == nil else { return }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
             timer.schedule(deadline: .now(), repeating: .milliseconds(250))
             timer.setEventHandler { [weak self] in
@@ -507,6 +510,11 @@ public final class BridgeServer: @unchecked Sendable {
             handleGrokHook(payload, from: clientID)
         case let .processRuntimeLifecycleHook(payload):
             if payload.source.isMiniMaxCode {
+                guard monitorMiniMaxCode else {
+                    // Reject before observe(), which can query the metadata DB.
+                    send(.response(.acknowledged), to: clientID)
+                    return
+                }
                 // Native hooks only admit identities. Outcomes come from committed DB facts.
                 for observed in miniMaxCodeMonitor.observe(payload) {
                     for event in runtimeLifecycleReducer.receive(observed) { emit(event) }

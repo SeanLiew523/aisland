@@ -4,13 +4,31 @@ import OpenIslandCore
 
 @MainActor
 final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
-    let model = AppModel()
+    let model: AppModel
+    private let acceptanceConfiguration: RuntimeAcceptanceConfiguration?
     private let harnessLaunchConfiguration = HarnessLaunchConfiguration(environment: BloubTrialController.launchEnvironment)
     private lazy var bloubTrialController = BloubTrialController(model: model)
-    private let welcomeStore = OnboardingPresentationStore()
+    private let welcomeStore: OnboardingPresentationStore
+    private var presentedWelcomeLanguage: OnboardingLanguage?
     private let welcomeController = OnboardingWindowController()
     private let launchedAt = Date()
     private lazy var harnessRuntimeMonitor = HarnessRuntimeMonitor(launchedAt: launchedAt)
+
+    override init() {
+        do {
+            let acceptance = try RuntimeAcceptanceConfiguration.current()
+            let defaults = try acceptance?.isolatedPreferences() ?? .standard
+            self.acceptanceConfiguration = acceptance
+            self.welcomeStore = OnboardingPresentationStore(defaults: defaults)
+            self.model = AppModel(acceptanceConfiguration: acceptance, intentDefaults: defaults)
+        } catch {
+            // No AppModel or production store/bridge is created on invalid
+            // opted-in metadata. A distinct acceptance app fails closed.
+            fputs("AIsland runtime acceptance configuration is invalid; startup stopped.\n", stderr)
+            exit(EXIT_FAILURE)
+        }
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination(
@@ -33,7 +51,7 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
             model.startIfNeeded(
                 startBridge: harnessLaunchConfiguration.shouldStartBridge,
                 shouldPerformBootAnimation: harnessLaunchConfiguration.shouldPerformBootAnimation,
-                loadRuntimeState: harnessLaunchConfiguration.scenario == nil
+                loadRuntimeState: harnessLaunchConfiguration.scenario == nil && acceptanceConfiguration == nil
             )
             harnessRuntimeMonitor.recordMilestone("modelStarted")
 
@@ -86,6 +104,8 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        recordWelcomeReceipt(event: .exited, exit: .termination,
+                             language: presentedWelcomeLanguage ?? resolvedWelcomeLanguage())
         welcomeController.stop()
         NotificationSoundService.stop()
     }
@@ -105,29 +125,63 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
 
     func showBloubTrial() { bloubTrialController.show() }
 
+    private func resolvedWelcomeLanguage() -> OnboardingLanguage {
+        OnboardingLanguage.resolve(
+            manualLanguage: model.lang.language.rawValue,
+            preferredLanguages: Locale.preferredLanguages
+        )
+    }
+
+    private func recordWelcomeReceipt(
+        event: RuntimeAcceptanceConfiguration.WelcomeEvent,
+        exit: RuntimeAcceptanceConfiguration.WelcomeExit? = nil,
+        language: OnboardingLanguage
+    ) {
+        guard let acceptanceConfiguration else { return }
+        do {
+            try acceptanceConfiguration.recordWelcome(
+                event: event, exit: exit, language: language.rawValue,
+                alreadyPresented: welcomeStore.alreadyPresented,
+                firstLaunchCompleted: model.firstLaunchCompleted,
+                preferredLanguages: Locale.preferredLanguages
+            )
+        } catch {
+            model.lastActionMessage = "Welcome acceptance receipt could not be recorded."
+        }
+    }
+
     private func presentAutomaticWelcome() {
         guard !BloubTrialController.isEnabled, harnessLaunchConfiguration.scenario == nil,
               welcomeStore.claimAutomaticPresentation(
                 migrationReady: model.hooks.intentStore.migrationVersion > 0,
                 firstLaunchCompleted: model.firstLaunchCompleted
               ) else { return }
+        recordWelcomeReceipt(event: .claimed, language: resolvedWelcomeLanguage())
         presentWelcome()
     }
 
     private func presentWelcome() {
-        let language = OnboardingLanguage.resolve(
-            manualLanguage: model.lang.language.rawValue,
-            preferredLanguages: Locale.preferredLanguages
-        )
-        if !welcomeController.present(
+        let language = resolvedWelcomeLanguage()
+        let shown = welcomeController.present(
             language: language, initiallyMuted: model.isSoundMuted,
             hapticFeedbackEnabled: model.hapticFeedbackEnabled,
             completion: { [weak self] result in
-                guard let self, result != .closed else { return }
-                self.model.firstLaunchCompleted = true
-                self.model.showOnboarding()
+                guard let self else { return }
+                if result != .closed { self.model.firstLaunchCompleted = true }
+                let exit: RuntimeAcceptanceConfiguration.WelcomeExit = switch result {
+                case .completed: .completed
+                case .skipped: .skipped
+                case .closed: .closed
+                }
+                self.recordWelcomeReceipt(event: .exited, exit: exit, language: language)
+                self.presentedWelcomeLanguage = nil
+                if result != .closed { self.model.showOnboarding() }
             }
-        ), let error = welcomeController.lastError {
+        )
+        if shown {
+            presentedWelcomeLanguage = language
+            recordWelcomeReceipt(event: .shown, language: language)
+        } else if let error = welcomeController.lastError {
             model.lastActionMessage = error
             model.showOnboarding()
         }

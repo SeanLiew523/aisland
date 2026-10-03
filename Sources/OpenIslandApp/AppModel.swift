@@ -1380,9 +1380,27 @@ final class AppModel {
             // settings window renders the first time. Send the standard
             // `showSettingsWindow:` responder action (macOS 13+) so it fires
             // the `CommandGroup(.appSettings)` button that opens the window.
-            NSApp.sendAction(NSSelectorFromString("showSettingsWindow:"), to: nil, from: nil)
+            let opened = NSApp.sendAction(NSSelectorFromString("showSettingsWindow:"), to: nil, from: nil)
+            if !opened {
+                // Our replacement Settings command owns openWindow. SwiftUI
+                // does not install showSettingsWindow: for that custom command.
+                // Invoke the same menu action as Cmd-comma on first launch.
+                func settingsCommand(in menu: NSMenu) -> NSMenuItem? {
+                    for item in menu.items {
+                        if item.keyEquivalent == ",", item.keyEquivalentModifierMask.contains(.command),
+                           item.isEnabled, item.action != nil { return item }
+                        if let submenu = item.submenu, let match = settingsCommand(in: submenu) { return match }
+                    }
+                    return nil
+                }
+                if let menu = NSApp.mainMenu, let item = settingsCommand(in: menu), let action = item.action {
+                    NSApp.sendAction(action, to: item.target, from: item)
+                }
+            }
         }
-        if let window = NSApp.windows.first(where: { $0.title == AppBrand.settingsWindowTitle }) {
+        if let window = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "settings" || $0.title == AppBrand.settingsWindowTitle
+        }) {
             window.orderFrontRegardless()
             window.makeKey()
         }

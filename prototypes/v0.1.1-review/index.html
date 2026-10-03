@@ -9,7 +9,7 @@
 <body>
   <header class="masthead">
     <a class="brand" href="#intro" aria-label="AIsland 效果审阅"><span class="brand-glyph"><i></i><i></i><b></b></span>AIsland</a>
-    <span class="edition">v0.1.1 / 效果审阅 01</span>
+    <span class="edition">v0.1.1 / 效果审阅 02</span>
   </header>
   <main>
     <nav class="review-tabs" aria-label="审阅内容">
@@ -24,11 +24,11 @@
           <canvas id="stage" aria-label="AIsland 引导动画预览"></canvas>
           <div class="stage-top"><span>AIsland</span><div><button id="stage-mute" aria-pressed="false">声音开启</button><button id="skip">跳过开场</button></div></div>
           <div class="stage-copy" id="stage-copy"><span id="scene-kicker">HELLO, AISLAND</span><h2 id="scene-title">让等待<br>有回应。</h2><p id="scene-caption">任务在继续，你可以做自己的事。</p></div>
-          <div class="start-curtain" id="start-curtain"><button class="play-button" id="play"><span>▶</span> 播放音画预览</button><p>约 22 秒 · 点击后开启声音</p></div>
+          <div class="start-curtain" id="start-curtain"><span class="curtain-label">A · 温润共鸣 / 第二版</span><button class="play-button" id="play"><span>▶</span> 播放音画预览</button><p>约 28 秒 · 建议全屏并开启声音</p></div>
           <div class="setup-preview" id="setup-preview" hidden>
             <span class="eyebrow">YOUR ISLAND, YOUR TOOLS</span><h2>把你的工具，<br>带上小岛。</h2><p>选择常用工具，随后检查接入能力。</p>
             <div class="setup-options">
-              <label><input type="checkbox" checked>Hermes CLI</label><label><input type="checkbox" checked>MiniMax Code</label><label><input type="checkbox">DeepSeek Harness</label><label><input type="checkbox">豆包工作</label><label><input type="checkbox">千问办公</label>
+              <label><input type="checkbox" checked>Hermes CLI</label><label><input type="checkbox" checked>DeepSeek Harness</label><label><input type="checkbox">MiniMax Code</label><label><input type="checkbox">豆包工作</label><label><input type="checkbox">千问办公</label>
             </div>
             <button class="primary" id="setup-next">查看接入方案</button><small>此处演示选择流程，不安装或修改工具。</small>
           </div>
@@ -36,18 +36,20 @@
           <div class="progress"><div id="progress-fill"></div></div>
         </div>
         <aside class="director-panel">
-          <h3>先选一种声音</h3>
-          <label class="sound-direction"><input type="radio" name="direction" value="warm" checked><span><strong>A · 温润共鸣</strong><small>柔和底音，圆润落点，轻空气感</small></span></label>
-          <label class="sound-direction"><input type="radio" name="direction" value="digital"><span><strong>B · 清脆数字</strong><small>更短起音，分明节拍，清亮提示</small></span></label>
+          <h3>A · 温润共鸣，第二版</h3>
+          <p class="direction-description">蓄势、展开、落定。<br>从深蓝空间走进明亮的工作现场。</p>
           <div class="director-options"><label><input type="checkbox" id="intro-mute">静音观看</label><label><input type="checkbox" id="reduce-motion">减少动态效果</label></div>
           <button id="replay" class="secondary">从头重播</button>
           <ol class="scene-list" id="scene-list">
-            <li data-at="0"><span>00–03</span><b>醒来</b><small>从蓝点到一双眼睛</small></li>
-            <li data-at="3"><span>03–08</span><b>汇入</b><small>多任务落在同一个地方</small></li>
-            <li data-at="8"><span>08–16</span><b>回应</b><small>完成、审批、回答</small></li>
-            <li data-at="16"><span>16–22</span><b>归位</b><small>回到日常的屏幕顶部</small></li>
+            <li><button data-inspect="2.4"><span>00–04</span><b>展开</b><small>蓝色光场，第一声落定</small></button></li>
+            <li><button data-inspect="6.2"><span>04–10</span><b>汇入</b><small>文档、页面、资料</small></button></li>
+            <li><button data-inspect="12.7"><span>10–14</span><b>完成</b><small>看见整理好的文档</small></button></li>
+            <li><button data-inspect="15.5"><span>14–17</span><b>审批</b><small>看清将要修改的内容</small></button></li>
+            <li><button data-inspect="18.5"><span>17–20</span><b>回答</b><small>给资料审核一个方向</small></button></li>
+            <li><button data-inspect="21.5"><span>20–23</span><b>返回</b><small>回到需要你审批的任务</small></button></li>
+            <li><button data-inspect="26"><span>23–28</span><b>归位</b><small>留在屏幕顶部</small></button></li>
           </ol>
-          <p class="review-note">当前声音为原创合成草样，用于确认节奏与音色方向。触控板震感将在原生版本单独验收。</p>
+          <p class="review-note">点击阶段可静帧查看细节；完整音画请从头播放。声音为原创合成草样。原生触感另行验收。</p>
         </aside>
       </div>
     </section>
@@ -75,14 +77,15 @@
       <div class="section-heading"><div><span class="eyebrow">03 / CONNECT WITH EVIDENCE</span><h1 id="sources-heading">工具接入，先核对真实能力。</h1></div><p>每个来源分别验收状态、通知和准确返回。</p></div>
       <div class="capability-table"><div class="table-heading"><span>来源</span><span>当前路线</span><span>下一步验证</span></div>
         <div><strong>Hermes CLI<small>CLI / 0ff4c74865</small></strong><p>shell hooks 已证实；结束事件含完成、失败、中断结果</p><p>优先做完整接入切片；验证并行任务与原终端定位</p></div>
-        <div><strong>MiniMax Code<small>3.1.0 / 3.1.0.176</small></strong><p>本地插件 hooks 已证实；Stop 可能被其他插件续跑</p><p>补最终结果来源与准确会话选择；当前协议只证明窗口聚焦</p></div>
+        <div><strong>MiniMax Code<small>桌面 3.1.0 · mcode CLI 0.5.3</small></strong><p>CLI 的 exec 有明确结果；ACP 有双向交互，适用于客户端持有的会话</p><p>被动观察已有 TUI 仍有 Stop 与终端定位缺口；CLI 暂作路线研究</p></div>
         <div><strong>DeepSeek Harness<small>0.2.0-rc.2</small></strong><p>官方桌面插件入口；事件归属与客户端选中会话能力</p><p>优先验证插件桥接、会话选中和前台，再验证回传</p></div>
         <div><strong>豆包工作<small>2.31.8</small></strong><p>有内部任务模型；尚未找到可配置外部订阅入口</p><p>补稳定事件与会话导航；暂不能承诺完整接入路线</p></div>
         <div><strong>千问办公<small>1.0.5 / 26090806</small></strong><p>带 chatId 的通知导航已找到；公开 hooks 属企业路径</p><p>核对账号权限、事件与桌面 ID 映射，再实测准确跳转</p></div>
       </div><p class="source-note">这是能力路线审阅，尚未接入。应用被唤起和正确会话被选中会分别核对。详细证据见仓库阶段记录。</p>
     </section>
-    <footer>阶段 1 · 本页为效果审阅原型，尚未连接正式应用。<span>Esc 跳过开场 · 支持减少动态效果</span></footer>
+    <footer>引导修订审阅 · 本页为独立原型。<span>Esc 跳过开场 · 支持减少动态效果</span></footer>
   </main>
+  <script src="intro-scene.js"></script>
   <script src="review.js"></script>
 </body>
 </html>

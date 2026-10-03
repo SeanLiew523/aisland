@@ -91,10 +91,6 @@ private enum MiniMaxCodeAXNavigation {
         case projectLeafRows = "project-leaf-rows"
         case projectHeaderPress = "project-header-press"
         case projectRowPress = "project-row-press"
-        case titleSurfaceRoots = "title-surface-roots"
-        case titleBranchTitles = "title-branch-titles"
-        case titleAncestor = "title-ancestor"
-        case titleLayout = "title-layout"
         case titleMenuMatches = "title-menu-matches"
         case titleMenuTimeout = "title-menu-timeout"
         case copySubmenu = "copy-submenu"
@@ -303,76 +299,48 @@ private enum MiniMaxCodeAXNavigation {
         return remaining(deadline)
     }
 
-    /// Public 3.1.0 title and global controls are separately nested. Locate
-    /// their smallest shared group by the unique fixed IDE/terminal anchors and
-    /// one exact static heading. Never accept a window/web/body scroll root.
+    /// Live 3.1.0 flattens title/menu/controls into adjacent direct children.
+    /// Only the ten-node controls branch and one-text title branch are read;
+    /// the shared panel's chat descendants cannot affect this lookup.
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval) -> AXUIElement? {
         let visited = nodes(root, deadline)
         let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
         let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
-        guard choosers.count == 1, terminals.count == 1 else { return nil }
-        var node = choosers[0]
-        var topbar: AXUIElement?; var branch: [AXUIElement] = []; var heading: AXUIElement?
-        for index in 0..<8 where remaining(deadline) {
-            guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
-            node = unsafeDowncast(parent, to: AXUIElement.self)
-            guard role(node) == "AXGroup", visited.contains(where: { CFEqual($0, node) }) else { return nil }
-            let members = nodes(node, deadline, maximum: 129, depth: 8)
-            if acceptanceDiagnosticsEnabled, index == 1 {
-                let headings = visited.filter { role($0) == "AXStaticText" && text($0) == title }
-                acceptanceLog(.titleLayout, count: headings.count, nodes: elements(node, kAXChildrenAttribute).count)
-                for (childIndex, child) in elements(node, kAXChildrenAttribute).prefix(8).enumerated() {
-                    let childMembers = nodes(child, deadline, maximum: 41, depth: 4)
-                    let labels = childMembers.filter { role($0) == "AXStaticText" && text($0) == title }.count
-                    let menu = role(child) == "AXButton" && (exactLabel(child) ?? "").isEmpty && action(child, kAXPressAction)
-                    let chooser = childMembers.contains { CFEqual($0, choosers[0]) }
-                    let terminal = childMembers.contains { CFEqual($0, terminals[0]) }
-                    NSLog("aisland_minimax_navigation stage=title-child index=%ld role=%@ nodes=%ld titles=%ld menu=%d chooser=%d terminal=%d",
-                          childIndex + 1, DiagnosticRole(role(child)).rawValue, childMembers.count,
-                          labels, menu ? 1 : 0, chooser ? 1 : 0, terminal ? 1 : 0)
-                }
-                for heading in headings.prefix(4) {
-                    var titleNode = heading
-                    for distance in 1...8 where remaining(deadline) {
-                        guard let parent = value(titleNode, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
-                        titleNode = unsafeDowncast(parent, to: AXUIElement.self)
-                        let nearby = nodes(titleNode, deadline, maximum: 41, depth: 4)
-                        let unlabeled = nearby.filter { role($0) == "AXButton" && (exactLabel($0) ?? "").isEmpty && action($0, kAXPressAction) }.count
-                        acceptanceLog(.titleLayout, count: distance, nodes: nearby.count, error: unlabeled, flag: CFEqual(titleNode, node))
-                        if CFEqual(titleNode, node) { break }
-                    }
+        guard choosers.count == 1, terminals.count == 1,
+              let controls = parent(choosers[0]), role(controls) == "AXGroup",
+              let panel = parent(controls), role(panel) == "AXGroup", remaining(deadline) else { return nil }
+        let controlMembers = nodes(controls, deadline, maximum: 17, depth: 4)
+        guard controlMembers.count <= 16, remaining(deadline),
+              controlMembers.contains(where: { CFEqual($0, terminals[0]) }),
+              !controlMembers.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") }) else { return nil }
+        let children = elements(panel, kAXChildrenAttribute)
+        guard children.count <= 8, remaining(deadline),
+              children.contains(where: { CFEqual($0, controls) }) else { return nil }
+        var branches: [MiniMaxCodeTopbarSelection.Branch] = []
+        for child in children {
+            guard remaining(deadline), let childParent = parent(child), CFEqual(childParent, panel) else { return nil }
+            if CFEqual(child, controls) { branches.append(.controls); continue }
+            if role(child) == "AXButton", (exactLabel(child) ?? "").isEmpty, action(child, kAXPressAction) {
+                branches.append(.menu); continue
+            }
+            if role(child) == "AXGroup" {
+                let titleChildren = elements(child, kAXChildrenAttribute)
+                if titleChildren.count == 1, let heading = titleChildren.first,
+                   role(heading) == "AXStaticText", text(heading) == title,
+                   let headingParent = parent(heading), CFEqual(headingParent, child) {
+                    branches.append(.title); continue
                 }
             }
-            let forbidden = members.contains(where: { ["AXScrollArea", "AXTextArea", "AXWebArea", "AXWindow"].contains(role($0) ?? "") })
-            acceptanceLog(.titleAncestor, count: index + 1, nodes: members.count,
-                          error: forbidden ? 1 : 0, flag: remaining(deadline))
-            guard members.count <= 128, remaining(deadline),
-                  !forbidden else { return nil }
-            guard members.contains(where: { CFEqual($0, terminals[0]) }) else { continue }
-            let titles = members.filter { role($0) == "AXStaticText" && text($0) == title }
-            acceptanceLog(.titleBranchTitles, count: titles.count, nodes: members.count, flag: remaining(deadline))
-            if titles.isEmpty { continue }
-            guard titles.count == 1 else { return nil }
-            topbar = node; branch = members; heading = titles[0]; break
+            branches.append(.other)
         }
-        guard let topbar, let heading else { return nil }
-        node = heading
-        for _ in 0..<4 where remaining(deadline) {
-            guard let parent = value(node, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
-            node = unsafeDowncast(parent, to: AXUIElement.self)
-            guard branch.contains(where: { CFEqual($0, node) }), role(node) == "AXGroup" else { return nil }
-            let nearby = nodes(node, deadline, maximum: 41, depth: 4)
-            guard nearby.count <= 40, remaining(deadline) else { return nil }
-            var buttons: [AXUIElement] = []
-            for candidate in nearby where role(candidate) == "AXButton" && (exactLabel(candidate) ?? "").isEmpty && action(candidate, kAXPressAction) {
-                if !buttons.contains(where: { CFEqual($0, candidate) }) { buttons.append(candidate) }
-            }
-            acceptanceLog(.titleMenuMatches, count: buttons.count, flag: remaining(deadline))
-            if buttons.count == 1 { return buttons[0] }
-            if buttons.count > 1 { return nil }
-            if CFEqual(node, topbar) { break }
-        }
-        return nil
+        let index = MiniMaxCodeTopbarSelection.menuIndex(in: branches)
+        acceptanceLog(.titleMenuMatches, count: index == nil ? 0 : 1, nodes: children.count, flag: remaining(deadline))
+        guard let index, remaining(deadline) else { return nil }
+        return children[index]
+    }
+    static func parent(_ element: AXUIElement) -> AXUIElement? {
+        guard let value = value(element, kAXParentAttribute), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return unsafeDowncast(value, to: AXUIElement.self)
     }
     static func projectHeaders(_ root: AXUIElement, path: String, deadline: TimeInterval) -> [AXUIElement] {
         let visited = nodes(root, deadline)

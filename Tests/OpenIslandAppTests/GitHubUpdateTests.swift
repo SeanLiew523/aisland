@@ -103,4 +103,38 @@ struct GitHubUpdateTests {
         #expect(!checker.canCancel)
     }
 
+    @MainActor @Test func cancelledMetadataReplyCannotOverwriteANewCheck() async throws {
+        let gate = UpdateTransportGate()
+        let checker = UpdateChecker(client: GitHubUpdateClient { try await gate.request($0) })
+        checker.checkForUpdates()
+        for _ in 0..<100 where await gate.count < 1 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(await gate.count == 1)
+        checker.cancel()
+        checker.checkForUpdates()
+        for _ in 0..<100 where await gate.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(await gate.count == 2)
+        await gate.respond(0)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(checker.phase == .checking)
+        #expect(checker.canCancel)
+        await gate.respond(1)
+        for _ in 0..<100 where checker.phase == .checking { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(checker.phase == .failed)
+        #expect(checker.messageKey == "settings.update.rateLimited")
+        #expect(!checker.canCancel)
+    }
+
+}
+
+
+private actor UpdateTransportGate {
+    private var requests: [(URL, CheckedContinuation<(Data, URLResponse), any Error>)] = []
+    var count: Int { requests.count }
+    func request(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { requests.append((request.url!, $0)) }
+    }
+    func respond(_ index: Int) {
+        let (url, continuation) = requests[index]
+        continuation.resume(returning: (Data(), HTTPURLResponse(url: url, statusCode: 429, httpVersion: nil, headerFields: nil)!))
+    }
 }

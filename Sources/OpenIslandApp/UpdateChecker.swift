@@ -28,6 +28,7 @@ final class UpdateChecker: NSObject {
     @ObservationIgnored private var updateReply: ((SPUUserUpdateChoice) -> Void)?
     @ObservationIgnored private var cancellation: (() -> Void)?
     @ObservationIgnored private var retryTermination: (() -> Void)?
+    @ObservationIgnored private var checkGeneration = UUID()
     @ObservationIgnored private var installationAuthorized = false
     @ObservationIgnored private var checkTask: Task<Void, Never>?
     @ObservationIgnored private let client: GitHubUpdateClient
@@ -50,11 +51,14 @@ final class UpdateChecker: NSObject {
         latestVersion = nil
         release = nil
         installationAuthorized = false
+        checkGeneration = UUID()
+        let generation = checkGeneration
         checkTask = Task { [weak self] in
             guard let self else { return }
-            defer { checkTask = nil }
+            defer { if generation == checkGeneration { checkTask = nil } }
             do {
                 let candidate = try await client.latestRelease()
+                guard generation == checkGeneration else { return }
                 try Task.checkCancellation()
                 guard let current = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                       let currentVersion = UpdateVersion(current), let next = UpdateVersion(candidate.version) else {
@@ -78,8 +82,10 @@ final class UpdateChecker: NSObject {
                 }
                 updater?.checkForUpdates()
             } catch is CancellationError {
+                guard generation == checkGeneration else { return }
                 phase = .idle
             } catch {
+                guard generation == checkGeneration else { return }
                 fail((error as? GitHubUpdateError)?.messageKey ?? "settings.update.networkFailed", error: error)
             }
         }
@@ -95,6 +101,7 @@ final class UpdateChecker: NSObject {
         reply(.install)
     }
     func cancel() {
+        checkGeneration = UUID()
         checkTask?.cancel()
         checkTask = nil
         let cancel = cancellation

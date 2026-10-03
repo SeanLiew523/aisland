@@ -29,6 +29,8 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/exec-plans/active/aisland-v0.1.1-intro-revision-2.md](./exec-plans/active/aisland-v0.1.1-intro-revision-2.md) for the revised A audiovisual prototype and pending effect review
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines
 - [docs/references/aisland-v0.1.1-discovery.md](./references/aisland-v0.1.1-discovery.md) for integration capability evidence, Dia and related audiovisual research, and prototype cue boundaries
+- [docs/references/aisland-v0.1.1-mcode-comparison.md](./references/aisland-v0.1.1-mcode-comparison.md) for the installed mcode version, desktop/CLI comparison and scope decision boundary
+- [docs/exec-plans/active/v0.1.1-deepseek-implementation.md](./exec-plans/active/v0.1.1-deepseek-implementation.md) for the metadata plugin, deterministic checks and pending real desktop acceptance
 
 ## Superpowers Plans
 

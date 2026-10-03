@@ -148,9 +148,9 @@ Apple 的 `NSHapticFeedbackManager` 用于带 Force Touch 触控板的系统，�
 
 **触感修正。** 主 Agent 复核 Apple 官方文档数据：`NSHapticFeedbackPerformer.perform` 只应响应用户发起的操作；未触碰 Force Touch 触控板时可能不反馈。macOS 提供 generic/alignment/levelChange 等语义，HIG 将其用于合适的拖动或 Force Click 响应；不能用 iPhone 的 success/error 或 Pixel 自定义 THUD 替代。自动开场、自动完成状态和自动收拢均不安排真实触感；后续原生阶段在合适的真实用户操作上试验，记录设备、输入方式和体验结果。[Apple 调用条件](https://developer.apple.com/documentation/appkit/nshapticfeedbackperformer/perform(_:performancetime:))、[Apple HIG 触感](https://developer.apple.com/design/human-interface-guidelines/playing-haptics)
 
-## 9. 本轮原创音画原型与 cue 表
+## 9. 首次交付的原创音画原型与 cue 表（历史版本）
 
-原型见 [阶段记录](../exec-plans/active/aisland-v0.1.1-stage-1.md)。下表是当前实现参数，属于设计草样；不是 Dia 时序，也不是已经通过听感验收的制作标准。网页不产生真实触感。减少动态效果使用固定构图和状态切换。
+原型见 [阶段记录](../exec-plans/active/aisland-v0.1.1-stage-1.md)。下表是首次交付参数，属于设计草样；不是 Dia 时序，也不是已经通过听感验收的制作标准。用户选 A 后已修订为 28 秒第二版，当前 cue 见[修订记录](../exec-plans/active/aisland-v0.1.1-intro-revision-2.md)。网页不产生真实触感。减少动态效果使用固定构图和状态切换。
 
 | 时间 | 画面 | 音效起点 / 目标 | 最晚尾音约 |
 | --- | --- | --- | --- |
@@ -163,3 +163,7 @@ Apple 的 `NSHapticFeedbackManager` 用于带 Force Touch 触控板的系统，�
 | 18–22 秒 | 收回顶部，进入简洁工具选择 | 18 秒移动纹理；20.5 秒品牌收束 | A 约 21.7 秒 / B 约 21.2 秒 |
 
 A「温润共鸣」用正弦、低中频底层与空气纹理，B「清脆数字」用三角波与较短包络；两者采用相同主要事件落点。名称描述合成意图，不能代替主观听感。用户可比较完整开场与三类样音，反馈节奏、可辨识度及是否愿意继续设置。后续调整仍先视听对齐，再接入原生；跳过、静音、切换、重播和退出必须取消过期声音。
+
+## 10. mcode 补充比较
+
+按用户后续要求补充 [mcode 与桌面比较](aisland-v0.1.1-mcode-comparison.md)。本机 0.5.3 exec 有明确最终结果，ACP 有客户端持有会话的双向交互；被动观察已有 TUI 的 Stop 与终端身份缺口仍类似桌面。研究不替换桌面范围，也不自动增加第六个正式来源。Hermes 和 DeepSeek 保持第一实施顺序。

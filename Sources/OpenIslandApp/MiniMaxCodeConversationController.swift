@@ -88,6 +88,7 @@ private enum MiniMaxCodeAXNavigation {
         case projectParentUnavailable = "project-parent-unavailable"
         case projectParentDeadline = "project-parent-deadline"
         case projectRows = "project-rows"
+        case projectLeafRows = "project-leaf-rows"
         case projectHeaderPress = "project-header-press"
         case projectRowPress = "project-row-press"
         case titleMenuMatches = "title-menu-matches"
@@ -321,9 +322,40 @@ private enum MiniMaxCodeAXNavigation {
                 role($0) == "AXButton" && !CFEqual($0, header) && exactLabel($0) == title
                     && action($0, kAXPressAction)
             }
-            if !rows.isEmpty || rendererGroup { return rows }
+            if !rows.isEmpty || rendererGroup {
+                acceptanceLog(.projectRows, count: rows.count, flag: remaining(deadline))
+                let leaves = leafRows(rows, within: members, root: node, deadline: deadline)
+                acceptanceLog(.projectLeafRows, count: leaves?.count ?? 0, flag: leaves != nil)
+                return leaves
+            }
         }
         return nil
+    }
+    /// Electron gives the draggable task wrapper and its nested task button the
+    /// same title and AXPress action. Remove only confirmed ancestor wrappers;
+    /// two separate task buttons remain ambiguous. Every parent must stay in
+    /// the already admitted project subtree and reach its root within 8 links.
+    static func leafRows(_ rows: [AXUIElement], within members: [AXUIElement],
+                         root: AXUIElement, deadline: TimeInterval) -> [AXUIElement]? {
+        var unique: [AXUIElement] = []
+        for row in rows where !unique.contains(where: { CFEqual($0, row) }) { unique.append(row) }
+        guard unique.count > 1 else { return unique }
+        var ancestors: [AXUIElement] = []
+        for row in unique {
+            var node = row; var chain: [AXUIElement] = [row]; var reachedRoot = false
+            for _ in 0..<8 {
+                guard remaining(deadline), let parent = value(node, kAXParentAttribute),
+                      CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+                node = unsafeDowncast(parent, to: AXUIElement.self)
+                guard members.contains(where: { CFEqual($0, node) }),
+                      !chain.contains(where: { CFEqual($0, node) }) else { return nil }
+                chain.append(node)
+                if unique.contains(where: { CFEqual($0, node) }) { ancestors.append(node) }
+                if CFEqual(node, root) { reachedRoot = true; break }
+            }
+            guard reachedRoot else { return nil }
+        }
+        return unique.filter { candidate in !ancestors.contains(where: { CFEqual($0, candidate) }) }
     }
     static func waitForMenuLabel(_ labels: [String], source: MiniMaxCodeConversationUI.Source,
                                  deadline: TimeInterval) -> AXUIElement? {

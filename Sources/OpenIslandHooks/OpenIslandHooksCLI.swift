@@ -49,6 +49,15 @@ struct OpenIslandHooksCLI {
             let arguments = Array(CommandLine.arguments.dropFirst())
             let source = hookSource(arguments: arguments)
             let sourceString = rawSourceString(arguments: arguments)
+            // Grok loads Claude/Cursor hook configurations too. Suppress its
+            // proven compatibility callbacks before any terminal lookup,
+            // bridge mutation, notification or blocking directive.
+            if GrokCompatibilityHookProvenance.shouldSuppress(
+                input: input, declaredSource: source.rawValue,
+                environment: ProcessInfo.processInfo.environment
+            ) {
+                return
+            }
             let decoder = JSONDecoder()
             let client = BridgeCommandClient(socketURL: BridgeSocketLocation.currentURL())
 

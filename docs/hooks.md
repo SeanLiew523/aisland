@@ -401,6 +401,8 @@ Ghostty navigation admits an exact surface ID only, or a unique exact working-di
 
 Grok Build (Grok CLI / Grok TUI) discovers hooks from `~/.grok/hooks/*.json`. AIsland writes a dedicated managed file at `~/.grok/hooks/open-island.json`.
 
+Grok also loads Claude and Cursor hook configurations by default. Their AIsland commands quietly exit when the stdin envelope has Grok's native camelCase identity plus consistent Claude snake_case aliases, and the runner-injected `GROK_HOOK_EVENT`, `GROK_SESSION_ID`, and `GROK_WORKSPACE_ROOT` all match that identity. This check runs before terminal discovery or sending a bridge command; only `--source grok` produces the Grok lifecycle, activity and notifications. Native Claude/Cursor callbacks continue normally, including child agents inheriting Grok environment variables: markers alone do not suppress them. Missing or inconsistent evidence preserves the declared source. No user hook configuration is changed. This admission rule follows the installed Grok 1.0.46 documentation and the official [envelope serializer](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/event.rs) and [command runner](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/runner/command.rs). Compatibility commands do not act as a fallback if the native AIsland Grok hook is absent.
+
 ### Events (managed install)
 
 All of the following are registered in `~/.grok/hooks/open-island.json` by the managed installer:

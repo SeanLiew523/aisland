@@ -6,6 +6,7 @@ import OpenIslandCore
 struct HermesHookSettingsRow: View {
     let hooksBinaryURL: URL?
     let lang: LanguageManager
+    var setupDisabled = false
     @State private var profileDirectory = HermesHookInstallationManager.defaultProfileDirectory
     @State private var pythonURL = HermesHookInstallationManager.defaultPythonURL
     @State private var status: HermesHookInstallationStatus?
@@ -20,23 +21,27 @@ struct HermesHookSettingsRow: View {
                 Spacer()
                 Text(status?.isInstalled == true
                     ? (status?.hasConsent == true ? text("Configured · consent recorded", "已配置 · 已记录授权") : text("Configured · Hermes consent pending", "已配置 · 等待 Hermes 授权"))
-                    : text("Not configured", "未配置"))
+                    : lang.t(status == nil ? "setup.connection.unknown" : "setup.connection.notConfigured"))
                     .foregroundStyle(.secondary).font(.caption)
-                Button(text("Refresh", "刷新")) { refresh() }.disabled(busy)
-                Button(status?.isInstalled == true ? text("Update", "更新") : text("Install", "安装")) { perform(install: true) }
-                    .disabled(busy || hooksBinaryURL == nil)
+                Button(text("Refresh", "刷新")) { refresh() }.disabled(busy || setupDisabled)
+                Button(lang.t(status?.isInstalled == true ? "setup.connection.update" : "setup.connection.configure")) { perform(install: true) }
+                    .disabled(busy || setupDisabled || hooksBinaryURL == nil)
                 if status?.isInstalled == true {
-                    Button(text("Uninstall", "卸载")) { perform(install: false) }.disabled(busy)
+                    Button(lang.t("setup.connection.remove")) { perform(install: false) }.disabled(busy || setupDisabled)
                 }
             }
             HStack {
                 Text(profileDirectory.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Button(text("Choose profile…", "选择 profile…")) { choose(directory: true) }.disabled(busy)
-                Button(text("Choose Python…", "选择 Python…")) { choose(directory: false) }.disabled(busy)
+                Button(text("Choose profile…", "选择 profile…")) { choose(directory: true) }.disabled(busy || setupDisabled)
+                Button(text("Choose Python…", "选择 Python…")) { choose(directory: false) }.disabled(busy || setupDisabled)
             }
-            Text(text("Tracks turns and returns to the originating terminal. Approvals stay in Hermes. After installing, restart Hermes and approve the two AIsland hooks at its own prompt.", "显示回合状态并返回来源终端；审批留在 Hermes。安装后重启 Hermes，在它自己的提示中确认两条 AIsland hook。"))
+            Text(lang.t("setup.connection.hermesExplanation"))
                 .font(.caption).foregroundStyle(.secondary)
+            if setupDisabled || hooksBinaryURL == nil {
+                Text(lang.t(setupDisabled ? "setup.connection.isolated" : "setup.connection.missingHelper"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         }
         .task { refresh() }
@@ -50,6 +55,7 @@ struct HermesHookSettingsRow: View {
     }
     private func refresh() { perform(install: nil) }
     private func perform(install: Bool?) {
+        guard !setupDisabled else { return }
         guard !busy else { return }
         busy = true; message = nil
         let manager = HermesHookInstallationManager(profileDirectory: profileDirectory, pythonURL: pythonURL)

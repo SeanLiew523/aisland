@@ -154,6 +154,19 @@ final class HookInstallationCoordinator {
 
     // MARK: - Computed display properties
 
+    enum SetupBlockReason: String {
+        case isolatedAcceptance = "setup.connection.isolated"
+        case missingHooksBinary = "setup.connection.missingHelper"
+    }
+
+    /// This describes AIsland's configuration prerequisites, not whether the
+    /// source agent is installed or its runtime connection has been verified.
+    func setupBlockReason(requiresBinary: Bool) -> SetupBlockReason? {
+        if isRuntimeAcceptance { return .isolatedAcceptance }
+        if requiresBinary && hooksBinaryURL == nil { return .missingHooksBinary }
+        return nil
+    }
+
     var codexHooksInstalled: Bool {
         codexHookStatus?.managedHooksPresent == true
     }

@@ -128,14 +128,14 @@
 "settings.sound.selectSound" = "选择音效";
 
 /* Settings - Setup */
-"settings.tab.setup" = "安装引导";
+"settings.tab.setup" = "接入引导";
 "setup.section.binary" = "Hook 二进制";
 "setup.claudeConfigDir.section" = "Claude 配置目录";
 "setup.claudeConfigDir.title" = "配置目录";
 "setup.claudeConfigDir.choose" = "选择…";
 "setup.claudeConfigDir.reset" = "重置";
 "setup.claudeConfigDir.footer" = "适用于通过 CLAUDE_CONFIG_DIR 使用自定义配置路径启动 Claude Code 的用户。如无需要请保持默认。";
-"setup.section.hooks" = "CLI Hooks";
+"setup.section.hooks" = "AIsland 事件接入";
 "setup.section.usage" = "用量桥接";
 "setup.section.permissions" = "权限";
 "setup.binaryReady" = "就绪";
@@ -143,14 +143,14 @@
 "setup.hookReady" = "Hooks 已安装";
 "setup.hookMissing" = "Hooks 未安装";
 "setup.usageBridge" = "Claude 用量桥接";
-"setup.usageBridgeReady" = "已安装";
+"setup.usageBridgeReady" = "用量接入已配置";
 "setup.usageBridgeDesc" = "在本地追踪 Claude API 用量";
 "setup.optional" = "可选";
 "setup.permissionsTitle" = "辅助功能";
 "setup.permissionsDesc" = "AIsland 可能需要辅助功能权限来检测终端窗口。请在「系统设置 → 隐私与安全性 → 辅助功能」中授权。";
-"setup.installAll" = "全部安装";
+"setup.installAll" = "配置全部接入";
 "setup.banner.noHooks.title" = "开始使用 AIsland";
-"setup.banner.noHooks.message" = "在下方为你使用的 Agent 安装 hook，AIsland 就会开始监听对应会话。";
+"setup.banner.noHooks.message" = "在下方选择你使用的 Agent，配置它的 AIsland 事件接入。";
 "setup.revealConfigLocation" = "在 Finder 中显示配置";
 "setup.section.diagnostics" = "Hooks 诊断";
 "setup.diagnostics.notRun" = "尚未运行健康检查。";
@@ -255,3 +255,17 @@
 "settings.update.invalidFeed" = "签名更新清单与 GitHub 版本资产不一致，已停止更新。";
 "settings.update.unavailableForSystem" = "该版本没有适用于当前构建或 macOS 的新版更新。";
 "settings.update.installFailed" = "更新失败，无法验证、下载或安装该更新，请重试。";
+
+/* Agent connection setup */
+"setup.connection.explanation" = "请先自行安装对应 Agent。这里配置的是 AIsland 接入：向 Agent 的配置中添加事件回调或插件。";
+"setup.connection.configurationOnly" = "“已配置”仅表示检测到接入文件。请在 Agent 中运行一个回合，核验 AIsland 是否收到事件。";
+"setup.connection.configure" = "配置 AIsland 接入";
+"setup.connection.update" = "更新 AIsland 接入";
+"setup.connection.remove" = "移除接入";
+"setup.connection.configured" = "接入已配置";
+"setup.connection.notConfigured" = "尚未配置 AIsland 接入。";
+"setup.connection.unknown" = "尚未读取接入配置状态。";
+"setup.connection.missingHelper" = "当前 AIsland 找不到本地接入程序，请使用包含接入组件的完整应用。";
+"setup.connection.isolated" = "当前验收构建已停用 Agent 配置与来源读取，请在常规应用中配置接入。";
+"setup.connection.configureAllExplanation" = "为上方所有 Agent 写入 AIsland 接入配置，包括尚未安装的 Agent。只接入你使用的 Agent，请逐项配置。";
+"setup.connection.hermesExplanation" = "向所选 Hermes profile 添加 AIsland 回合回调，不安装 Hermes。配置后重启 Hermes，并在 Hermes 自己的提示中授权两条 AIsland hook；审批仍留在 Hermes。";

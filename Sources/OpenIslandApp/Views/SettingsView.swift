@@ -548,6 +548,19 @@ struct SetupSettingsPane: View {
 
     var body: some View {
         Form {
+            Section {
+                Text(lang.t("setup.connection.explanation"))
+                    .font(.callout)
+                Text(lang.t("setup.connection.configurationOnly"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let reason = model.hooks.setupBlockReason(requiresBinary: false) {
+                    Text(lang.t(reason.rawValue))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if !model.hasAnyInstalledAgent {
                 emptyStateBanner
             }
@@ -558,6 +571,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Claude Code",
                     installed: model.claudeHooksInstalled,
+                    configurationKnown: model.claudeHookStatus != nil,
                     busy: model.isClaudeHookSetupBusy,
                     configLocationURL: model.claudeHookStatus?.settingsURL,
                     installAction: { model.installClaudeHooks() },
@@ -575,6 +589,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Codex",
                     installed: model.codexHooksInstalled,
+                    configurationKnown: model.codexHookStatus != nil,
                     busy: model.isCodexSetupBusy,
                     configLocationURL: codexHookConfigURL,
                     installAction: { model.installCodexHooks() },
@@ -592,6 +607,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "OpenCode",
                     installed: model.openCodePluginInstalled,
+                    configurationKnown: model.openCodePluginStatus != nil,
                     busy: model.isOpenCodeSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.openCodePluginStatus?.configURL,
@@ -610,6 +626,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Qoder",
                     installed: model.qoderHooksInstalled,
+                    configurationKnown: model.qoderHookStatus != nil,
                     busy: model.isQoderHookSetupBusy,
                     configLocationURL: model.qoderHookStatus?.settingsURL,
                     installAction: { model.installQoderHooks() },
@@ -627,6 +644,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Qwen Code",
                     installed: model.qwenCodeHooksInstalled,
+                    configurationKnown: model.qwenCodeHookStatus != nil,
                     busy: model.isQwenCodeHookSetupBusy,
                     configLocationURL: model.qwenCodeHookStatus?.settingsURL,
                     installAction: { model.installQwenCodeHooks() },
@@ -644,6 +662,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Factory",
                     installed: model.factoryHooksInstalled,
+                    configurationKnown: model.factoryHookStatus != nil,
                     busy: model.isFactoryHookSetupBusy,
                     configLocationURL: model.factoryHookStatus?.settingsURL,
                     installAction: { model.installFactoryHooks() },
@@ -661,6 +680,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "CodeBuddy",
                     installed: model.codebuddyHooksInstalled,
+                    configurationKnown: model.codebuddyHookStatus != nil,
                     busy: model.isCodebuddyHookSetupBusy,
                     configLocationURL: model.codebuddyHookStatus?.settingsURL,
                     installAction: { model.installCodebuddyHooks() },
@@ -678,6 +698,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "ZCode",
                     installed: model.zcodeHooksInstalled,
+                    configurationKnown: model.zcodeHookStatus != nil,
                     busy: model.isZcodeHookSetupBusy,
                     configLocationURL: model.zcodeHookStatus?.settingsURL,
                     installAction: { model.installZcodeHooks() },
@@ -695,6 +716,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "WorkBuddy",
                     installed: model.workbuddyHooksInstalled,
+                    configurationKnown: model.workbuddyHookStatus != nil,
                     busy: model.isWorkbuddyHookSetupBusy,
                     configLocationURL: model.workbuddyHookStatus?.settingsURL,
                     installAction: { model.installWorkbuddyHooks() },
@@ -712,6 +734,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Cursor",
                     installed: model.cursorHooksInstalled,
+                    configurationKnown: model.cursorHookStatus != nil,
                     busy: model.isCursorHookSetupBusy,
                     requiresBinary: true,
                     configLocationURL: model.cursorHookStatus?.hooksURL,
@@ -730,6 +753,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Gemini CLI",
                     installed: model.geminiHooksInstalled,
+                    configurationKnown: model.geminiHookStatus != nil,
                     busy: model.isGeminiHookSetupBusy,
                     configLocationURL: geminiHookConfigURL,
                     installAction: { model.installGeminiHooks() },
@@ -747,6 +771,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Kimi CLI",
                     installed: model.kimiHooksInstalled,
+                    configurationKnown: model.kimiHookStatus != nil,
                     busy: model.isKimiHookSetupBusy,
                     configLocationURL: model.kimiHookStatus?.configURL,
                     installAction: { model.installKimiHooks() },
@@ -764,6 +789,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Grok Build",
                     installed: model.grokHooksInstalled,
+                    configurationKnown: model.grokHookStatus != nil,
                     busy: model.isGrokHookSetupBusy,
                     requiresBinary: true,
                     configLocationURL: model.grokHookStatus?.hooksURL,
@@ -779,11 +805,12 @@ struct SetupSettingsPane: View {
                     Text("This will remove AIsland hooks from ~/.grok/hooks/open-island.json.")
                 }
 
-                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang)
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance)
 
                 hookRow(
                     name: "Pi",
                     installed: model.piExtensionInstalled,
+                    configurationKnown: model.piExtensionStatus != nil,
                     busy: model.isPiSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.piExtensionStatus?.extensionURL,
@@ -802,6 +829,7 @@ struct SetupSettingsPane: View {
                 hookRow(
                     name: "Oh My Pi",
                     installed: model.ohMyPiExtensionInstalled,
+                    configurationKnown: model.ohMyPiExtensionStatus != nil,
                     busy: model.isOhMyPiSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.ohMyPiExtensionStatus?.extensionURL,
@@ -829,15 +857,17 @@ struct SetupSettingsPane: View {
                             Text(lang.t("setup.usageBridgeReady"))
                                 .foregroundStyle(.secondary)
                         }
-                        Button(lang.t("settings.general.uninstall")) {
+                        Button(lang.t("setup.connection.remove")) {
                             confirmingUninstallClaudeUsage = true
                         }
+                        .disabled(model.hooks.isRuntimeAcceptance)
                     } else if model.isClaudeUsageSetupBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Button(lang.t("settings.general.install")) {
+                        Button(lang.t("setup.connection.configure")) {
                             model.installClaudeUsageBridge()
                         }
+                        .disabled(model.hooks.isRuntimeAcceptance)
                     }
                 }
                 .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallClaudeUsage) {
@@ -900,8 +930,11 @@ struct SetupSettingsPane: View {
                     if !model.ohMyPiExtensionInstalled { model.installOhMyPiExtension() }
                     if !model.claudeUsageInstalled { model.installClaudeUsageBridge() }
                 }
-                .disabled(model.hooksBinaryURL == nil || allReady)
+                .disabled(model.hooks.setupBlockReason(requiresBinary: true) != nil || allReady)
                 .frame(maxWidth: .infinity, alignment: .center)
+                Text(lang.t("setup.connection.configureAllExplanation"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -1109,46 +1142,60 @@ struct SetupSettingsPane: View {
     private func hookRow(
         name: String,
         installed: Bool,
+        configurationKnown: Bool,
         busy: Bool,
         requiresBinary: Bool = true,
         configLocationURL: URL? = nil,
         installAction: @escaping () -> Void,
         uninstallAction: @escaping () -> Void
     ) -> some View {
-        HStack {
-            Label(name, systemImage: "terminal")
-            Spacer()
-            if installed {
-                HStack(spacing: 8) {
-                    if let configLocationURL {
-                        Button {
-                            revealInFinder(configLocationURL)
-                        } label: {
-                            Image(systemName: "arrow.up.forward.square")
+        let blocked = model.hooks.setupBlockReason(requiresBinary: requiresBinary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label(name, systemImage: "terminal")
+                Spacer()
+                if installed {
+                    HStack(spacing: 8) {
+                        if let configLocationURL {
+                            Button {
+                                revealInFinder(configLocationURL)
+                            } label: {
+                                Image(systemName: "arrow.up.forward.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(lang.t("setup.revealConfigLocation"))
+                        }
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(lang.t("setup.connection.configured"))
                                 .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .help(lang.t("setup.revealConfigLocation"))
+                        Button(lang.t("setup.connection.remove")) {
+                            uninstallAction()
+                        }
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .disabled(model.hooks.isRuntimeAcceptance)
                     }
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text(lang.t("settings.general.activated"))
-                            .foregroundStyle(.secondary)
+                } else if busy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(lang.t("setup.connection.configure")) {
+                        installAction()
                     }
-                    Button(lang.t("settings.general.uninstall")) {
-                        uninstallAction()
-                    }
-                    .foregroundStyle(.red)
+                    .disabled(blocked != nil)
+                }
+            }
+            if let blocked {
+                Text(lang.t(blocked.rawValue))
                     .font(.caption)
-                }
-            } else if busy {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(lang.t("settings.general.install")) {
-                    installAction()
-                }
-                .disabled(requiresBinary && model.hooksBinaryURL == nil)
+                    .foregroundStyle(.secondary)
+            } else if !installed && !busy {
+                Text(lang.t(configurationKnown ? "setup.connection.notConfigured" : "setup.connection.unknown"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

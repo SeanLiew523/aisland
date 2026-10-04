@@ -128,14 +128,14 @@
 "settings.sound.selectSound" = "Select Sound";
 
 /* Settings - Setup */
-"settings.tab.setup" = "Setup";
+"settings.tab.setup" = "Agent Connections";
 "setup.section.binary" = "Hook Binary";
 "setup.claudeConfigDir.section" = "Claude Config Directory";
 "setup.claudeConfigDir.title" = "Config Directory";
 "setup.claudeConfigDir.choose" = "Choose…";
 "setup.claudeConfigDir.reset" = "Reset";
 "setup.claudeConfigDir.footer" = "For users who run Claude Code with CLAUDE_CONFIG_DIR. Leave default unless you use a custom config path.";
-"setup.section.hooks" = "CLI Hooks";
+"setup.section.hooks" = "AIsland Event Connections";
 "setup.section.usage" = "Usage Bridge";
 "setup.section.permissions" = "Permissions";
 "setup.binaryReady" = "Ready";
@@ -143,14 +143,14 @@
 "setup.hookReady" = "Hooks installed";
 "setup.hookMissing" = "Hooks not installed";
 "setup.usageBridge" = "Claude Usage Bridge";
-"setup.usageBridgeReady" = "Installed";
+"setup.usageBridgeReady" = "Usage Connection Configured";
 "setup.usageBridgeDesc" = "Tracks Claude API usage locally";
 "setup.optional" = "Optional";
 "setup.permissionsTitle" = "Accessibility";
 "setup.permissionsDesc" = "AIsland may need Accessibility permission to detect terminal windows. Grant it in System Settings → Privacy & Security → Accessibility.";
-"setup.installAll" = "Install All";
+"setup.installAll" = "Configure All Connections";
 "setup.banner.noHooks.title" = "Get started with AIsland";
-"setup.banner.noHooks.message" = "Install hooks for the agents you use below — AIsland will start monitoring those sessions.";
+"setup.banner.noHooks.message" = "Choose the agents you use below to configure their AIsland event connection.";
 "setup.revealConfigLocation" = "Reveal config in Finder";
 "setup.section.diagnostics" = "Hook Diagnostics";
 "setup.diagnostics.notRun" = "Health check not yet run.";
@@ -255,3 +255,17 @@
 "settings.update.invalidFeed" = "The signed feed does not match this GitHub release. The update was stopped.";
 "settings.update.unavailableForSystem" = "The release has no compatible newer update for this build or macOS version.";
 "settings.update.installFailed" = "Update failed. AIsland could not validate, download or install this update. Try again.";
+
+/* Agent connection setup */
+"setup.connection.explanation" = "Install the agent itself separately first. These buttons configure its AIsland connection by adding event hooks or a plugin to its configuration.";
+"setup.connection.configurationOnly" = "“Configured” means the connection files were detected. Run a turn in the agent to verify that AIsland receives its events.";
+"setup.connection.configure" = "Configure AIsland";
+"setup.connection.update" = "Update AIsland Connection";
+"setup.connection.remove" = "Remove Connection";
+"setup.connection.configured" = "Connection Configured";
+"setup.connection.notConfigured" = "AIsland connection is not configured.";
+"setup.connection.unknown" = "Connection configuration has not been read yet.";
+"setup.connection.missingHelper" = "This AIsland copy cannot find its local connection helper. Use the complete app with its connection components.";
+"setup.connection.isolated" = "This acceptance build disables agent configuration and source reads. Use the regular app to configure connections.";
+"setup.connection.configureAllExplanation" = "Writes AIsland connection configuration for every agent listed above, even if the agent itself is not installed. Configure individual rows for only the agents you use.";
+"setup.connection.hermesExplanation" = "Adds AIsland turn hooks to the chosen Hermes profile; it does not install Hermes. Restart Hermes after configuring and approve its two AIsland hooks at the Hermes prompt. Approvals remain in Hermes.";

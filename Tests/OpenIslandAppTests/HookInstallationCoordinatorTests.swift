@@ -6,6 +6,23 @@ import Testing
 @MainActor
 struct HookInstallationCoordinatorTests {
     @Test
+    func setupExplainsWhyHooksAreBlockedButBundledExtensionsAreAvailable() {
+        let coordinator = HookInstallationCoordinator()
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == .missingHooksBinary)
+        #expect(coordinator.setupBlockReason(requiresBinary: false) == nil)
+        coordinator.hooksBinaryURL = URL(fileURLWithPath: "/synthetic/OpenIslandHooks")
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == nil)
+    }
+
+    @Test
+    func acceptanceSetupBlocksBothKindsEvenWhenHelperIsLocated() {
+        let coordinator = HookInstallationCoordinator(isRuntimeAcceptance: true)
+        coordinator.hooksBinaryURL = URL(fileURLWithPath: "/synthetic/OpenIslandHooks")
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == .isolatedAcceptance)
+        #expect(coordinator.setupBlockReason(requiresBinary: false) == .isolatedAcceptance)
+    }
+
+    @Test
     func loadPiExtensionStatusesIsolatesCorruptedPiManifest() throws {
         let roots = try makeIsolatedRoots()
         defer { roots.cleanup() }

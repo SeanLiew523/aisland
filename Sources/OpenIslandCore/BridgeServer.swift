@@ -128,6 +128,11 @@ public final class BridgeServer: @unchecked Sendable {
         }
         queue.async { [weak self] in
             guard let self, self.monitorMiniMaxCode, !self.listeners.isEmpty, self.miniMaxCodePollTimer == nil else { return }
+            for observation in self.runtimeLifecycleReducer.restoredMiniMaxDesktopObservations {
+                for payload in self.miniMaxCodeMonitor.restoreDesktopPresence(observation) {
+                    for event in self.runtimeLifecycleReducer.receive(payload) { self.emit(event) }
+                }
+            }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
             timer.schedule(deadline: .now(), repeating: .milliseconds(250))
             timer.setEventHandler { [weak self] in
@@ -518,9 +523,6 @@ public final class BridgeServer: @unchecked Sendable {
                 // Native hooks only admit identities. Outcomes come from committed DB facts.
                 for observed in miniMaxCodeMonitor.observe(payload) {
                     for event in runtimeLifecycleReducer.receive(observed) { emit(event) }
-                }
-                if payload.event == .sessionEnded {
-                    for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
                 }
             } else {
                 for event in runtimeLifecycleReducer.receive(payload) { emit(event) }

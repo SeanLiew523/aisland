@@ -13,22 +13,55 @@ public struct MiniMaxCodeLifecycleMonitor: Sendable {
         var expiresAt: Date
     }
     private var cursors: [String: Cursor] = [:]
+    private struct PresenceWatch: Sendable {
+        var observation: RuntimeLifecycleHookPayload
+        var knownVisible = false
+        var nextCheck: Date
+        var expiresAt: Date
+    }
+    private var presenceWatches: [String: PresenceWatch] = [:]
     public private(set) var unavailableSessions: Set<String> = []
     public var monitoredSessionCount: Int { cursors.count }
     private let idleRetention: TimeInterval = 90
     public init() {}
+
+    /// Owner supplies identities from AIsland's own admitted runtime registry.
+    /// This never queries turns or invents a start/completion after restart.
+    public mutating func restoreDesktopPresence(_ payload: RuntimeLifecycleHookPayload, now: Date = .now) -> [RuntimeLifecycleHookPayload] {
+        guard payload.isValid, payload.source == .minimaxCodeDesktop, payload.event == .sessionObserved,
+              payload.appConversationID == nil || payload.appConversationID == payload.sessionID,
+              payload.timestamp.timeIntervalSince1970 > 0, payload.timestamp <= now,
+              now.timeIntervalSince1970.isFinite else { return [] }
+        let key = payload.namespacedSessionID
+        guard presenceWatches[key] == nil, reserveIdentity(key) else { return [] }
+        presenceWatches[key] = PresenceWatch(observation: payload, nextCheck: now, expiresAt: now.addingTimeInterval(idleRetention))
+        return pollPresence(key, now: now, force: true)
+    }
 
     @discardableResult
     public mutating func observe(_ payload: RuntimeLifecycleHookPayload, now: Date = .now) -> [RuntimeLifecycleHookPayload] {
         guard payload.isValid, payload.source.isMiniMaxCode, now.timeIntervalSince1970.isFinite,
               payload.timestamp.timeIntervalSince1970 > 0, payload.timestamp <= now,
               payload.event == .sessionObserved || payload.event == .sessionEnded else { return [] }
+        guard payload.source != .minimaxCodeDesktop || payload.appConversationID == nil || payload.appConversationID == payload.sessionID else { return [] }
         let key = payload.namespacedSessionID
         if payload.event == .sessionEnded {
-            // Session release is not a turn outcome. Settle any committed fact first.
+            // Desktop SessionEnd also means resume_other/idle_timeout/SDK release.
+            // Only durable visibility facts can end that conversation.
+            if payload.source == .minimaxCodeDesktop {
+                guard let previous = presenceWatches[key], payload.timestamp >= previous.observation.timestamp,
+                      payload.metadataDatabasePath == previous.observation.metadataDatabasePath,
+                      payload.sourceRuntimeVersion == previous.observation.sourceRuntimeVersion else { return [] }
+                return pollSession(key, now: now) + pollPresence(key, now: now, force: true)
+            }
             let events = pollSession(key, now: now)
             cursors.removeValue(forKey: key); unavailableSessions.remove(key)
-            return events
+            return events + [payload]
+        }
+        if let previous = presenceWatches[key] {
+            guard payload.timestamp >= previous.observation.timestamp,
+                  payload.metadataDatabasePath == previous.observation.metadataDatabasePath,
+                  payload.sourceRuntimeVersion == previous.observation.sourceRuntimeVersion else { return [] }
         }
         if var previous = cursors[key] {
             guard payload.timestamp >= previous.observation.timestamp,
@@ -54,16 +87,65 @@ public struct MiniMaxCodeLifecycleMonitor: Sendable {
             }
             cursors[key] = previous
         } else {
-            guard cursors.count < 128 else { return [] }
+            guard reserveIdentity(key) else { return [] }
             cursors[key] = Cursor(observation: payload, admissionFloor: payload.timestamp.addingTimeInterval(-2),
                                   targetTurnID: payload.turnID, expiresAt: now.addingTimeInterval(idleRetention))
         }
-        return pollSession(key, now: now)
+        let turns = pollSession(key, now: now)
+        if payload.source == .minimaxCodeDesktop {
+            var watch = presenceWatches[key] ?? PresenceWatch(observation: payload, nextCheck: now, expiresAt: now.addingTimeInterval(idleRetention))
+            watch.observation = mergeMetadata(payload, watch.observation)
+            watch.expiresAt = now.addingTimeInterval(idleRetention)
+            presenceWatches[key] = watch
+            return turns + pollPresence(key, now: now, force: true)
+        }
+        return turns
     }
 
     public mutating func poll(now: Date = .now) -> [RuntimeLifecycleHookPayload] {
         guard now.timeIntervalSince1970.isFinite, now.timeIntervalSince1970 > 0 else { return [] }
-        return cursors.keys.sorted().flatMap { pollSession($0, now: now) }
+        let turns = cursors.keys.sorted().flatMap { pollSession($0, now: now) }
+        return turns + presenceWatches.keys.sorted().flatMap { pollPresence($0, now: now) }
+    }
+
+    private mutating func reserveIdentity(_ key: String) -> Bool {
+        let identities = Set(cursors.keys).union(presenceWatches.keys)
+        if identities.contains(key) || identities.count < 128 { return true }
+        // Presence watches must not permanently consume the admission budget.
+        // Retain active turns; evict the oldest inactive watch, leaving its card intact.
+        guard let oldest = presenceWatches.keys.filter({ cursors[$0]?.active == nil }).min(by: {
+            let lhs = presenceWatches[$0]!.observation.timestamp, rhs = presenceWatches[$1]!.observation.timestamp
+            return lhs == rhs ? $0 < $1 : lhs < rhs
+        }) else { return false }
+        presenceWatches.removeValue(forKey: oldest); cursors.removeValue(forKey: oldest); unavailableSessions.remove(oldest)
+        return true
+    }
+
+    private mutating func pollPresence(_ key: String, now: Date, force: Bool = false) -> [RuntimeLifecycleHookPayload] {
+        guard var watch = presenceWatches[key], force || now >= watch.nextCheck,
+              let path = watch.observation.metadataDatabasePath else { return [] }
+        if !watch.knownVisible && now >= watch.expiresAt { presenceWatches.removeValue(forKey: key); return [] }
+        watch.nextCheck = now.addingTimeInterval(2)
+        presenceWatches[key] = watch
+        let presence: MiniMaxCodeConversationPresenceReader.Presence
+        do { presence = try MiniMaxCodeConversationPresenceReader(databasePath: path).read(sessionID: watch.observation.sessionID) }
+        catch { return [] } // Unavailable/unknown metadata is never deletion evidence.
+        if presence == .missing && !watch.knownVisible { return [] }
+        var projected = watch.observation
+        projected.appConversationID = watch.observation.sessionID
+        projected.turnID = nil; projected.sequence = nil; projected.timestamp = now
+        projected.sourceObservedStart = false
+        if presence == .visible {
+            let newlyVisible = !watch.knownVisible
+            watch.knownVisible = true; presenceWatches[key] = watch
+            // Repairs only an already-ended reducer cursor, without replaying success.
+            projected.event = .sessionObserved; projected.resultReason = "visible"
+            return newlyVisible || force ? [projected] : []
+        }
+        projected.event = .sessionEnded
+        projected.resultReason = presence == .archived ? "archived" : presence == .hidden ? "hidden" : "deleted"
+        presenceWatches.removeValue(forKey: key); cursors.removeValue(forKey: key); unavailableSessions.remove(key)
+        return [projected]
     }
 
     private mutating func pollSession(_ key: String, now: Date) -> [RuntimeLifecycleHookPayload] {

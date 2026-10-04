@@ -87,7 +87,11 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
                   let path = metadataDatabasePath, path.hasPrefix("/"), path.hasSuffix("/v2/sqlite/runtime-state.sqlite"),
                   sourceRuntimeVersion == (source == .minimaxCodeDesktop ? "3.1.0" : "0.5.3") else { return false }
         }
-        let reasons: Set<String> = source.isMiniMaxCode ? ["completed", "failed", "aborted", "unknown"] : source == .hermesCLI ? Self.hermesResultReasons : ["completed", "error", "blocked", "max-tokens", "aborted:user", "aborted:parent", "aborted:hook", "aborted:disposed", "aborted:legacy", "aborted:unknown", "interrupted", "forked", "unknown"]
+        var reasons: Set<String> = source.isMiniMaxCode ? ["completed", "failed", "aborted", "unknown"] : source == .hermesCLI ? Self.hermesResultReasons : ["completed", "error", "blocked", "max-tokens", "aborted:user", "aborted:parent", "aborted:hook", "aborted:disposed", "aborted:legacy", "aborted:unknown", "interrupted", "forked", "unknown"]
+        if source == .minimaxCodeDesktop {
+            if event == .sessionObserved { reasons.insert("visible") }
+            if event == .sessionEnded { reasons.formUnion(["archived", "hidden", "deleted"]) }
+        }
         return identity(profileID, maximum: 1024, required: true) && identity(sessionID, maximum: 512, required: true)
             && identity(turnID, maximum: 512, required: event != .sessionEnded && event != .sessionObserved)
             && identity(cwd, maximum: 4096) && identity(terminalApp, maximum: 128)
@@ -133,6 +137,18 @@ public struct RuntimeLifecycleReducer: Sendable {
         }
     }
     /// Restore metadata and phase without replaying a completion notification.
+    public var restoredMiniMaxDesktopObservations: [RuntimeLifecycleHookPayload] {
+        cursors.keys.sorted().compactMap { id in
+            guard let cursor = cursors[id], cursor.lastPayload.source == .minimaxCodeDesktop else { return nil }
+            var observation = cursor.lastPayload
+            observation.event = .sessionObserved; observation.timestamp = .now
+            observation.turnID = nil; observation.sequence = nil
+            observation.sourceObservedStart = false; observation.resultReason = nil
+            return observation.isValid && observation.namespacedSessionID == id ? observation : nil
+        }
+    }
+
+    /// Restore metadata and phase without replaying a completion notification.
     public var restoredEvents: [AgentEvent] {
         cursors.keys.sorted().flatMap { id -> [AgentEvent] in
             guard let cursor = cursors[id], !cursor.observedStart else { return [] }
@@ -143,16 +159,16 @@ public struct RuntimeLifecycleReducer: Sendable {
                 summary: cursor.finished ? "Restored turn state" : "Running", timestamp: payload.timestamp, jumpTarget: payload.jumpTarget))]
             if cursor.finished {
                 events.append(.sessionCompleted(SessionCompleted(sessionID: id,
-                    summary: payload.event == .turnCompleted ? "Turn completed" : payload.event == .turnFailed ? "Turn failed" : payload.event == .turnInterrupted ? "Turn interrupted" : "Session ended",
+                    summary: payload.event == .turnCompleted ? "Turn completed" : payload.event == .turnFailed ? "Turn failed" : payload.event == .turnInterrupted ? "Turn interrupted" : payload.event == .sessionObserved ? "Session available" : "Session ended",
                     timestamp: payload.timestamp, isInterrupt: true, isSessionEnd: cursor.sessionEnded,
-                    runtimeOutcome: payload.event == .turnCompleted ? .succeeded : payload.event == .turnFailed ? .failed : payload.event == .turnInterrupted ? .interrupted : .ended)))
+                    runtimeOutcome: payload.event == .turnCompleted ? .succeeded : payload.event == .turnFailed ? .failed : payload.event == .turnInterrupted ? .interrupted : payload.event == .sessionObserved ? nil : .ended)))
             }
             return events
         }
     }
 
     public mutating func receive(_ incoming: RuntimeLifecycleHookPayload) -> [AgentEvent] {
-        guard incoming.isValid, incoming.event != .sessionObserved else { return [] }
+        guard incoming.isValid else { return [] }
         var payload = incoming
         let id = payload.namespacedSessionID
         let previous = cursors[id]
@@ -166,6 +182,28 @@ public struct RuntimeLifecycleReducer: Sendable {
             payload.tmuxSocketPath = payload.tmuxSocketPath ?? old.tmuxSocketPath
             payload.warpPaneUUID = payload.warpPaneUUID ?? old.warpPaneUUID
             if payload.cwd.isEmpty { payload.cwd = old.cwd }
+        }
+        if payload.event == .sessionObserved {
+            // Bridge passes this only after its exact-ID visibility reader succeeds.
+            // Older SDK-detach records may have incorrectly persisted sessionEnded.
+            guard var old = previous, old.sessionEnded,
+                  payload.source == .minimaxCodeDesktop, payload.resultReason == "visible",
+                  payload.sourceObservedStart == false, payload.sourceRuntimeVersion == "3.1.0",
+                  payload.appConversationID == payload.sessionID,
+                  payload.sourceRuntimeVersion == old.lastPayload.sourceRuntimeVersion,
+                  payload.metadataDatabasePath == old.lastPayload.metadataDatabasePath,
+                  payload.timestamp >= old.timestamp else { return [] }
+            payload.turnID = old.turnID; payload.sequence = nil
+            old.lastPayload = payload; old.timestamp = payload.timestamp
+            old.sessionEnded = false; old.finished = true; old.observedStart = false
+            cursors[id] = old
+            persistCursors()
+            return [.sessionStarted(SessionStarted(sessionID: id,
+                title: "\(payload.source.tool.displayName) · \(WorkspaceNameResolver.workspaceName(for: payload.cwd))",
+                tool: payload.source.tool, origin: .live, initialPhase: .completed,
+                summary: "Session available", timestamp: payload.timestamp, jumpTarget: payload.jumpTarget)),
+                .sessionCompleted(SessionCompleted(sessionID: id, summary: "Session available",
+                    timestamp: payload.timestamp, isInterrupt: true, isSessionEnd: false))]
         }
         if let previous {
             guard payload.timestamp >= previous.timestamp else { return [] }
@@ -207,10 +245,7 @@ public struct RuntimeLifecycleReducer: Sendable {
                              sequence: payload.sequence ?? previous?.sequence, finished: !started, observedStart: started,
                              seenTurns: (previous?.seenTurns ?? []).union(payload.turnID.map { [$0] } ?? []),
                              sessionEnded: payload.event == .sessionEnded, lastPayload: payload)
-        if let registryURL, let data = try? JSONEncoder().encode(cursors) {
-            try? FileManager.default.createDirectory(at: registryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: registryURL, options: .atomic)
-        }
+        persistCursors()
         var events: [AgentEvent] = []
         if previous == nil || started || previous?.observedStart == false {
             events.append(.sessionStarted(SessionStarted(sessionID: id,
@@ -227,5 +262,12 @@ public struct RuntimeLifecycleReducer: Sendable {
                 runtimeOutcome: payload.event == .turnCompleted ? .succeeded : payload.event == .turnFailed ? .failed : payload.event == .turnInterrupted ? .interrupted : .ended)))
         }
         return events
+    }
+
+    private func persistCursors() {
+        if let registryURL, let data = try? JSONEncoder().encode(cursors) {
+            try? FileManager.default.createDirectory(at: registryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: registryURL, options: .atomic)
+        }
     }
 }

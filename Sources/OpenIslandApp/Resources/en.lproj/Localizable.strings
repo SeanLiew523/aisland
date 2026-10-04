@@ -273,3 +273,25 @@
 "setup.connection.automatic" = "Installed agents are connected automatically. Agents you removed stay disconnected. After installing another agent, check again here or restart AIsland.";
 
 "setup.connection.sourceMissing" = "Agent installation not detected. Install the agent first, then check again.";
+
+"setup.desktop.stopAutomatic" = "Stop automatic setup";
+
+"setup.desktop.optedOut" = "Automatic setup is off. Existing source plugins remain under the source app’s control.";
+
+"setup.desktop.waitingForSourceExit" = "Finish your source tasks, quit Desktop normally, then check again to complete setup. AIsland does not close source tasks.";
+
+"setup.desktop.waitingForProfile" = "Open the source once so its active profile can be identified. For MiniMaxCode, you can also choose the data directory currently selected in its settings.";
+
+"setup.desktop.waitingForActivation" = "Event components are configured. Enable the AIsland plugin in the source app, then run your next normal task. Live event receipt has not been verified in this run.";
+
+"setup.desktop.configuredFiles" = "Event components are configured; waiting for the source to load them.";
+
+"setup.desktop.eventReceived" = "A task event was received from this source during this AIsland run.";
+
+"setup.desktop.checking" = "Checking installed source and event components…";
+
+"setup.desktop.checkAgain" = "Check and finish setup";
+
+"setup.desktop.chooseDataDirectory" = "Choose active data directory…";
+
+"setup.desktop.openSource" = "Open source app";

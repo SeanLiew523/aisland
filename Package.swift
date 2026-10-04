@@ -51,6 +51,7 @@ let package = Package(
             ],
             resources: [
                 .process("Resources"),
+                .copy("AgentIntegrationPackages"),
             ]
         ),
         .testTarget(

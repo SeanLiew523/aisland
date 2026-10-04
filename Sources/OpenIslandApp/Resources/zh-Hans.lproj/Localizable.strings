@@ -273,3 +273,25 @@
 "setup.connection.automatic" = "自动为已安装的 Agent 配置事件接入；你主动移除的接入会保持关闭。新安装 Agent 后，可在这里重新检测或重启 AIsland。";
 
 "setup.connection.sourceMissing" = "未检测到 Agent 安装。请先安装 Agent，再重新检测。";
+
+"setup.desktop.stopAutomatic" = "关闭自动配置";
+
+"setup.desktop.optedOut" = "已关闭自动配置。现有来源插件仍由来源应用控制。";
+
+"setup.desktop.waitingForSourceExit" = "请完成来源中的任务、正常退出桌面应用，再重新检测完成配置。AIsland 不会关闭来源任务。";
+
+"setup.desktop.waitingForProfile" = "请先打开来源一次，以识别正在使用的 profile。MiniMaxCode 也可选择其设置中当前使用的数据目录。";
+
+"setup.desktop.waitingForActivation" = "事件组件已配置。请在来源应用中启用 AIsland 插件，再正常发起下一次任务；本次运行尚未验证收到事件。";
+
+"setup.desktop.configuredFiles" = "事件组件已配置，等待来源加载。";
+
+"setup.desktop.eventReceived" = "本次 AIsland 运行已收到该来源的任务事件。";
+
+"setup.desktop.checking" = "正在检测来源安装及事件组件…";
+
+"setup.desktop.checkAgain" = "重新检测并完成配置";
+
+"setup.desktop.chooseDataDirectory" = "选择正在使用的数据目录…";
+
+"setup.desktop.openSource" = "打开来源应用";

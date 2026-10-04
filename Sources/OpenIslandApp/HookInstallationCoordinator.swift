@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import OpenIslandCore
 
@@ -30,6 +31,9 @@ final class HookInstallationCoordinator {
     var detectedInstallations: [AgentIdentifier: AgentInstallationDetector.Evidence] = [:]
     var automaticConnectionErrors: [AgentIdentifier: String] = [:]
     var isAutomaticConnectionBusy = false
+    var desktopConnectionStates: [AgentIdentifier: DesktopConnectionInstallationManager.State] = [:]
+    @ObservationIgnored private var confirmedMiniMaxDataDirectory: URL?
+    @ObservationIgnored private let connectionObservationStarted = Date()
     var hermesHookStatus: HermesHookInstallationStatus?
 
     var codexHookStatus: CodexHookInstallationStatus?
@@ -1036,6 +1040,10 @@ final class HookInstallationCoordinator {
         for agent in AgentIdentifier.allCases where shouldAutoInstall(agent) {
             do {
                 try await configureDetectedSource(agent)
+                automaticConnectionErrors[agent] = nil
+                if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop {
+                    if desktopConnectionStates[agent] == .waitingForProfile || desktopConnectionStates[agent] == .waitingForSourceExit { continue }
+                }
                 intentStore.setIntent(.installed, for: agent)
                 automaticConnectionErrors[agent] = nil
             } catch {
@@ -1047,6 +1055,10 @@ final class HookInstallationCoordinator {
     }
 
     private func configureDetectedSource(_ agent: AgentIdentifier) async throws {
+        if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop {
+            try await configureDesktopSource(agent)
+            return
+        }
         if agent == .pi || agent == .ohMyPi {
             guard let data = loadBundledPiExtension() else { throw AutomaticConnectionError.missingExtension }
             let manager = agent == .pi ? piExtensionInstallationManager : ohMyPiExtensionInstallationManager
@@ -1082,6 +1094,62 @@ final class HookInstallationCoordinator {
         try await Task.detached(priority: .utility) { try action() }.value
     }
 
+    func observeDesktopConnectionEvent(_ event: AgentEvent) {
+        guard !isRuntimeAcceptance, case let .sessionStarted(start) = event,
+              start.timestamp >= connectionObservationStarted, start.origin == .live else { return }
+        let agent: AgentIdentifier?
+        switch start.tool {
+        case .deepseekHarness: agent = .deepSeekDesktop
+        case .minimaxCodeDesktop: agent = .miniMaxCodeDesktop
+        default: agent = nil
+        }
+        if let agent { desktopConnectionStates[agent] = .eventReceived }
+    }
+
+    func confirmMiniMaxDataDirectory(_ directory: URL) {
+        guard !isRuntimeAcceptance else { return }
+        confirmedMiniMaxDataDirectory = directory.standardizedFileURL
+        Task { await configureDetectedSources() }
+    }
+
+    func removeDesktopConnectionIntent(_ agent: AgentIdentifier) {
+        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy,
+              agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
+        // A source-side disable/removal still belongs to the source plugin UI.
+        // Preserve a durable opt-out so startup/re-scan cannot re-enable it.
+        intentStore.setIntent(.uninstalled, for: agent)
+    }
+
+    func reconnectDesktopSource(_ agent: AgentIdentifier) {
+        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy,
+              agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
+        intentStore.setIntent(.untouched, for: agent)
+        Task { await configureDetectedSources() }
+    }
+
+    private func configureDesktopSource(_ agent: AgentIdentifier) async throws {
+        guard let evidence = detectedInstallations[agent], let app = evidence.bundleURL else { return }
+        guard let packages = Bundle.appResources.url(forResource: "AgentIntegrationPackages", withExtension: nil) else { throw AutomaticConnectionError.missingExtension }
+        let node = installationDetector.executableDirectories.map { $0.appendingPathComponent("node") }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        let manager = DesktopConnectionInstallationManager(packagesDirectory: packages, nodeURL: node)
+        if agent == .miniMaxCodeDesktop {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
+                .filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }
+            let pid = running.count == 1 ? running[0].processIdentifier : nil
+            let explicit = confirmedMiniMaxDataDirectory
+            let state = try await Task.detached {
+                let discovered = if let pid { try? MiniMaxCodeActiveDataDirectory.resolve(processID: pid, appURL: app) } else { nil as URL? }
+                return try manager.configureMiniMax(evidence: evidence, activeDataDirectory: discovered ?? explicit)
+            }.value
+            if desktopConnectionStates[agent] != .eventReceived { desktopConnectionStates[agent] = state }
+        } else {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.deepseek.dsh").contains { !$0.isTerminated }
+            let state = try await Task.detached { try manager.configureDeepSeek(evidence: evidence, sourceRunning: running) }.value
+            if desktopConnectionStates[agent] != .eventReceived { desktopConnectionStates[agent] = state }
+        }
+    }
+
     private enum AutomaticConnectionError: LocalizedError {
         case missingExtension
         var errorDescription: String? { "The bundled AIsland event extension is unavailable." }
@@ -1111,7 +1179,7 @@ final class HookInstallationCoordinator {
         case .ohMyPi: return !(ohMyPiExtensionStatus?.isCurrent ?? false)
         case .claudeUsageBridge: return false
         case .hermes: return hermesHookStatus?.isCurrent != true
-        case .deepSeekDesktop, .miniMaxCodeDesktop: return false
+        case .deepSeekDesktop, .miniMaxCodeDesktop: return true
         }
     }
 

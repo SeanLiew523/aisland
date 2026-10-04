@@ -1671,6 +1671,7 @@ final class AppModel {
         state.apply(event)
         reconcileIslandSurfaceAfterStateChange()
         if ingress == .bridge && acceptanceConfiguration == nil {
+            hooks.observeDesktopConnectionEvent(event)
             monitoring.markSessionAttached(for: event)
             monitoring.markSessionProcessAlive(for: event)
         }

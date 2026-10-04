@@ -824,6 +824,9 @@ struct SetupSettingsPane: View {
                     Text("This will remove AIsland hooks from ~/.grok/hooks/open-island.json.")
                 }
 
+                desktopConnectionRow(agent: .deepSeekDesktop, name: "DeepSeek Harness Desktop")
+                desktopConnectionRow(agent: .miniMaxCodeDesktop, name: "MiniMaxCode Desktop")
+
                 HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus) { status, intent in
                     model.hooks.hermesHookStatus = status
                     model.hooks.intentStore.setIntent(intent, for: .hermes)
@@ -1213,6 +1216,41 @@ struct SetupSettingsPane: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func desktopConnectionRow(agent: AgentIdentifier, name: String) -> some View {
+        let evidence = model.hooks.detectedInstallations[agent]
+        let optedOut = model.hooks.intentStore.intent(for: agent) == .uninstalled
+        let state = model.hooks.desktopConnectionStates[agent]
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(name, systemImage: "desktopcomputer")
+                Spacer()
+                if optedOut {
+                    Button(lang.t("setup.connection.configure")) { model.hooks.reconnectDesktopSource(agent) }
+                } else {
+                    Button(lang.t("setup.desktop.stopAutomatic")) { model.hooks.removeDesktopConnectionIntent(agent) }
+                }
+            }
+            Text(lang.t(optedOut ? "setup.desktop.optedOut" : evidence == nil ? "setup.connection.sourceMissing" : "setup.desktop." + (state?.rawValue ?? "checking")))
+                .font(.caption).foregroundStyle(.secondary)
+            if !optedOut, evidence != nil {
+                HStack {
+                    Button(lang.t("setup.desktop.checkAgain")) { Task { await model.hooks.configureDetectedSources() } }
+                    if agent == .miniMaxCodeDesktop && state == .waitingForProfile {
+                        Button(lang.t("setup.desktop.chooseDataDirectory")) {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+                            if panel.runModal() == .OK, let selected = panel.url { model.hooks.confirmMiniMaxDataDirectory(selected) }
+                        }
+                    }
+                    if let app = evidence?.bundleURL {
+                        Button(lang.t("setup.desktop.openSource")) { NSWorkspace.shared.open(app) }
+                    }
+                }
+            }
+        }
+        .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy || evidence == nil)
     }
 
     private func revealInFinder(_ url: URL) {

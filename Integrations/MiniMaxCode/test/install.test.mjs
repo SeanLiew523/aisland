@@ -38,7 +38,10 @@ test('Dry-run validates actual versions and emits full source proof configuratio
     await writeFile(infoPath, original.replace('3.1.0', '3.2.0')); await assert.rejects(executeRequest(f.request), /Unsupported Desktop/);
     await writeFile(infoPath, original);
     await writeFile(join(f.request.cliPrefix, 'lib/node_modules/@minimax-ai/code/package.json'), JSON.stringify({ name: '@minimax-ai/code', version: '0.5.4' }));
-    await assert.rejects(executeRequest(f.request), /Unsupported CLI/);
+    assert.equal((await executeRequest(f.request)).config.source, "minimaxCodeDesktop");
+    await assert.rejects(executeRequest({ ...f.request, enableCLI: true, desktopVerified: true }), /Unsupported CLI/);
+    await rm(f.request.cliPrefix, { recursive: true });
+    assert.equal((await executeRequest(f.request)).verifiedVersions.cli, null);
   } finally { await f.remove(); }
 });
 test('Unknown destination, symlink parents and helper path inside source are refused', platform, async () => {

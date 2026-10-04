@@ -1094,15 +1094,15 @@ final class HookInstallationCoordinator {
         }
 
         switch agent {
-        case .claudeCode: return !claudeHooksInstalled
-        case .codex: return !codexHooksInstalled
+        case .claudeCode: return claudeHookStatus?.isCurrent != true
+        case .codex: return codexHookStatus?.isCurrent != true
         case .cursor: return !cursorHooksInstalled
-        case .qoder: return !qoderHooksInstalled
-        case .qwenCode: return !qwenCodeHooksInstalled
-        case .factory: return !factoryHooksInstalled
-        case .codebuddy: return !codebuddyHooksInstalled
-        case .zcode: return !zcodeHooksInstalled
-        case .workbuddy: return !workbuddyHooksInstalled
+        case .qoder: return qoderHookStatus?.isCurrent != true
+        case .qwenCode: return qwenCodeHookStatus?.isCurrent != true
+        case .factory: return factoryHookStatus?.isCurrent != true
+        case .codebuddy: return codebuddyHookStatus?.isCurrent != true
+        case .zcode: return zcodeHookStatus?.isCurrent != true
+        case .workbuddy: return workbuddyHookStatus?.isCurrent != true
         case .openCode: return !openCodePluginInstalled
         case .gemini: return !geminiHooksInstalled
         case .kimi: return !kimiHooksInstalled
@@ -1124,6 +1124,9 @@ final class HookInstallationCoordinator {
     /// installed hooks silently forgotten.
     func migrateIntentStoreIfNeeded() {
         if isRuntimeAcceptance {
+            // Maintain the calling acceptance domain's onboarding readiness;
+            // no source inspection or installation is performed.
+            intentStore.migrateFromLegacyStateIfNeeded { _ in false }
             return
         }
         intentStore.migrateFromLegacyStateIfNeeded { [self] agent in

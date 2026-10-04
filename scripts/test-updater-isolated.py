@@ -13,9 +13,10 @@ with tempfile.TemporaryDirectory(prefix='aisland-update-tests-') as directory:
     package = Path(directory)
     (package / 'Sources/OpenIslandApp').mkdir(parents=True)
     (package / 'Tests/OpenIslandAppTests').mkdir(parents=True)
-    for name in ['UpdateChecker.swift', 'GitHubUpdateRelease.swift']:
+    for name in ['UpdateChecker.swift', 'GitHubUpdateRelease.swift', 'UpdaterFixtureConfiguration.swift']:
         shutil.copy2(root / 'Sources/OpenIslandApp' / name, package / 'Sources/OpenIslandApp' / name)
-    shutil.copy2(root / 'Tests/OpenIslandAppTests/GitHubUpdateTests.swift', package / 'Tests/OpenIslandAppTests')
+    for name in ['GitHubUpdateTests.swift', 'UpdaterFixtureConfigurationTests.swift']:
+        shutil.copy2(root / 'Tests/OpenIslandAppTests' / name, package / 'Tests/OpenIslandAppTests')
     (package / 'Package.swift').write_text('''// swift-tools-version: 6.2
 import PackageDescription
 let package = Package(name: "UpdaterVerification", platforms: [.macOS(.v14)], targets: [

@@ -17,6 +17,8 @@ struct GitHubUpdateRelease: Decodable, Equatable, Sendable {
     let prerelease: Bool
     let htmlURL: URL
     let assets: [Asset]
+    // Never decoded from remote JSON. Only a validated full-app fixture supplies this.
+    var fixture: UpdaterFixtureConfiguration? = nil
     enum CodingKeys: String, CodingKey {
         case draft, prerelease, assets
         case tagName = "tag_name", htmlURL = "html_url"
@@ -24,7 +26,9 @@ struct GitHubUpdateRelease: Decodable, Equatable, Sendable {
     var version: String { tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName }
     var feedURL: URL? { assets.first { $0.name == "appcast.xml" && accepts($0) }?.browserDownloadURL }
     func accepts(_ asset: Asset) -> Bool {
-        asset.state == "uploaded" && asset.size > 0 && asset.browserDownloadURL.scheme == "https"
+        guard asset.state == "uploaded", asset.size > 0 else { return false }
+        if let fixture { return fixture.accepts(asset.browserDownloadURL, releaseTag: tagName) }
+        return asset.browserDownloadURL.scheme == "https"
             && asset.browserDownloadURL.host == "github.com"
             && asset.browserDownloadURL.path.hasPrefix("/SeanLiew523/aisland/releases/download/\(tagName)/")
             && asset.browserDownloadURL.query == nil && asset.browserDownloadURL.fragment == nil
@@ -69,9 +73,13 @@ enum GitHubUpdateError: Error {
 
 struct GitHubUpdateClient: Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
-    var transport: Transport = { try await URLSession.shared.data(for: $0) }
+    private let fixture: UpdaterFixtureConfiguration?
+    var transport: Transport
+    init(fixture: UpdaterFixtureConfiguration? = nil, transport: @escaping Transport = { try await URLSession.shared.data(for: $0) }) {
+        self.fixture = fixture; self.transport = transport
+    }
     func latestRelease() async throws -> GitHubUpdateRelease {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/SeanLiew523/aisland/releases/latest")!)
+        var request = URLRequest(url: fixture?.latestURL ?? URL(string: "https://api.github.com/repos/SeanLiew523/aisland/releases/latest")!)
         request.timeoutInterval = 30
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -79,10 +87,12 @@ struct GitHubUpdateClient: Sendable {
         request.setValue("AIsland-Updater", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await transport(request)
         guard let response = response as? HTTPURLResponse else { throw GitHubUpdateError.invalidResponse }
+        if let fixture, response.url != fixture.latestURL { throw GitHubUpdateError.invalidResponse }
         guard response.statusCode == 200 else { throw GitHubUpdateError.unavailable(response.statusCode) }
-        guard data.count <= 2_000_000, let release = try? JSONDecoder().decode(GitHubUpdateRelease.self, from: data) else {
+        guard data.count <= 2_000_000, var release = try? JSONDecoder().decode(GitHubUpdateRelease.self, from: data) else {
             throw GitHubUpdateError.invalidRelease
         }
+        release.fixture = fixture
         try release.validate()
         return release
     }

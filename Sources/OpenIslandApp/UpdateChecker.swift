@@ -8,7 +8,9 @@ final class UpdateChecker: NSObject {
     enum Phase: Equatable {
         case idle, checking, available, downloading, extracting, installing, installed, upToDate, blocked, failed
     }
-    private(set) var phase: Phase = .idle
+    private(set) var phase: Phase = .idle {
+        didSet { fixture?.record("phase", phase: String(describing: phase), bytes: downloadedBytes, expected: expectedBytes) }
+    }
     private(set) var latestVersion: String?
     private(set) var messageKey: String?
     private(set) var errorDetail: String?
@@ -33,11 +35,18 @@ final class UpdateChecker: NSObject {
     @ObservationIgnored private var checkTask: Task<Void, Never>?
     @ObservationIgnored private let client: GitHubUpdateClient
     @ObservationIgnored private let bundle: Bundle
+    @ObservationIgnored private let fixture: UpdaterFixtureConfiguration?
+    @ObservationIgnored private let fixtureError: Error?
 
-    init(client: GitHubUpdateClient = GitHubUpdateClient(), bundle: Bundle = .main) {
-        self.client = client
+    init(client: GitHubUpdateClient? = nil, bundle: Bundle = .main) {
+        do {
+            fixture = try UpdaterFixtureConfiguration.current(bundle: bundle)
+            fixtureError = nil
+        } catch { fixture = nil; fixtureError = error }
+        self.client = client ?? GitHubUpdateClient(fixture: fixture)
         self.bundle = bundle
         super.init()
+        fixture?.record("launched")
     }
     /// Checks are explicitly initiated from Settings; starting the app does not
     /// schedule a feed request or permit replacing a local development build.
@@ -45,6 +54,7 @@ final class UpdateChecker: NSObject {
 
     func checkForUpdates() {
         guard canCheckForUpdates else { return }
+        guard fixtureError == nil else { fail("settings.update.invalidFeed", error: fixtureError); return }
         phase = .checking
         messageKey = nil
         errorDetail = nil
@@ -167,6 +177,7 @@ extension UpdateChecker: SPUUserDriver {
     func showDownloadDidReceiveData(ofLength length: UInt64) {
         let (total, overflow) = downloadedBytes.addingReportingOverflow(length)
         downloadedBytes = overflow ? UInt64.max : total
+        fixture?.record("download-progress", phase: String(describing: phase), bytes: downloadedBytes, expected: expectedBytes)
     }
     func showDownloadDidStartExtractingUpdate() {
         cancellation = nil; phase = .extracting; extractionProgress = 0

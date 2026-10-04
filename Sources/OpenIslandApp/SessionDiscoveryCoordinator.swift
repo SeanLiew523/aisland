@@ -662,6 +662,7 @@ final class SessionDiscoveryCoordinator {
 @MainActor
 final class StartupWorkflows {
     private var started = false
+    private var liveMonitoringStarted = false
     private var historyTask: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
 
@@ -673,5 +674,16 @@ final class StartupWorkflows {
         started = true
         historyTask = Task.detached(priority: .utility) { await history() }
         connectionTask = Task { await connections() }
+    }
+
+    /// Admit ordinary live recognition after the bridge starts, independently
+    /// of history/setup completion. Rejected modes do not register a monitor.
+    func startLiveMonitoringIfNeeded(
+        loadRuntimeState: Bool, isRuntimeAcceptance: Bool, bridgeStarted: Bool,
+        start: @MainActor () -> Void
+    ) {
+        guard loadRuntimeState, !isRuntimeAcceptance, bridgeStarted, !liveMonitoringStarted else { return }
+        liveMonitoringStarted = true
+        start()
     }
 }

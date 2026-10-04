@@ -24,6 +24,8 @@ Ordinary app startup locates the callback helper inside the current app bundle a
 
 Historical session discovery runs independently and cannot replace the admitted helper or trigger startup setup again. Late startup results add historical sessions while preserving every existing identity's current state and navigation metadata, including matching transcript aliases. Cache pruning uses the final merged current state instead of writing the earlier scan snapshot back over newly arrived sessions. Runtime acceptance skips ordinary helper lookup, deployment, source reads, and configuration; scoped source-setup acceptance uses only its isolated wrapper and admitted sources.
 
+Ordinary live process monitoring starts once after successful bridge startup, independently of history discovery and source setup. This lets an already-running Codex App connect through the existing app-server path while historical scans are pending. Runtime acceptance and launches with runtime-state loading or bridge startup disabled do not start ordinary monitoring; applying late history only reconciles the restored attachments.
+
 ## Skip Hooks For Delegated Control
 
 Set `OPEN_ISLAND_SKIP_HOOKS=1` on a child agent process when another local controller intentionally owns permission handling for that run. The hook CLI exits immediately without reading or forwarding the payload, so the agent continues without AIsland UI intervention.

@@ -1226,6 +1226,13 @@ final class AppModel {
         do {
             try bridgeServer.start()
             connectBridgeObserver()
+            startupWorkflows.startLiveMonitoringIfNeeded(
+                loadRuntimeState: loadRuntimeState,
+                isRuntimeAcceptance: acceptanceConfiguration != nil,
+                bridgeStarted: true
+            ) {
+                monitoring.startMonitoringIfNeeded()
+            }
         } catch {
             isBridgeReady = false
             lastActionMessage = "Failed to start local bridge: \(error.localizedDescription)"
@@ -1802,9 +1809,9 @@ final class AppModel {
 
         // Historical results cannot change the admitted callback helper or
         // trigger a second setup/first-run notification.
-        // Reconcile attachments and start monitoring (requires sessions to be loaded).
+        // Reconcile restored attachments; live monitoring already started
+        // independently when the ordinary bridge became available.
         monitoring.reconcileSessionAttachments()
-        monitoring.startMonitoringIfNeeded()
     }
 
 

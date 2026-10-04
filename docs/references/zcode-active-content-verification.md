@@ -23,6 +23,10 @@ this is not yet proof of a heading-only failure. The matching task remained in
 the sidebar, and its indexed title was unchanged. Sampling now also records
 the first matching label's four ancestors with action/class booleans and the
 same redacted attribute metadata, without changing navigation admission.
+For a target with a known native conversation ID, the jump service now reports
+an unavailable focus as a failure instead of returning successful workspace/app
+activation. Build 55's app-level success diagnostic was such an activation and
+must not be interpreted as exact conversation acceptance.
 
 The installed 3.14.4 main router accepts workspace paths, not native session
 IDs. Renderer `restoreSession` is a startup boolean that restores saved tab

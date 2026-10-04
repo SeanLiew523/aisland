@@ -457,9 +457,9 @@ struct TerminalJumpService {
                         return "Focused the ZCode conversation."
                     case let .unavailable(reason):
                         logJumpDiagnostics("zcode conversation focus miss reason=\(reason)")
-                        if reason == "accessibility-unavailable", appIsRunning {
-                            return "Activated ZCode. Accessibility permission is required for conversation focus."
-                        }
+                        // A known native conversation must not become a successful
+                        // jump merely because its workspace/app could be activated.
+                        throw TerminalJumpError.conversationUnavailable("ZCode", reason)
                     }
                 }
 
@@ -1693,8 +1693,8 @@ enum TerminalJumpError: Error, LocalizedError {
         case let .appleScriptFailed(message):
             "Terminal automation failed: \(message)"
         case let .conversationUnavailable(app, reason):
-            if app == "MiniMaxCode", reason == "accessibility-unavailable" {
-                "Enable Accessibility for this AIsland app in System Settings → Privacy & Security to return to the MiniMaxCode conversation."
+            if ["MiniMaxCode", "ZCode"].contains(app), reason == "accessibility-unavailable" {
+                "Enable Accessibility for this AIsland app in System Settings → Privacy & Security to return to the \(app) conversation."
             } else {
                 "Could not verify the \(app) conversation (\(reason))."
             }

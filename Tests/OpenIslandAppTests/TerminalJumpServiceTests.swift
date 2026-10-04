@@ -546,7 +546,8 @@ struct TerminalJumpServiceTests {
     }
 
     @Test
-    func zcodeWithoutAccessibilityActivatesRunningAppWithoutOpeningWorkspace() throws {
+    func zcodeKnownConversationFailureCannotBecomeWorkspaceActivationSuccess() throws {
+      for reason in ["accessibility-unavailable", "sidebar-conversation-miss", "active-session-id-unverified"] {
         let openedArguments = OpenedArgumentsBox()
         let service = TerminalJumpService(
             applicationResolver: { bundleIdentifier in
@@ -560,11 +561,11 @@ struct TerminalJumpServiceTests {
             },
             appleScriptRunner: { _ in "" },
             zcodeConversationFocuser: { _ in
-                .unavailable("accessibility-unavailable")
+                .unavailable(reason)
             }
         )
 
-        let result = try service.jump(
+        #expect(throws: TerminalJumpError.self) { try service.jump(
             to: JumpTarget(
                 terminalApp: "ZCode.app",
                 workspaceName: "open-vibe-island",
@@ -573,10 +574,10 @@ struct TerminalJumpServiceTests {
                 appConversationID: "sess_legacy",
                 appDeepLinkURL: "zcode://workspace/open?path=%2FUsers%2Ftest%2Fopen-vibe-island"
             )
-        )
+        ) }
 
-        #expect(result == "Activated ZCode. Accessibility permission is required for conversation focus.")
         #expect(openedArguments.values == [["-b", "dev.zcode.app"]])
+      }
     }
 
     @Test

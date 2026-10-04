@@ -6,7 +6,8 @@ import Testing
 /// Synthetic stdin reaches the real callback executable and a temporary bridge.
 /// No source process, terminal UI, source configuration, or GUI locator is used.
 struct GhosttyHermesIngressTests {
-    @Test func ghosttyTurnsWithoutWindowIDsReachTheirConfiguredBridge() throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["AISLAND_TEST_HOOKS_BINARY"] != nil))
+    func ghosttyTurnsWithoutWindowIDsReachTheirConfiguredBridge() throws {
         let helper = try #require(ProcessInfo.processInfo.environment["AISLAND_TEST_HOOKS_BINARY"])
         let socketURL = BridgeSocketLocation.uniqueTestURL()
         let server = BridgeServer(socketURL: socketURL, monitorMiniMaxCode: false)

@@ -20,7 +20,7 @@ Blocking hook sources receive a `BridgeResponse` through `OpenIslandHooks` stdou
 
 **Fail-open principle**: if the bridge is unavailable, managed hook processes exit without writing to stdout and Pi-family extensions ignore socket errors, so the agent continues running unchanged.
 
-Ordinary app startup locates the callback helper inside the current app bundle and awaits deployment of its managed copy before inspecting hook status, migrating installation intent, or configuring detected sources. A missing or failed helper stops automatic source configuration. Startup readiness is reported once; completing first-run onboarding remains a separate user action.
+Ordinary app startup locates the callback helper inside the current app bundle and awaits deployment of its managed copy before inspecting hook status, migrating installation intent, or configuring detected sources. Only an executable deployed copy with matching bytes is admitted. Normal source commands use the durable `ManagedHooksBinary.defaultURL()` destination, including Hermes commands and consent identity, rather than the app bundle path. A missing or failed helper stops automatic source configuration. Startup readiness is reported once; completing first-run onboarding remains a separate user action.
 
 Historical session discovery runs independently and cannot replace the admitted helper or trigger startup setup again. Runtime acceptance skips ordinary helper lookup, deployment, source reads, and configuration; scoped source-setup acceptance uses only its isolated wrapper and admitted sources.
 

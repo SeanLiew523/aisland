@@ -76,7 +76,7 @@ private struct StartupFixture {
                 await deployment.wait()
                 _ = try ManagedHooksBinary.install(from: source, to: managed)
                 await trace.record("deployment-done")
-                return true
+                return managed
             }, startupStages: .init(
                 detect: { trace.record("detect") },
                 refresh: { trace.record("refresh") },
@@ -107,13 +107,13 @@ private struct StartupFixture {
         await deployment.release()
         try await waitForStartup { trace.events.contains("configure") }
         #expect(trace.events == ["deployment-start", "deployment-done", "detect", "refresh", "ready", "configure"])
-        #expect(hooks.hooksBinaryURL == source)
+        #expect(hooks.hooksBinaryURL == managed)
         #expect(try Data(contentsOf: managed) == Data("new callback".utf8))
         #expect(!intent.firstLaunchCompleted)
 
         await history.release()
         try await waitForStartup { trace.events.contains("history-done") }
-        #expect(hooks.hooksBinaryURL == source)
+        #expect(hooks.hooksBinaryURL == managed)
         #expect(trace.events.filter { $0 == "ready" }.count == 1)
         #expect(!trace.events.contains(where: { $0.hasPrefix("duplicate") }))
     }
@@ -157,7 +157,7 @@ private struct StartupFixture {
         let trace = StartupTrace()
         let hooks = HookInstallationCoordinator(intentStore: AgentIntentStore(defaults: fixture.defaults),
             startupHookBinaryLocator: { nil },
-            startupHookBinaryDeployer: { _ in Issue.record("No helper was located"); return true },
+            startupHookBinaryDeployer: { source in Issue.record("No helper was located"); return source },
             startupStages: .init(detect: { trace.record("detect") },
                 refresh: { trace.record("refresh") }, configure: { trace.record("configure") }))
         await hooks.runStartupSetup { trace.record("ready") }
@@ -165,12 +165,74 @@ private struct StartupFixture {
         #expect(hooks.hooksBinaryURL == nil)
     }
 
+    @Test(arguments: ["missing", "stale", "nonExecutable"])
+    func unverifiedDeploymentCannotPublishOrConfigure(_ failure: String) async throws {
+        let fixture = try StartupFixture(); defer { fixture.cleanup() }
+        let source = try fixture.executable("Current.app/Contents/Helpers/OpenIslandHooks", bytes: "current callback")
+        let destination = fixture.root.appendingPathComponent("managed/OpenIslandHooks")
+        if failure != "missing" {
+            _ = try fixture.executable("managed/OpenIslandHooks",
+                bytes: failure == "stale" ? "previous callback" : "current callback")
+            if failure == "nonExecutable" {
+                try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: destination.path)
+            }
+        }
+        let trace = StartupTrace()
+        let hooks = HookInstallationCoordinator(intentStore: AgentIntentStore(defaults: fixture.defaults),
+            startupHookBinaryLocator: { source }, startupHookBinaryDeployer: { _ in destination },
+            startupStages: .init(detect: {}, refresh: {}, configure: { trace.record("configure") }))
+        await hooks.runStartupSetup { trace.record("ready") }
+        #expect(hooks.hooksBinaryURL == nil)
+        #expect(trace.events == ["ready"])
+    }
+
+    @Test func hermesCommandsAndConsentKeepDurableIdentityAcrossBundleMoves() async throws {
+        let fixture = try StartupFixture(); defer { fixture.cleanup() }
+        let destination = fixture.root.appendingPathComponent("managed/OpenIslandHooks")
+        let profile = fixture.root.appendingPathComponent("hermes-profile")
+        let manager = HermesHookInstallationManager(profileDirectory: profile)
+        let intent = AgentIntentStore(defaults: fixture.defaults)
+
+        for version in ["First", "Second"] {
+            let bundle = fixture.root.appendingPathComponent("\(version).app")
+            let source = try fixture.executable("\(version).app/Contents/Helpers/OpenIslandHooks", bytes: version)
+            let hooks = HookInstallationCoordinator(intentStore: intent,
+                startupHookBinaryLocator: {
+                    HookInstallationCoordinator.startupHookBinary(bundleURL: bundle, executableDirectory: nil)
+                }, startupHookBinaryDeployer: { source in
+                    try ManagedHooksBinary.install(from: source, to: destination)
+                }, startupStages: .init(detect: {}, refresh: {}, configure: {}))
+            await hooks.runStartupSetup {}
+            let published = try #require(hooks.hooksBinaryURL)
+            #expect(published == destination && published != source)
+            #expect(try Data(contentsOf: published) == Data(version.utf8))
+            let status = try manager.install(hooksBinaryURL: published)
+            #expect(status.isCurrent)
+            let manifest = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: manager.manifestURL)) as? [String: Any])
+            let command = try #require(manifest["command"] as? String)
+            #expect(command.contains(destination.path) && !command.contains(bundle.path))
+            let config = try String(contentsOf: manager.configURL, encoding: .utf8)
+            #expect(config.components(separatedBy: destination.path).count == 3)
+            #expect(!config.contains(bundle.path))
+            if version == "First" {
+                let approvals = ["pre_llm_call", "on_session_end"].map { ["event": $0, "command": command] }
+                try JSONSerialization.data(withJSONObject: ["approvals": approvals])
+                    .write(to: profile.appendingPathComponent("shell-hooks-allowlist.json"))
+            }
+            // Removing the fixture bundle must not invalidate the normal command.
+            try FileManager.default.removeItem(at: bundle)
+            let movedStatus = try manager.status(hooksBinaryURL: published)
+            #expect(movedStatus.isCurrent && movedStatus.hasConsent)
+            #expect(FileManager.default.isExecutableFile(atPath: published.path))
+        }
+    }
+
     @Test func runtimeAcceptanceCallsNoOrdinaryStartupStage() async throws {
         let fixture = try StartupFixture(); defer { fixture.cleanup() }
         let intent = AgentIntentStore(defaults: fixture.defaults), trace = StartupTrace()
         let hooks = HookInstallationCoordinator(intentStore: intent, isRuntimeAcceptance: true,
             startupHookBinaryLocator: { Issue.record("Acceptance must not locate a normal helper"); return nil },
-            startupHookBinaryDeployer: { _ in Issue.record("Acceptance must not deploy a normal helper"); return true },
+            startupHookBinaryDeployer: { source in Issue.record("Acceptance must not deploy a normal helper"); return source },
             startupStages: .init(detect: { Issue.record("Acceptance must not detect ordinary sources") },
                 refresh: { Issue.record("Acceptance must not inspect ordinary config") },
                 configure: { Issue.record("Acceptance must not configure ordinary sources") }))

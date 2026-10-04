@@ -27,7 +27,7 @@ final class HookInstallationCoordinator {
         installationDetector: AgentInstallationDetector = AgentInstallationDetector(),
         hermesInstallationManager: HermesHookInstallationManager = HermesHookInstallationManager(),
         startupHookBinaryLocator: @escaping @Sendable () -> URL? = HookInstallationCoordinator.locateStartupHookBinary,
-        startupHookBinaryDeployer: @escaping @Sendable (URL) async throws -> Bool = HookInstallationCoordinator.deployStartupHookBinary,
+        startupHookBinaryDeployer: @escaping @Sendable (URL) async throws -> URL = HookInstallationCoordinator.deployStartupHookBinary,
         startupStages: StartupStages? = nil
     ) {
         self.installationDetector = installationDetector
@@ -44,7 +44,7 @@ final class HookInstallationCoordinator {
 
     @ObservationIgnored private let installationDetector: AgentInstallationDetector
     @ObservationIgnored private let startupHookBinaryLocator: @Sendable () -> URL?
-    @ObservationIgnored private let startupHookBinaryDeployer: @Sendable (URL) async throws -> Bool
+    @ObservationIgnored private let startupHookBinaryDeployer: @Sendable (URL) async throws -> URL
     @ObservationIgnored private let startupStages: StartupStages?
     @ObservationIgnored private var hasReportedStartupReady = false
     @ObservationIgnored let hermesInstallationManager: HermesHookInstallationManager
@@ -625,22 +625,30 @@ final class HookInstallationCoordinator {
         )
     }
 
-    nonisolated static func deployStartupHookBinary(from source: URL) async throws -> Bool {
+    nonisolated static func deployStartupHookBinary(from source: URL) async throws -> URL {
         try await Task.detached(priority: .userInitiated) {
             if FileManager.default.fileExists(atPath: ManagedHooksBinary.defaultURL().path) {
-                return try ManagedHooksBinary.updateIfNeeded(from: source)
+                _ = try ManagedHooksBinary.updateIfNeeded(from: source)
+            } else {
+                _ = try ManagedHooksBinary.install(from: source)
             }
-            _ = try ManagedHooksBinary.install(from: source)
-            return true
+            return ManagedHooksBinary.defaultURL()
         }.value
     }
 
-    /// Await completion before inspecting statuses or configuring sources.
-    func updateHooksBinaryIfNeeded(from source: URL? = nil) async throws {
-        guard !isRuntimeAcceptance, let sourceURL = source ?? hooksBinaryURL else { return }
-        if try await startupHookBinaryDeployer(sourceURL) {
-            onStatusMessage?("Hooks binary updated to match the current app version.")
-        }
+    /// Return only a deployed executable matching the current source. Configs
+    /// use this durable destination rather than the versioned app bundle path.
+    @discardableResult
+    func updateHooksBinaryIfNeeded(from source: URL? = nil) async throws -> URL? {
+        guard !isRuntimeAcceptance, let sourceURL = source ?? hooksBinaryURL else { return nil }
+        let deployedURL = try await startupHookBinaryDeployer(sourceURL)
+        try await Task.detached(priority: .userInitiated) {
+            guard FileManager.default.isExecutableFile(atPath: deployedURL.path),
+                  try Data(contentsOf: deployedURL) == Data(contentsOf: sourceURL) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }.value
+        return deployedURL
     }
 
     // MARK: - Health check & auto-repair
@@ -1090,8 +1098,7 @@ final class HookInstallationCoordinator {
             hooksBinaryURL = nil
             if let source = await Task.detached(priority: .userInitiated, operation: { locator() }).value {
                 do {
-                    try await updateHooksBinaryIfNeeded(from: source)
-                    hooksBinaryURL = source
+                    hooksBinaryURL = try await updateHooksBinaryIfNeeded(from: source)
                 }
                 catch {
                     helperPrepared = false

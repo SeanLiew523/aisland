@@ -5,15 +5,15 @@ import Testing
 
 struct ZCodeConversationJumpControllerTests {
     @Test
-    func selectedSidebarWithoutMatchingContentCannotVerifyNavigation() {
-        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
-            rowCount: 1, selectedRowCount: 1, headingMatches: false))
-        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
-            rowCount: 2, selectedRowCount: 1, headingMatches: true))
-        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
-            rowCount: 1, selectedRowCount: 0, headingMatches: true))
-        #expect(ZCodeConversationJumpController.verifiesActiveConversation(
-            rowCount: 1, selectedRowCount: 1, headingMatches: true))
+    func selectedSidebarWithoutExactCurrentIDCannotVerifyNavigation() {
+        #expect(!ZCodeSidebarContract.verifiesIdentity(
+            rowCount: 1, selectedRowCount: 1, copiedID: nil, targetID: "sess_exact"))
+        #expect(!ZCodeSidebarContract.verifiesIdentity(
+            rowCount: 2, selectedRowCount: 1, copiedID: "sess_exact", targetID: "sess_exact"))
+        #expect(!ZCodeSidebarContract.verifiesIdentity(
+            rowCount: 1, selectedRowCount: 0, copiedID: "sess_exact", targetID: "sess_exact"))
+        #expect(ZCodeSidebarContract.verifiesIdentity(
+            rowCount: 1, selectedRowCount: 1, copiedID: "sess_exact", targetID: "sess_exact"))
     }
 
     @Test

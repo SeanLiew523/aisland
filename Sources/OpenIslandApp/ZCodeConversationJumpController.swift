@@ -175,15 +175,45 @@ struct ZCodeNavigationDiagnostic: Equatable, Sendable {
     }
 }
 
+/// Injected metadata-only UI boundary; fixture tests never launch ZCode.
+struct ZCodeConversationUI: Sendable {
+    struct Source: Equatable, Sendable {
+        var processID: pid_t
+        var version: String
+    }
+    var isAccessibilityAvailable: @Sendable () -> Bool
+    var source: @Sendable () -> Source?
+    var select: @Sendable (ZCodeConversationRecord, Source, TimeInterval) -> Bool
+    var copyActiveSessionID: @Sendable (ZCodeConversationRecord, Source, TimeInterval) -> String?
+    var isFrontmost: @Sendable (Source) -> Bool
+    var isCurrentWindow: @Sendable () -> Bool = { true }
+}
+
+/// Public renderer row contracts: both variants bind Enter/Space to their own
+/// task ID. A plain list item need not expose AXPress in Chromium.
+enum ZCodeSidebarContract {
+    static func isTaskRow(classes: [String]) -> Bool {
+        classes.contains("group/task-item") || classes.contains("group/task-row")
+    }
+    static func permitsEnter(classes: [String], focusSettable: Bool, exactFocus: Bool,
+                             sourceFrontmost: Bool) -> Bool {
+        isTaskRow(classes: classes) && focusSettable && exactFocus && sourceFrontmost
+    }
+    static func verifiesIdentity(rowCount: Int, selectedRowCount: Int, copiedID: String?, targetID: String) -> Bool {
+        rowCount == 1 && selectedRowCount == 1 && !targetID.isEmpty && copiedID == targetID
+    }
+}
+
 /// Focuses a ZCode conversation without reopening its workspace. ZCode 3.14
 /// does not route conversation IDs through its URL scheme, but its task index
 /// and Chromium accessibility tree expose enough stable information to press
-/// the exact existing sidebar entry and verify the resulting page heading.
+/// the exact existing sidebar entry and verify the native ID via its public header menu.
 struct ZCodeConversationJumpController: Sendable {
     typealias Sleeper = @Sendable (TimeInterval) -> Void
     typealias MonotonicClock = @Sendable () -> TimeInterval
 
     private let taskIndex: ZCodeTaskIndex
+    private let ui: ZCodeConversationUI?
     private let sleeper: Sleeper
     private let clock: MonotonicClock
     private let focusTimeout: TimeInterval
@@ -192,6 +222,7 @@ struct ZCodeConversationJumpController: Sendable {
 
     init(
         taskIndex: ZCodeTaskIndex = ZCodeTaskIndex(),
+        ui: ZCodeConversationUI? = nil,
         sleeper: @escaping Sleeper = { Thread.sleep(forTimeInterval: $0) },
         clock: @escaping MonotonicClock = { ProcessInfo.processInfo.systemUptime },
         focusTimeout: TimeInterval = 3,
@@ -199,6 +230,7 @@ struct ZCodeConversationJumpController: Sendable {
         metadataDiagnostics: @escaping @Sendable (ZCodeNavigationDiagnostic) -> Void = Self.writeMetadataDiagnostic
     ) {
         self.taskIndex = taskIndex
+        self.ui = ui
         self.sleeper = sleeper
         self.clock = clock
         self.focusTimeout = max(0, focusTimeout)
@@ -214,46 +246,85 @@ struct ZCodeConversationJumpController: Sendable {
         guard hasTimeRemaining(before: deadline) else {
             return .unavailable("focus-timeout")
         }
-        guard AXIsProcessTrusted() else {
+        guard ui?.isAccessibilityAvailable() ?? AXIsProcessTrusted() else {
             return .unavailable("accessibility-unavailable")
         }
-        guard let application = NSRunningApplication
-            .runningApplications(withBundleIdentifier: "dev.zcode.app")
-            .first(where: { $0.processIdentifier > 0 }) else {
-            return .unavailable("app-not-running")
+        guard let source = ui?.source() ?? (ui == nil ? runningSource() : nil),
+              source.version == "3.14.4", source.processID > 0 else {
+            return .unavailable("source-version-or-process-unavailable")
         }
-        guard hasTimeRemaining(before: deadline) else {
-            return .unavailable("focus-timeout")
+        let selected = ui.map { $0.select(conversation, source, deadline) }
+            ?? select(conversation, source: source, before: deadline)
+        guard selected else { return .unavailable("sidebar-conversation-miss") }
+        guard hasTimeRemaining(before: deadline) else { return .unavailable("focus-timeout") }
+        guard currentSource() == source, isFrontmost(source) else { return .unavailable("source-changed") }
+        let navigationWindow = ui == nil ? NSRunningApplication(processIdentifier: source.processID)
+            .flatMap { firstWindow(of: $0) } : nil
+        let copied = ui.map { $0.copyActiveSessionID(conversation, source, deadline) }
+            ?? copyActiveSessionID(conversation, source: source, before: deadline)
+        guard copied == conversation.id else {
+            if ui == nil, metadataDiagnosticsEnabled(),
+               let application = NSRunningApplication(processIdentifier: source.processID),
+               let window = firstWindow(of: application) {
+                recordFailedNavigation(conversation, window: window,
+                    allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation))
+            }
+            return .unavailable("active-session-id-unverified")
         }
+        guard hasTimeRemaining(before: deadline) else { return .unavailable("focus-timeout") }
+        guard taskIndex.conversation(id: conversation.id) == conversation else {
+            return .unavailable("task-index-changed")
+        }
+        let sameWindow: Bool
+        if let ui { sameWindow = ui.isCurrentWindow() }
+        else if let navigationWindow, let application = NSRunningApplication(processIdentifier: source.processID),
+                let current = firstWindow(of: application) { sameWindow = CFEqual(navigationWindow, current) }
+        else { sameWindow = false }
+        guard currentSource() == source, isFrontmost(source), sameWindow else {
+            return .unavailable("source-or-window-changed")
+        }
+        return .focused
+    }
 
+    private func currentSource() -> ZCodeConversationUI.Source? {
+        if let ui { return ui.source() }
+        return runningSource()
+    }
+
+    private func runningSource() -> ZCodeConversationUI.Source? {
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "dev.zcode.app")
+            .filter { $0.processIdentifier > 0 }
+        guard apps.count == 1, let app = apps.first, let url = app.bundleURL,
+              let version = Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else { return nil }
+        return .init(processID: app.processIdentifier, version: version)
+    }
+
+    private func isFrontmost(_ source: ZCodeConversationUI.Source) -> Bool {
+        ui?.isFrontmost(source) ?? (NSWorkspace.shared.frontmostApplication?.processIdentifier == source.processID)
+    }
+
+    private func select(_ conversation: ZCodeConversationRecord, source: ZCodeConversationUI.Source,
+                        before deadline: TimeInterval) -> Bool {
+        guard currentSource() == source,
+              let application = NSRunningApplication(processIdentifier: source.processID) else { return false }
         // Electron may report an empty AXWindows array while ZCode is in the
         // background. Activation must happen before window lookup; waiting on
         // the hidden app alone never makes the accessibility window appear.
         application.unhide()
         guard hasTimeRemaining(before: deadline) else {
-            return .unavailable("focus-timeout")
+            return false
         }
         application.activate(options: [.activateAllWindows])
-        guard let window = waitForWindow(of: application, before: deadline) else {
-            if !hasTimeRemaining(before: deadline) {
-                return .unavailable("focus-timeout")
-            }
-            return .unavailable("ax-window-missing")
-        }
+        guard let window = waitForWindow(of: application, before: deadline) else { return false }
 
         guard raise(window: window, before: deadline) else {
-            return .unavailable("focus-timeout")
+            return false
         }
 
         let workspaceName = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
         let allowsStandaloneLookup = taskIndex.hasUniqueTitle(for: conversation)
         ensureProjectsView(in: window, before: deadline)
-        guard let projectsWindow = waitForWindow(of: application, before: deadline) else {
-            if !hasTimeRemaining(before: deadline) {
-                return .unavailable("focus-timeout")
-            }
-            return .unavailable("ax-window-missing-after-projects")
-        }
+        guard let projectsWindow = waitForWindow(of: application, before: deadline) else { return false }
         expandProjectIfNeeded(named: workspaceName, in: projectsWindow, before: deadline)
 
         if let expandedWindow = waitForWindow(of: application, before: deadline),
@@ -264,14 +335,14 @@ struct ZCodeConversationJumpController: Sendable {
                in: expandedWindow,
                before: deadline
            ),
-           waitUntilConversationIsActive(
+           waitUntilConversationRowIsSelected(
                title: conversation.title,
                workspaceName: workspaceName,
                allowsStandaloneLookup: allowsStandaloneLookup,
                application: application,
                before: deadline
            ) {
-            return verifyForeground(of: application, before: deadline)
+            return verifyForeground(of: application, before: deadline) == .focused
         }
 
         // ZCode initially renders only a bounded number of conversations for
@@ -297,24 +368,21 @@ struct ZCodeConversationJumpController: Sendable {
                    in: revealedWindow,
                    before: deadline
                ),
-               waitUntilConversationIsActive(
+               waitUntilConversationRowIsSelected(
                    title: conversation.title,
                    workspaceName: workspaceName,
                    allowsStandaloneLookup: allowsStandaloneLookup,
                    application: application,
                    before: deadline
                ) {
-                return verifyForeground(of: application, before: deadline)
+                return verifyForeground(of: application, before: deadline) == .focused
             }
         }
 
         if metadataDiagnosticsEnabled(), let window = firstWindow(of: application) {
             recordFailedNavigation(conversation, window: window, allowsStandaloneLookup: allowsStandaloneLookup)
         }
-        if !hasTimeRemaining(before: deadline) {
-            return .unavailable("focus-timeout")
-        }
-        return .unavailable("sidebar-conversation-miss")
+        return false
     }
 
     private func verifyForeground(
@@ -350,10 +418,100 @@ struct ZCodeConversationJumpController: Sendable {
               hasTimeRemaining(before: deadline) else {
             return false
         }
-        return AXUIElementPerformAction(taskItem, kAXPressAction as CFString) == .success
+        if hasAction(kAXPressAction as CFString, on: taskItem) {
+            return AXUIElementPerformAction(taskItem, kAXPressAction as CFString) == .success
+        }
+        // Enter is legal only for this precise public row, after its own focus
+        // has been observed in the admitted frontmost source process.
+        guard let source = currentSource(), source.version == "3.14.4", isFrontmost(source),
+              AXIsProcessTrusted(), CGPreflightPostEventAccess() else { return false }
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(taskItem, kAXFocusedAttribute as CFString, &settable) == .success,
+              settable.boolValue,
+              AXUIElementSetAttributeValue(taskItem, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else { return false }
+        let app = AXUIElementCreateApplication(source.processID)
+        guard let focused = copyElementValue(of: app, attribute: kAXFocusedUIElementAttribute as CFString),
+              ZCodeSidebarContract.permitsEnter(classes: domClasses(of: taskItem), focusSettable: true,
+                exactFocus: CFEqual(focused, taskItem), sourceFrontmost: isFrontmost(source)),
+              hasTimeRemaining(before: deadline), currentSource() == source,
+              let down = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false) else { return false }
+        down.flags = []; up.flags = []
+        down.postToPid(source.processID); up.postToPid(source.processID)
+        return hasTimeRemaining(before: deadline)
     }
 
-    private func waitUntilConversationIsActive(
+    private func copyActiveSessionID(_ conversation: ZCodeConversationRecord,
+                                     source: ZCodeConversationUI.Source,
+                                     before deadline: TimeInterval) -> String? {
+        guard hasTimeRemaining(before: deadline), currentSource() == source, isFrontmost(source),
+              let application = NSRunningApplication(processIdentifier: source.processID),
+              let window = firstWindow(of: application) else { return nil }
+        let nodes = descendants(of: window, before: deadline)
+        let buttons = nodes.filter { node in
+            guard copyStringValue(of: node, attribute: kAXRoleAttribute as CFString) == "AXButton",
+                  [displayedText(of: node), copyStringValue(of: node, attribute: kAXDescriptionAttribute as CFString)]
+                    .compactMap({ $0 }).contains(where: { ["更多", "More"].contains($0) }),
+                  hasAction(kAXPressAction as CFString, on: node) else { return false }
+            // Scope to the current workspace header, never the sidebar row's
+            // context menu (which would merely copy the row's own ID).
+            return nearestAncestor(of: node, maximumLevels: 8, before: deadline) {
+                domClasses(of: $0).contains("@container/workspace-header")
+            } != nil
+        }
+        guard buttons.count == 1, currentSource() == source, isFrontmost(source),
+              hasTimeRemaining(before: deadline),
+              AXUIElementPerformAction(buttons[0], kAXPressAction as CFString) == .success else { return nil }
+        var copyItem: AXUIElement?
+        while hasTimeRemaining(before: deadline), currentSource() == source, isFrontmost(source) {
+            guard let current = firstWindow(of: application), CFEqual(current, window) else { return nil }
+            var matches: [AXUIElement] = []
+            for node in descendants(of: current, before: deadline)
+            where ["复制会话 ID", "Copy session ID"].contains(displayedText(of: node) ?? "") {
+                let item: AXUIElement?
+                if copyStringValue(of: node, attribute: kAXRoleAttribute as CFString) == "AXMenuItem" {
+                    item = node
+                } else {
+                    item = nearestAncestor(of: node, maximumLevels: 4, before: deadline) {
+                        copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenuItem"
+                    }
+                }
+                if let item, !matches.contains(where: { CFEqual($0, item) }) { matches.append(item) }
+            }
+            guard matches.count <= 1 else { return nil }
+            if let item = matches.first { copyItem = item; break }
+            sleep(0.02, before: deadline)
+        }
+        guard let copyItem, hasAction(kAXPressAction as CFString, on: copyItem),
+              copyBoolValue(of: copyItem, attribute: kAXEnabledAttribute as CFString) == true,
+              currentSource() == source, isFrontmost(source), hasTimeRemaining(before: deadline) else { return nil }
+        let board = NSPasteboard.general
+        guard let snapshot = MiniMaxCodePasteboardSnapshot.capture(board),
+              board.changeCount == snapshot.originalChangeCount,
+              currentSource() == source, isFrontmost(source), hasTimeRemaining(before: deadline),
+              AXUIElementPerformAction(copyItem, kAXPressAction as CFString) == .success else { return nil }
+        // The same bounded transaction as MiniMax protects a concurrent user
+        // copy. Only an exact matching native ID is ours to consume/restore.
+        let cleanupDeadline = max(deadline, clock() + 0.3)
+        while hasTimeRemaining(before: cleanupDeadline) {
+            if board.changeCount != snapshot.originalChangeCount {
+                guard let result = snapshot.consumeMatchingCopy(board, expectedID: conversation.id),
+                      result.restored, hasTimeRemaining(before: deadline), currentSource() == source,
+                      isFrontmost(source), let current = firstWindow(of: application), CFEqual(current, window) else { return nil }
+                let workspace = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
+                guard let row = conversationItem(titled: conversation.title, workspaceName: workspace,
+                    allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation), in: current, before: deadline),
+                      ZCodeSidebarContract.verifiesIdentity(rowCount: 1,
+                        selectedRowCount: domClasses(of: row).contains("bg-selected") ? 1 : 0,
+                        copiedID: result.sessionID, targetID: conversation.id) else { return nil }
+                return result.sessionID
+            }
+            sleep(0.02, before: cleanupDeadline)
+        }
+        return nil
+    }
+
+    private func waitUntilConversationRowIsSelected(
         title: String,
         workspaceName: String,
         allowsStandaloneLookup: Bool,
@@ -373,11 +531,7 @@ struct ZCodeConversationJumpController: Sendable {
                 in: window,
                 before: deadline
                ),
-               Self.verifiesActiveConversation(
-                    rowCount: 1,
-                    selectedRowCount: domClasses(of: item).contains("bg-selected") ? 1 : 0,
-                    headingMatches: hasConversationHeading(title, in: window, before: deadline)
-               ) {
+               domClasses(of: item).contains("bg-selected") {
                 return true
             }
             if attempt < 59 {
@@ -385,10 +539,6 @@ struct ZCodeConversationJumpController: Sendable {
             }
         }
         return false
-    }
-
-    static func verifiesActiveConversation(rowCount: Int, selectedRowCount: Int, headingMatches: Bool) -> Bool {
-        rowCount == 1 && selectedRowCount == 1 && headingMatches
     }
 
     private static let diagnosticMarker = "/tmp/aisland-zcode-metadata-diagnostics-enabled"
@@ -446,7 +596,7 @@ struct ZCodeConversationJumpController: Sendable {
             let classes = domClasses(of: element)
             return .init(attributeNames: names as? [String] ?? [], identityValues: values, targetID: conversation.id,
                          hasPressAction: hasAction(kAXPressAction as CFString, on: element),
-                         hasTaskClass: classes.contains("group/task-item"), hasSelectedClass: classes.contains("bg-selected"))
+                         hasTaskClass: ZCodeSidebarContract.isTaskRow(classes: classes), hasSelectedClass: classes.contains("bg-selected"))
         }
         var labelAncestors: [ZCodeNavigationDiagnostic.Element] = []
         if var current = labels.first {
@@ -547,6 +697,7 @@ struct ZCodeConversationJumpController: Sendable {
         in root: AXUIElement,
         before deadline: TimeInterval
     ) -> AXUIElement? {
+        var matches: [AXUIElement] = []
         for element in descendants(of: root, before: deadline)
         where displayedText(of: element) == workspaceName {
             if let button = nearestAncestor(
@@ -558,10 +709,10 @@ struct ZCodeConversationJumpController: Sendable {
                         && hasAction(kAXPressAction as CFString, on: candidate)
                 }
             ) {
-                return button
+                if !matches.contains(where: { CFEqual($0, button) }) { matches.append(button) }
             }
         }
-        return nil
+        return matches.count == 1 ? matches[0] : nil
     }
 
     private func projectContainer(
@@ -612,11 +763,10 @@ struct ZCodeConversationJumpController: Sendable {
             && displayedText(of: element) == title {
             if let item = nearestAncestor(
                 of: element,
-                maximumLevels: 4,
+                maximumLevels: 8,
                 before: deadline,
                 matching: { candidate in
-                    domClasses(of: candidate).contains("group/task-item")
-                        && hasAction(kAXPressAction as CFString, on: candidate)
+                    ZCodeSidebarContract.isTaskRow(classes: domClasses(of: candidate))
                 }
             ) {
                 if !items.contains(where: { CFEqual($0, item) }) { items.append(item) }
@@ -745,7 +895,7 @@ struct ZCodeConversationJumpController: Sendable {
     private func copyElementValue(of element: AXUIElement, attribute: CFString) -> AXUIElement? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
-              let value else {
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
             return nil
         }
         return unsafeDowncast(value, to: AXUIElement.self)
@@ -795,6 +945,9 @@ struct ZCodeConversationJumpController: Sendable {
 
     private func firstWindow(of application: NSRunningApplication) -> AXUIElement? {
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+        if let focused = copyElementValue(of: applicationElement, attribute: kAXFocusedWindowAttribute as CFString) {
+            return focused
+        }
         return copyElementArrayValue(
             of: applicationElement,
             attribute: kAXWindowsAttribute as CFString

@@ -227,13 +227,24 @@ private enum MiniMaxCodeAXNavigation {
     static func select(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> Bool {
         guard remaining(deadline), AXIsProcessTrusted(), let app = app(source) else { return false }
-        // Jump work runs off-main. Issue the single foreground request on the
-        // AppKit thread, using the same explicit activation policy as other
-        // desktop jumps. Do not reactivate once copying has begun.
+        // Jump work runs off-main. Ask LaunchServices to foreground the already
+        // admitted source instance. NSRunningApplication.activate returned false
+        // in the live accessory-app jump even on the AppKit thread. Opening the
+        // existing application does not create a task or a second app instance.
+        // Do not reactivate once copying has begun.
         let request: @Sendable () -> Bool = {
-            guard remaining(deadline), AXIsProcessTrusted(), self.app(source) != nil else { return false }
-            app.unhide()
-            return app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            guard remaining(deadline), AXIsProcessTrusted(), let current = self.app(source),
+                  let bundleURL = current.bundleURL else { return false }
+            if frontmost(source) { return true }
+            current.unhide()
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            configuration.createsNewApplicationInstance = false
+            configuration.promptsUserIfNeeded = false
+            NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { _, _ in }
+            // Dispatch is not proof of activation: the bounded admission below
+            // still requires this same source PID to become frontmost.
+            return true
         }
         let requested = Thread.isMainThread ? request() : DispatchQueue.main.sync(execute: request)
         acceptanceLog(.activationRequest, flag: requested)

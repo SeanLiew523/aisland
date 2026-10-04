@@ -204,7 +204,8 @@ public struct DesktopConnectionInstallationManager: Sendable {
     }
     private func json(_ url: URL) throws -> [String: Any] { try jsonData(regular(url)) }
     private func jsonData(_ data: Data) throws -> [String: Any] {
-        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.invalidMetadata }
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let result = object as? [String: Any] else { throw Failure.invalidMetadata }
         return result
     }
     private func jsonString(_ value: Any) throws -> String {

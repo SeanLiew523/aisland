@@ -1235,7 +1235,8 @@ struct SetupSettingsPane: View {
                     Button(lang.t("setup.desktop.stopAutomatic")) { model.hooks.removeDesktopConnectionIntent(agent) }
                 }
             }
-            Text(lang.t(optedOut ? "setup.desktop.optedOut" : evidence == nil ? "setup.connection.sourceMissing" : "setup.desktop." + (state?.rawValue ?? "checking")))
+            Text(optedOut ? lang.t("setup.desktop.optedOut") : model.hooks.automaticConnectionErrors[agent]
+                ?? lang.t(evidence == nil ? "setup.connection.sourceMissing" : "setup.desktop." + (state?.rawValue ?? "checking")))
                 .font(.caption).foregroundStyle(.secondary)
             if !optedOut, evidence != nil {
                 HStack {

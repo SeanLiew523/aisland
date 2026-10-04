@@ -4,8 +4,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from 'node:
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { executeRequest, inspectOwnership } from '../scripts/install.mjs';
-import { buildPlan, installedFiles, digest } from '../plan.mjs';
+import { buildPlan, installedFiles, digest, packageRoot } from '../plan.mjs';
 import { validDiscovery } from '../scripts/source.mjs';
 const platform = { skip: process.platform !== 'darwin' };
 async function fixture() {
@@ -197,5 +198,24 @@ test('Relocation requires the exact owned plugin-to-helper binding and rejects c
     assert.equal(await readFile(join(old.helperDirectory, 'foreign'), 'utf8'), 'KEEP');
     await assert.rejects(executeRequest({ ...relocation, previousHelperDirectory: f.request.dataDir }), /Invalid previous helper/);
     await assert.rejects(executeRequest({ ...relocation, operation: 'remove' }), /only admitted/);
+  } finally { await f.remove(); }
+});
+
+
+test('Native CLI entry points return JSON through a symlinked package path without applying source changes', platform, async () => {
+  const f = await fixture();
+  try {
+    const alias = join(f.directory, 'package-alias');
+    await symlink(packageRoot, alias);
+    for (const filename of ['plan.mjs', 'scripts/install.mjs']) {
+      const bytes = execFileSync(process.execPath, [join(alias, filename), JSON.stringify(f.request)],
+        { env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' }, timeout: 5000, maxBuffer: 65536 });
+      const result = JSON.parse(bytes);
+      assert.equal(result.mode, 'dry-run-only');
+      assert.equal(result.destination, join(f.request.dataDir, 'plugins/aisland-minimaxcode-passive'));
+      if (filename === 'scripts/install.mjs') assert.equal(result.action, 'install-new');
+      assert.equal(existsSync(result.destination), false);
+      assert.equal(existsSync(result.helperDirectory), false);
+    }
   } finally { await f.remove(); }
 });

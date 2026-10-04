@@ -128,7 +128,9 @@ export async function buildPlan(request = {}) {
   }
   return plan;
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Native bundle URLs can contain /tmp aliases or directory symlinks while
+// Node resolves import.meta.url to the canonical module path.
+if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === fileURLToPath(import.meta.url)) {
   try { const request = JSON.parse(process.argv[2] || '{}'); process.stdout.write(JSON.stringify(await buildPlan(request), null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '. No changes made.\n'); process.exitCode = 1; }
 }

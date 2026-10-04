@@ -121,6 +121,17 @@ struct DesktopConnectionInstallationTests {
         }
         #expect(try manager.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) == .waitingForActivation)
         #expect(box.count == 2)
+        // A successful process with empty/non-JSON stdout is still a failed
+        // metadata handshake; it must never progress to apply:true.
+        let emptyCalls = Calls()
+        let empty = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil, bundledProbeURL: probe) { url, args, _ in
+            emptyCalls.record(url: url, arguments: args)
+            return Data()
+        }
+        #expect(throws: DesktopConnectionInstallationManager.Failure.invalidMetadata) {
+            try empty.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir)
+        }
+        #expect(emptyCalls.count == 1)
     }
     @Test func unsupportedVersionAndUnknownActiveDirectoryNeverInvokeInstaller() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("unused-\(UUID())")

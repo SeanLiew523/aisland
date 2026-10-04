@@ -135,7 +135,7 @@ struct TerminalJumpTargetResolver {
 
     // MARK: - Ghostty matching
 
-    private func matchGhosttySnapshots(
+    func matchGhosttySnapshots(
         _ snapshots: [GhosttyTerminalSnapshot],
         to sessions: [AgentSession],
         activeProcesses: [ActiveProcessSnapshot]
@@ -156,30 +156,29 @@ struct TerminalJumpTargetResolver {
             }
         }
 
-        // Pass 2: working directory match.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            let snapshotCWD = normalizedPathForMatching(snapshot.workingDirectory)
-            if let session = sessions.first(where: {
-                !claimedSessionIDs.contains($0.id)
-                    && snapshotCWD != nil
-                    && normalizedPathForMatching($0.jumpTarget?.workingDirectory) == snapshotCWD
-            }) {
+        // Only a one-to-one fallback can create a new binding. A missing
+        // recorded surface is not permission to redirect to another page.
+        func assignUniqueFallback(_ matches: (GhosttyTerminalSnapshot, AgentSession) -> Bool) {
+            let candidates = sessions.filter {
+                !claimedSessionIDs.contains($0.id) && nonEmptyValue($0.jumpTarget?.terminalSessionID) == nil
+            }
+            let remaining = snapshots.filter { !claimedSnapshotIDs.contains($0.sessionID) }
+            for snapshot in remaining {
+                let matchingSessions = candidates.filter { matches(snapshot, $0) }
+                guard matchingSessions.count == 1, let session = matchingSessions.first,
+                      remaining.filter({ matches($0, session) }).count == 1 else { continue }
                 assignments[session.id] = snapshot
                 claimedSessionIDs.insert(session.id)
                 claimedSnapshotIDs.insert(snapshot.sessionID)
             }
         }
-
-        // Pass 3: pane title match.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            if let session = sessions.first(where: {
-                !claimedSessionIDs.contains($0.id)
-                    && nonEmptyValue($0.jumpTarget?.paneTitle).map { snapshot.title.contains($0) } == true
-            }) {
-                assignments[session.id] = snapshot
-                claimedSessionIDs.insert(session.id)
-                claimedSnapshotIDs.insert(snapshot.sessionID)
-            }
+        assignUniqueFallback { snapshot, session in
+            guard let cwd = normalizedPathForMatching(snapshot.workingDirectory) else { return false }
+            return normalizedPathForMatching(session.jumpTarget?.workingDirectory) == cwd
+        }
+        assignUniqueFallback { snapshot, session in
+            guard let title = nonEmptyValue(session.jumpTarget?.paneTitle) else { return false }
+            return nonEmptyValue(snapshot.title) == title
         }
 
         return assignments

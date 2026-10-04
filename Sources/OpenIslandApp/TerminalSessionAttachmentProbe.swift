@@ -439,6 +439,7 @@ struct TerminalSessionAttachmentProbe {
                     session: session,
                     claimedSessionIDs: claimedSessionIDs,
                     claimedSnapshotIDs: claimedSnapshotIDs,
+                    availableSnapshotIDs: Set(snapshots.map(\.sessionID)),
                     activeSessionIDs: activeSessionIDs,
                     activeProcessesBySessionID: activeProcessesBySessionID,
                     requireActiveSession: true,
@@ -446,7 +447,15 @@ struct TerminalSessionAttachmentProbe {
                 )
             }
 
-            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
+            guard matches.count == 1, let preferred = matches.first,
+                  snapshots.filter({ candidate in
+                      !claimedSnapshotIDs.contains(candidate.sessionID) && ghosttyFallbackCandidateMatches(
+                          candidate, session: preferred, claimedSessionIDs: claimedSessionIDs,
+                          claimedSnapshotIDs: claimedSnapshotIDs, availableSnapshotIDs: Set(snapshots.map(\.sessionID)),
+                          activeSessionIDs: activeSessionIDs, activeProcessesBySessionID: activeProcessesBySessionID,
+                          requireActiveSession: true, now: now
+                      )
+                  }).count == 1 else {
                 continue
             }
 
@@ -484,6 +493,7 @@ struct TerminalSessionAttachmentProbe {
                         session: session,
                         claimedSessionIDs: claimedSessionIDs,
                         claimedSnapshotIDs: claimedSnapshotIDs,
+                        availableSnapshotIDs: Set(snapshots.map(\.sessionID)),
                         activeSessionIDs: activeSessionIDs,
                         activeProcessesBySessionID: activeProcessesBySessionID,
                         requireActiveSession: false,
@@ -491,7 +501,15 @@ struct TerminalSessionAttachmentProbe {
                     )
             }
 
-            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
+            guard matches.count == 1, let preferred = matches.first,
+                  snapshots.filter({ candidate in
+                      !claimedSnapshotIDs.contains(candidate.sessionID) && ghosttyFallbackCandidateMatches(
+                          candidate, session: preferred, claimedSessionIDs: claimedSessionIDs,
+                          claimedSnapshotIDs: claimedSnapshotIDs, availableSnapshotIDs: Set(snapshots.map(\.sessionID)),
+                          activeSessionIDs: activeSessionIDs, activeProcessesBySessionID: activeProcessesBySessionID,
+                          requireActiveSession: false, now: now
+                      )
+                  }).count == 1 else {
                 continue
             }
 
@@ -508,6 +526,7 @@ struct TerminalSessionAttachmentProbe {
         session: AgentSession,
         claimedSessionIDs: Set<String>,
         claimedSnapshotIDs: Set<String>,
+        availableSnapshotIDs: Set<String>,
         activeSessionIDs: Set<String>,
         activeProcessesBySessionID: [String: ActiveProcessSnapshot],
         requireActiveSession: Bool,
@@ -548,9 +567,12 @@ struct TerminalSessionAttachmentProbe {
         }
 
         if let jumpTarget {
+            if let recordedID = nonEmptyValue(jumpTarget.terminalSessionID),
+               availableSnapshotIDs.contains(recordedID), !claimedSnapshotIDs.contains(recordedID) {
+                return false
+            }
             guard canFallbackFromRecordedGhosttySessionID(
                 jumpTarget,
-                allowRecordedSessionIDOverride: isActiveSession,
                 claimedSnapshotIDs: claimedSnapshotIDs
             ) else {
                 return false
@@ -603,13 +625,8 @@ struct TerminalSessionAttachmentProbe {
 
     private func canFallbackFromRecordedGhosttySessionID(
         _ jumpTarget: JumpTarget,
-        allowRecordedSessionIDOverride: Bool,
         claimedSnapshotIDs: Set<String>
     ) -> Bool {
-        if allowRecordedSessionIDOverride {
-            return true
-        }
-
         guard let recordedSessionID = nonEmptyValue(jumpTarget.terminalSessionID) else {
             return true
         }

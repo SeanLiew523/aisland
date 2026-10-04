@@ -538,7 +538,7 @@ struct TerminalSessionAttachmentProbeTests {
     }
 
     @Test
-    func activeCodexSessionRehomesToRemainingGhosttySnapshot() {
+    func activeCodexSessionDoesNotReplaceMissingRecordedSurfaceWithRemainingPage() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let primary = ghosttySession(
@@ -575,11 +575,11 @@ struct TerminalSessionAttachmentProbeTests {
 
         #expect(resolutions["primary"]?.attachmentState == .attached)
         #expect(resolutions["active-rehomed"]?.attachmentState == .attached)
-        #expect(resolutions["active-rehomed"]?.correctedJumpTarget?.terminalSessionID == "ghostty-2")
+        #expect(resolutions["active-rehomed"]?.correctedJumpTarget == nil)
     }
 
     @Test
-    func activeCodexSessionBeatsStaleExactGhosttyBinding() {
+    func activeCodexProcessWithoutSurfaceCannotStealAnotherRecordedBinding() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let primary = ghosttySession(
@@ -623,8 +623,8 @@ struct TerminalSessionAttachmentProbeTests {
 
         #expect(resolutions["primary"]?.attachmentState == .attached)
         #expect(resolutions["active-rehomed"]?.attachmentState == .attached)
-        #expect(resolutions["active-rehomed"]?.correctedJumpTarget?.terminalSessionID == "ghostty-2")
-        #expect(resolutions["stale-exact"]?.attachmentState != .attached)
+        #expect(resolutions["active-rehomed"]?.correctedJumpTarget == nil)
+        #expect(resolutions["stale-exact"]?.attachmentState == .attached)
     }
 
     @Test

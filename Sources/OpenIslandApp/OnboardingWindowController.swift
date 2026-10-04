@@ -71,6 +71,11 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var state = OnboardingPlaybackState()
     private var hapticsEnabled = false
     private var nextHaptic = 0
+    private var acceptancePlayback: [String: Any]?
+    private var previousTick: Double?
+    private var tickCount = 0
+    private var maxTickGap = 0.0
+    private var delayedTickCount = 0
     private let hapticTimes = [3.0, 8.2, 10.7, 15.7, 20.7]
     var isPresenting: Bool { window != nil }
     /// The app delegate uses this to refuse ordinary menu/Cmd-Q termination.
@@ -115,6 +120,16 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.collectionBehavior = [.fullScreenAuxiliary]
         window.contentView = root; window.setFrame(screen.frame,display: false)
         self.window = window
+        acceptancePlayback = (try? RuntimeAcceptanceConfiguration.current()) == nil ? nil : [
+            "language": language == .chinese ? "zh" : "en",
+            "mandatory": mode == .autoMandatory,
+            "screenWidth": screen.frame.width, "screenHeight": screen.frame.height,
+            "windowWidth": window.frame.width, "windowHeight": window.frame.height,
+            "hardwareNotch": OnboardingGeometry.read(screen).hasHardwareNotch,
+            "reduceMotion": state.reduceMotion, "hapticsEnabled": hapticsEnabled,
+            "visualRevision": 9, "audioRevision": 8
+        ]
+        previousTick = nil; tickCount = 0; maxTickGap = 0; delayedTickCount = 0
         originalPresentation = NSApp.presentationOptions
         NSApp.presentationOptions = mode == .autoMandatory
             ? [.hideDock, .hideMenuBar, .disableHideApplication]
@@ -141,18 +156,31 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             let start = audio.deviceCurrentTime+lead
             if audio.play(atTime: start) {
                 player = audio
+                acceptancePlayback?["audioScheduled"] = true
+                acceptancePlayback?["audioDuration"] = audio.duration
+                acceptancePlayback?["audioVolume"] = audio.volume
                 clock = OnboardingPlaybackClock(startUptime: ProcessInfo.processInfo.systemUptime+lead,startAudioDeviceTime: start)
                 return
             }
         }
         // Failed audio never blocks the introduction or causes a second launch.
         state.muted = true
+        acceptancePlayback?["audioScheduled"] = false
         clock = OnboardingPlaybackClock(startUptime: ProcessInfo.processInfo.systemUptime,startAudioDeviceTime: nil)
     }
 
     private func tick() {
         guard let clock, let scene else { return }
         let elapsed = clock.elapsed(uptime: ProcessInfo.processInfo.systemUptime,audioDeviceTime: player?.deviceCurrentTime)
+        if acceptancePlayback != nil {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let previousTick {
+                let gap = now - previousTick
+                maxTickGap = max(maxTickGap, gap)
+                if gap > 0.05 { delayedTickCount += 1 }
+            }
+            previousTick = now; tickCount += 1
+        }
         state.elapsed = min(OnboardingTimeline.duration,elapsed)
         player?.volume = state.muted ? 0 : 1
         scene.time = state.elapsed; scene.reduceMotion = state.reduceMotion; scene.needsDisplay = true
@@ -199,6 +227,21 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func finish(_ result: OnboardingExit) {
         guard window != nil, playbackMode.permitsFinish(result, elapsed: state.elapsed) else { return }
+        if var receipt = acceptancePlayback,
+           let configuration = try? RuntimeAcceptanceConfiguration.current() {
+            receipt["exit"] = String(describing: result)
+            receipt["elapsed"] = state.elapsed
+            receipt["tickCount"] = tickCount
+            receipt["maxTickGapMs"] = maxTickGap * 1000
+            receipt["tickGapsOver50ms"] = delayedTickCount
+            receipt["sourceCommit"] = configuration.sourceCommit
+            receipt["pid"] = ProcessInfo.processInfo.processIdentifier
+            let url = configuration.receiptURL.deletingLastPathComponent()
+                .appendingPathComponent("playback-\(UUID().uuidString).json")
+            if let data = try? JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]) {
+                try? data.write(to: url, options: [.atomic])
+            }
+        }
         let callback = completion
         stop()
         callback?(result)
@@ -214,6 +257,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if let motionObserver { NSWorkspace.shared.notificationCenter.removeObserver(motionObserver) }; motionObserver = nil
         window?.delegate = nil; window?.orderOut(nil); window?.close(); window = nil
         scene = nil
+        acceptancePlayback = nil; previousTick = nil
         playbackMode = .explicitReplay
         if let originalPresentation { NSApp.presentationOptions = originalPresentation }
         originalPresentation = nil

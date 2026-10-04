@@ -54,15 +54,6 @@ public enum HermesHookAdapter {
     }
 
     public static func runtimeTTY() -> String? {
-        if let tty = ProcessInfo.processInfo.environment["TTY"], tty.hasPrefix("/dev/") { return tty }
-        let process = Process(); let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", "\(getppid())", "-o", "tty="]
-        process.standardOutput = output; process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
-        guard process.terminationStatus == 0, let text = String(data: data, encoding: .utf8) else { return nil }
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty || value == "??" || value == "-" ? nil : (value.hasPrefix("/dev/") ? value : "/dev/\(value)")
+        RuntimeTTYProbe.currentTTY()
     }
 }

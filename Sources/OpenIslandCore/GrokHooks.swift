@@ -568,25 +568,7 @@ public extension GrokHookPayload {
     }
 
     private func currentTTY() -> String? {
-        if let tty = commandOutput(executablePath: "/usr/bin/tty", arguments: []),
-           !tty.contains("not a tty") {
-            return tty
-        }
-        return parentProcessTTY()
-    }
-
-    private func parentProcessTTY() -> String? {
-        let ppid = getppid()
-        guard let raw = commandOutput(executablePath: "/bin/ps", arguments: ["-p", "\(ppid)", "-o", "tty="]) else {
-            return nil
-        }
-
-        let tty = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tty.isEmpty, tty != "??", tty != "-" else {
-            return nil
-        }
-
-        return tty.hasPrefix("/dev/") ? tty : "/dev/\(tty)"
+        RuntimeTTYProbe.currentTTY()
     }
 
     private func terminalLocator(for terminalApp: String) -> (sessionID: String?, tty: String?, title: String?) {

@@ -70,7 +70,11 @@ struct GhosttyHermesIngressTests {
         let ghostty = state.sessions.filter { $0.jumpTarget?.terminalApp == "Ghostty" }
         #expect(ghostty.count == 2)
         #expect(ghostty.allSatisfy { $0.jumpTarget?.terminalSessionID == nil })
-        #expect(Set(ghostty.compactMap { $0.jumpTarget?.terminalTTY }) == ["/dev/ttys021", "/dev/ttys022"])
+        // TTY environment fixtures are not source evidence. The callback now
+        // uses the same controlling-TTY ancestry probe as the other CLI hooks;
+        // intake and distinct source identities must survive without a locator.
+        // This subprocess fixture does not assert a controlling TTY: a real
+        // ancestor could have one, independently of the synthetic environment.
         #expect(state.sessions.filter { $0.jumpTarget?.terminalApp == "Terminal" }.count == 1)
     }
 }

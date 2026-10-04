@@ -88,6 +88,7 @@ final class AppModel {
     @ObservationIgnored private let bridgeSocketURL: URL
     let overlay = OverlayUICoordinator()
     let discovery = SessionDiscoveryCoordinator()
+    @ObservationIgnored private let startupWorkflows = StartupWorkflows()
     let monitoring = ProcessMonitoringCoordinator()
     let codexAppServer = CodexAppServerCoordinator()
     let updateChecker = UpdateChecker()
@@ -1173,28 +1174,20 @@ final class AppModel {
         if loadRuntimeState {
             isResolvingInitialLiveSessions = true
 
-            Task.detached(priority: .userInitiated) { [weak self] in
+            startupWorkflows.start(history: { [weak self] in
                 guard let self else { return }
                 let payload = self.discovery.loadStartupDiscoveryPayload()
-                await MainActor.run {
-                    self.applyStartupDiscoveryPayload(payload)
+                await self.applyStartupDiscoveryPayload(payload)
+            }, connections: { [weak self] in
+                guard let self else { return }
+                await self.hooks.runStartupSetup { self.onStartupSetupReady?() }
+                self.hooks.startClaudeUsageMonitoringIfNeeded()
+                if self.showCodexUsage {
+                    self.hooks.refreshCodexUsageState()
+                    self.hooks.startCodexUsageMonitoringIfNeeded()
                 }
-            }
+            })
 
-            // These are already async or lightweight — safe to start immediately.
-            hooks.refreshCodexHookStatus()
-            hooks.refreshClaudeHookStatus()
-            hooks.refreshCCForkHookStatuses()
-            hooks.refreshOpenCodePluginStatus()
-            hooks.refreshPiExtensionStatuses()
-            hooks.refreshCursorHookStatus()
-            hooks.refreshGrokHookStatus()
-            hooks.refreshClaudeUsageState()
-            hooks.startClaudeUsageMonitoringIfNeeded()
-            if showCodexUsage {
-                hooks.refreshCodexUsageState()
-                hooks.startCodexUsageMonitoringIfNeeded()
-            }
             updateChecker.startIfNeeded()
 
         } else {
@@ -1807,17 +1800,8 @@ final class AppModel {
         guard acceptanceConfiguration == nil else { return }
         discovery.applyStartupDiscoveryPayload(payload)
 
-        // Apply hooks binary URL and update the installed copy if the app ships a newer version.
-        hooks.hooksBinaryURL = payload.hooksBinaryURL
-        hooks.updateHooksBinaryIfNeeded()
-
-        // Configure task-event connections only for detected source installations.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            await self.hooks.runStartupSetup { self.onStartupSetupReady?() }
-        }
-
+        // Historical results cannot change the admitted callback helper or
+        // trigger a second setup/first-run notification.
         // Reconcile attachments and start monitoring (requires sessions to be loaded).
         monitoring.reconcileSessionAttachments()
         monitoring.startMonitoringIfNeeded()

@@ -12,6 +12,12 @@ final class HookInstallationCoordinator {
     nonisolated let sourceSetupAcceptance: RuntimeAcceptanceConfiguration.SourceSetup?
     var sourceSetupDisabled: Bool { isRuntimeAcceptance && sourceSetupAcceptance == nil }
 
+    struct StartupStages {
+        var detect: @MainActor () async -> Void
+        var refresh: @MainActor () async -> Void
+        var configure: @MainActor () async -> Void
+    }
+
     init(
         intentStore: AgentIntentStore = AgentIntentStore(),
         isRuntimeAcceptance: Bool = false,
@@ -19,9 +25,15 @@ final class HookInstallationCoordinator {
         piExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .pi),
         ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi),
         installationDetector: AgentInstallationDetector = AgentInstallationDetector(),
-        hermesInstallationManager: HermesHookInstallationManager = HermesHookInstallationManager()
+        hermesInstallationManager: HermesHookInstallationManager = HermesHookInstallationManager(),
+        startupHookBinaryLocator: @escaping @Sendable () -> URL? = HookInstallationCoordinator.locateStartupHookBinary,
+        startupHookBinaryDeployer: @escaping @Sendable (URL) async throws -> Bool = HookInstallationCoordinator.deployStartupHookBinary,
+        startupStages: StartupStages? = nil
     ) {
         self.installationDetector = installationDetector
+        self.startupHookBinaryLocator = startupHookBinaryLocator
+        self.startupHookBinaryDeployer = startupHookBinaryDeployer
+        self.startupStages = startupStages
         self.hermesInstallationManager = hermesInstallationManager
         self.intentStore = intentStore
         self.isRuntimeAcceptance = isRuntimeAcceptance || sourceSetupAcceptance != nil
@@ -31,6 +43,10 @@ final class HookInstallationCoordinator {
     }
 
     @ObservationIgnored private let installationDetector: AgentInstallationDetector
+    @ObservationIgnored private let startupHookBinaryLocator: @Sendable () -> URL?
+    @ObservationIgnored private let startupHookBinaryDeployer: @Sendable (URL) async throws -> Bool
+    @ObservationIgnored private let startupStages: StartupStages?
+    @ObservationIgnored private var hasReportedStartupReady = false
     @ObservationIgnored let hermesInstallationManager: HermesHookInstallationManager
     var detectedInstallations: [AgentIdentifier: AgentInstallationDetector.Evidence] = [:]
     var automaticConnectionErrors: [AgentIdentifier: String] = [:]
@@ -590,28 +606,40 @@ final class HookInstallationCoordinator {
 
     // MARK: - Auto-update hooks binary
 
-    /// Overwrites the installed hooks binary if the app bundle ships a newer version.
-    /// Call once at startup after hooksBinaryURL is set.
-    func updateHooksBinaryIfNeeded() {
-        guard !isRuntimeAcceptance else { return }
-        guard let sourceURL = hooksBinaryURL else { return }
+    /// Ordinary app bundles always admit their own helper. A previously
+    /// installed copy or inherited override cannot substitute old code.
+    nonisolated static func locateStartupHookBinary() -> URL? {
+        let bundle = Bundle.main
+        return startupHookBinary(bundleURL: bundle.bundleURL,
+            executableDirectory: bundle.executableURL?.deletingLastPathComponent())
+    }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let source = sourceURL
-                let updated = try await Task.detached(priority: .utility) {
-                    try ManagedHooksBinary.updateIfNeeded(from: source)
-                }.value
-                if updated {
-                    self.onStatusMessage?("Hooks binary updated to match the current app version.")
-                    self.refreshCodexHookStatus()
-                    self.refreshClaudeHookStatus()
-                    self.refreshCursorHookStatus()
-                }
-            } catch {
-                self.onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
+    nonisolated static func startupHookBinary(bundleURL: URL, executableDirectory: URL?) -> URL? {
+        if bundleURL.pathExtension == "app" {
+            let helper = bundleURL.appendingPathComponent("Contents/Helpers/OpenIslandHooks")
+            return FileManager.default.isExecutableFile(atPath: helper.path) ? helper : nil
+        }
+        // Repository executable runs have sibling build products, not an app bundle.
+        return HooksBinaryLocator.locate(
+            executableDirectory: executableDirectory, environment: [:]
+        )
+    }
+
+    nonisolated static func deployStartupHookBinary(from source: URL) async throws -> Bool {
+        try await Task.detached(priority: .userInitiated) {
+            if FileManager.default.fileExists(atPath: ManagedHooksBinary.defaultURL().path) {
+                return try ManagedHooksBinary.updateIfNeeded(from: source)
             }
+            _ = try ManagedHooksBinary.install(from: source)
+            return true
+        }.value
+    }
+
+    /// Await completion before inspecting statuses or configuring sources.
+    func updateHooksBinaryIfNeeded(from source: URL? = nil) async throws {
+        guard !isRuntimeAcceptance, let sourceURL = source ?? hooksBinaryURL else { return }
+        if try await startupHookBinaryDeployer(sourceURL) {
+            onStatusMessage?("Hooks binary updated to match the current app version.")
         }
     }
 
@@ -1048,20 +1076,49 @@ final class HookInstallationCoordinator {
     // MARK: - Intent-aware helpers
 
     func runStartupSetup(onReady: () -> Void) async {
-        var wrapperFailed = false
+        var helperPrepared = !sourceSetupDisabled
         if let sourceSetupAcceptance {
             do { hooksBinaryURL = try sourceSetupAcceptance.prepareHooksWrapper() }
             catch {
-                wrapperFailed = true
+                helperPrepared = false
                 for agent in sourceSetupAcceptance.agents { automaticConnectionErrors[agent] = "The isolated callback helper could not be prepared. No source configuration was changed." }
             }
+        } else if !sourceSetupDisabled {
+            let locator = startupHookBinaryLocator
+            // Publish the source only after its managed copy is ready. A late
+            // history payload has no helper field and cannot replace it.
+            hooksBinaryURL = nil
+            if let source = await Task.detached(priority: .userInitiated, operation: { locator() }).value {
+                do {
+                    try await updateHooksBinaryIfNeeded(from: source)
+                    hooksBinaryURL = source
+                }
+                catch {
+                    helperPrepared = false
+                    onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
+                }
+            } else {
+                helperPrepared = false
+                onStatusMessage?("The current app's callback helper is unavailable. Source configuration was not changed.")
+            }
         }
-        await detectInstalledSources()
-        await refreshAllHookStatusAndWait()
+        if !sourceSetupDisabled, let stages = startupStages {
+            await stages.detect()
+            await stages.refresh()
+        } else {
+            await detectInstalledSources()
+            await refreshAllHookStatusAndWait()
+        }
         recordSourceSetupStates()
         migrateIntentStoreIfNeeded()
-        onReady()
-        if !wrapperFailed { await configureDetectedSources() }
+        if !hasReportedStartupReady {
+            hasReportedStartupReady = true
+            onReady()
+        }
+        if helperPrepared {
+            if let stages = startupStages { await stages.configure() }
+            else { await configureDetectedSources() }
+        }
     }
 
     /// Only detected sources are admitted. Explicit removal survives both

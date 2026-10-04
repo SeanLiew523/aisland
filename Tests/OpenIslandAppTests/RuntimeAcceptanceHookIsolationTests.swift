@@ -13,7 +13,7 @@ struct RuntimeAcceptanceHookIsolationTests {
         intent.setIntent(.uninstalled,for: .claudeCode)
         let hooks = HookInstallationCoordinator(intentStore: intent,isRuntimeAcceptance: true)
         hooks.hooksBinaryURL = URL(fileURLWithPath: "/tmp/acceptance-binary-must-not-be-installed")
-        hooks.updateHooksBinaryIfNeeded()
+        try await hooks.updateHooksBinaryIfNeeded()
         hooks.updateClaudeConfigDirectory(to: URL(fileURLWithPath: "/tmp/acceptance-directory-must-not-be-used"))
         hooks.refreshCodexHookStatus(); hooks.refreshClaudeHookStatus()
         hooks.refreshCCForkHookStatuses(); hooks.refreshOpenCodePluginStatus()

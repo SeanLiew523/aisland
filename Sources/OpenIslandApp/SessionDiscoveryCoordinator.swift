@@ -20,7 +20,6 @@ final class SessionDiscoveryCoordinator {
         var piRecordsNeedPrune: Bool
         var discoveredCodexRecords: [CodexTrackedSessionRecord]
         var discoveredClaudeSessions: [AgentSession]
-        var hooksBinaryURL: URL?
     }
 
     @ObservationIgnored
@@ -126,10 +125,7 @@ final class SessionDiscoveryCoordinator {
             piRecords: piRecords,
             piRecordsNeedPrune: piRecords != allPi,
             discoveredCodexRecords: discoveredCodex,
-            discoveredClaudeSessions: discoveredClaude,
-            hooksBinaryURL: HooksBinaryLocator.locate(
-                executableDirectory: Bundle.main.executableURL?.deletingLastPathComponent()
-            )
+            discoveredClaudeSessions: discoveredClaude
         )
     }
 
@@ -642,5 +638,24 @@ final class SessionDiscoveryCoordinator {
         piSessionPersistenceTask = Self.persistenceTask {
             try registry.save(records)
         }
+    }
+}
+
+/// The callback connection must not wait for historical session enumeration.
+/// Own both tasks and admit each startup workflow once per app lifetime.
+@MainActor
+final class StartupWorkflows {
+    private var started = false
+    private var historyTask: Task<Void, Never>?
+    private var connectionTask: Task<Void, Never>?
+
+    func start(
+        history: @escaping @Sendable () async -> Void,
+        connections: @escaping @MainActor () async -> Void
+    ) {
+        guard !started else { return }
+        started = true
+        historyTask = Task.detached(priority: .utility) { await history() }
+        connectionTask = Task { await connections() }
     }
 }

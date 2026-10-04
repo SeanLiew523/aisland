@@ -20,6 +20,10 @@ Blocking hook sources receive a `BridgeResponse` through `OpenIslandHooks` stdou
 
 **Fail-open principle**: if the bridge is unavailable, managed hook processes exit without writing to stdout and Pi-family extensions ignore socket errors, so the agent continues running unchanged.
 
+Ordinary app startup locates the callback helper inside the current app bundle and awaits deployment of its managed copy before inspecting hook status, migrating installation intent, or configuring detected sources. A missing or failed helper stops automatic source configuration. Startup readiness is reported once; completing first-run onboarding remains a separate user action.
+
+Historical session discovery runs independently and cannot replace the admitted helper or trigger startup setup again. Runtime acceptance skips ordinary helper lookup, deployment, source reads, and configuration; scoped source-setup acceptance uses only its isolated wrapper and admitted sources.
+
 ## Skip Hooks For Delegated Control
 
 Set `OPEN_ISLAND_SKIP_HOOKS=1` on a child agent process when another local controller intentionally owns permission handling for that run. The hook CLI exits immediately without reading or forwarding the payload, so the agent continues without AIsland UI intervention.

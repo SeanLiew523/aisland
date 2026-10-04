@@ -18,20 +18,23 @@ function svg(frame: BotFrame, id: string, color = '#09090b', background = '#f4f4
   }).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-${half} -${half} ${side} ${side}" aria-hidden="true"><defs>${gradients}<mask id="${id}-eyes" maskUnits="userSpaceOnUse" x="-${half}" y="-${half}" width="${side}" height="${side}"><path d="${f.bodyPath}" fill="white"/>${f.eyes.map(e => `<path d="${e.d}" transform="${e.matrix}" fill="black" opacity="${e.alpha}"/>`).join('')}${f.notch ? `<circle cx="${f.notch.x}" cy="${f.notch.y}" r="${f.notch.r}" fill="black"/>` : ''}</mask></defs>${rings('back')}${f.dotsBehind ? dots() : ''}<g opacity="${f.bodyAlpha}"><path d="${f.bodyPath}" fill="${background}"/><g mask="url(#${id}-eyes)"><rect x="-${half}" y="-${half}" width="${side}" height="${side}" fill="${color}"/></g></g>${!f.dotsBehind ? dots() : ''}${f.notif ? `<circle cx="${f.notif.x}" cy="${f.notif.y}" r="${f.notif.r}" fill="${NOTIF_BLUE}"/>` : ''}${rings('front')}</svg>`;
 }
-const outerStates: StateId[] = ['egg', 'hexagon', 'play', 'idle', 'thinking', 'notify'];
-const engines = outerStates.map(state => new BotEngine(RAYON, state));
+// The website's central orbit state continuously relaxes a spinning triangle
+// into a sphere. Sample the original state, rather than blending screenshots.
+const orbitEngine = new BotEngine(RAYON, 'orbit');
 const idle = new BotEngine(RAYON, 'idle'), thinking = new BotEngine(RAYON, 'thinking');
 
 interface Scene { w: number; h: number; t: number; x: number; y: number; iw: number; ih: number;
   gather: number; arrived: number; approval: number; dock: number; motion: boolean; setup: boolean }
 function layout(scene: Scene) {
   const { w, h, t, x, y, iw, ih, gather, arrived, approval, dock, setup } = scene;
-  const radius = Math.min(w * .285, h * .245), size = radius * .43;
+  const size = Math.min(w * .68, h * .66), start = dock + .8;
   return {
     glyph: { visible: !setup && t >= gather && t < approval, state: t >= arrived ? 'thinking' : 'idle',
       x: x - iw * .35, y, size: ih * .82 },
-    orbit: { visible: !setup && t >= dock, x: w / 2, y: h * .43, radius, size,
-      agents: outerStates.map((state, i) => ({ state, angle: i * Math.PI / 3 - Math.PI / 2 })) }
+    // Let the original pill start its ascent before the central body appears.
+    // Preserve the complete 3.3-second source sample, fitted to the last 3 seconds.
+    orbit: { visible: !setup && t >= start, x: w / 2, y: h * .55, size,
+      time: scene.motion ? Math.min(3.3, Math.max(0, (t - start) * 1.1)) : 2.5, start }
   };
 }
 let lastGlyphFrame = '', lastOrbitFrame = '';
@@ -50,21 +53,17 @@ function render(scene: Scene) {
     }
   }
   if (geometry.orbit.visible) {
-    // A paused still keeps the same tick across window/fullscreen resize. Its
-    // child offsets depend on radius, so invalidate geometry as well as time.
-    const o = geometry.orbit, key = `${tick}:${o.radius}:${o.size}`;
-    orbit.style.cssText = `left:${o.x}px;top:${o.y}px;width:${o.radius * 2}px;height:${o.radius * 2}px;--agent-size:${o.size}px`;
+    const o = geometry.orbit, key = `${Math.floor(o.time * 30)}:${o.size}`;
+    orbit.style.cssText = `left:${o.x}px;top:${o.y}px;width:${o.size}px;height:${o.size}px`;
+    orbit.dataset.state = 'orbit'; orbit.dataset.time = String(o.time);
     if (key !== lastOrbitFrame) {
-      orbit.innerHTML = o.agents.map(({ angle }, i) => {
-        const px = Math.cos(angle) * o.radius, py = Math.sin(angle) * o.radius;
-        return `<div class="home-agent" style="left:calc(50% + ${px}px);top:calc(50% + ${py}px)">${svg(engines[i].sample(time + (scene.motion ? i * .3 : 0)), `intro-orbit-${i}`)}<span>AGENT / 0${i + 1}</span></div>`;
-      }).join('');
+      orbit.innerHTML = svg(orbitEngine.sample(o.time), 'intro-orbit');
       lastOrbitFrame = key;
     }
-    orbit.style.opacity = scene.motion ? String(Math.min(1, Math.max(0, (scene.t - scene.dock) / .65))) : '1';
+    orbit.style.opacity = scene.motion ? String(Math.min(1, Math.max(0, (scene.t - o.start) / .35))) : '1';
   }
 }
 // Clock and lifetime belong to the existing intro. No independent RAF, timers,
 // pointer listeners, autoplay, audio or preference IO are added.
-Object.assign(window, { AIslandIntroBloub: { render, layout, svg, outerStates,
+Object.assign(window, { AIslandIntroBloub: { render, layout, svg,
   sample: (state: StateId, time: number) => new BotEngine(RAYON, state).sample(time) } });

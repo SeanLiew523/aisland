@@ -18,14 +18,11 @@
     }
   },
   "adapter": "intro-bloub.ts",
-  "renderer": "SVG layer order and mask from aisland-website/src/integrated-motion.ts; paths, eye transforms, arcs and dots from unchanged vendored BotEngine",
+  "renderer": "SVG layers/mask from the website integrated-motion.ts; unchanged BotEngine orbit state supplies the full triangle-to-sphere motion",
   "states": [
-    "egg",
-    "hexagon",
-    "play",
     "idle",
     "thinking",
-    "notify"
+    "orbit"
   ],
   "source_files_sha256": {
     "aisland-website/src/integrated-motion.ts": "329e1d2ef2ba4b9b78aa6518ff5bda49d31b44d893fee169d6bd53aecd90b085",
@@ -41,8 +38,8 @@
     "aisland-website/src/vendor/bloub/shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
     "aisland-website/src/vendor/bloub/skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
     "aisland-website/src/vendor/bloub/states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
-    "prototypes/v0.1.1-review/intro-bloub.ts": "98012c8f4c5eb0cb896da781fbf5a661d92af792be8b4643d32a17e622d422b7"
+    "prototypes/v0.1.1-review/intro-bloub.ts": "f33af50a47f73a17e993ff1ac304fd4b73b7e326d3c5726309a82662ba682373"
   },
-  "bundle_sha256": "678a60e62263002d979db2fc1748fdb841242e41f5541f4b9daa1fb7ba2ab136",
+  "bundle_sha256": "1740d03eef4b7664a49b629114067f198b4e5178db4e678f5e19b3ce06d88b9c",
   "scope": "Prototype brand animation; not runtime sessions or acceptance evidence"
 }

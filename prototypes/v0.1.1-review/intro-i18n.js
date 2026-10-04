@@ -7,7 +7,7 @@ window.AIslandIntroText = {
     page: {
       title: "AIsland · v0.1.1 效果审阅",
       brandLabel: "AIsland 效果审阅",
-      edition: "v0.1.1 / 效果审阅 07",
+      edition: "v0.1.1 / 效果审阅 08",
       tabsLabel: "审阅内容",
       introTab: "安装引导",
       soundTab: "任务声音",
@@ -16,9 +16,9 @@ window.AIslandIntroText = {
       heading: "让等待，有回应。",
       previewDescription: "从全屏的第一声，到屏幕顶部的一座小岛。",
       canvasLabel: "AIsland 引导动画预览",
-      curtainLabel: "A · 温润共鸣 / 第七版",
+      curtainLabel: "A · 温润共鸣 / 第八版",
       curtainDescription: "约 22 秒 · 建议全屏并开启声音",
-      directorTitle: "A · 温润共鸣，第七版",
+      directorTitle: "A · 温润共鸣，第八版",
       directorDescription: "让界面自己讲故事。<br>声音随汇聚和归位逐步展开。",
       reviewNote: "任务画面沿用原生组件与录制，使用示例会话。Logo 汇聚为独立品牌演示；各工具接入能力另行验收。点击阶段看静帧，完整音画从头播放。",
       footer: "引导修订审阅 · 本页为独立原型。",
@@ -27,6 +27,8 @@ window.AIslandIntroText = {
     controls: {
       play: "播放音画预览",
       replay: "从头重播",
+      triangle: "三角姿态",
+      sphere: "圆形姿态",
       skip: "跳过开场",
       soundOn: "声音开启",
       soundOff: "声音关闭",
@@ -73,14 +75,14 @@ window.AIslandIntroText = {
       { kicker: "ALWAYS WITHIN REACH", title: "随时，回应。", caption: "全屏归位至顶部中央；真实刘海请使用原生审阅窗口。", nativeCaption: "回到这块屏幕的刘海位置。" }
     ],
     sceneList: [
-      { time: "00–03", title: "展开", description: "共鸣展开，短句只在关键时刻出现" },
+      { time: "00–03", title: "展开", description: "共鸣展开，以画面传达" },
       { time: "03–05", title: "Agent 汇聚", description: "九个 Logo 汇入，持续声音逐步叠入" },
       { time: "05–08", title: "汇入", description: "四条原生任务行沿路径进入岛里" },
       { time: "08–11", title: "审批", description: "原生文件请求与允许 / 拒绝" },
       { time: "11–13", title: "回答", description: "原生问题与回答选项" },
       { time: "13–16", title: "会话", description: "原生列表，查看谁在忙" },
       { time: "16–18", title: "完成", description: "原生完成摘要" },
-      { time: "18–22", title: "归位", description: "缓缓回收，蓄势后轻贴真实刘海" }
+      { time: "18–22", title: "归位", description: "岛向顶部归位，彩色轨道中三角变为圆形" }
     ],
     description: {
       logos: "九个 Agent Logo 的独立品牌演示。",
@@ -96,7 +98,7 @@ window.AIslandIntroText = {
     page: {
       title: "AIsland · v0.1.1 Preview",
       brandLabel: "AIsland preview",
-      edition: "v0.1.1 / Preview 07",
+      edition: "v0.1.1 / Preview 08",
       tabsLabel: "Preview sections",
       introTab: "Welcome",
       soundTab: "Task sounds",
@@ -105,9 +107,9 @@ window.AIslandIntroText = {
       heading: "A little island. A timely response.",
       previewDescription: "From the first sound to a little island at the top of your screen.",
       canvasLabel: "AIsland welcome animation preview",
-      curtainLabel: "A · Warm Resonance / Preview 07",
+      curtainLabel: "A · Warm Resonance / Preview 08",
       curtainDescription: "About 22 seconds · Best viewed fullscreen with sound",
-      directorTitle: "A · Warm Resonance, Preview 07",
+      directorTitle: "A · Warm Resonance, Preview 08",
       directorDescription: "Let the interface tell the story.<br>Sound grows with the gathering and the journey home.",
       reviewNote: "Task scenes use native components and recordings with demo sessions. The logo sequence is a separate brand animation; each integration is reviewed separately. Select a stage for a still frame, or play from the start for the full experience.",
       footer: "Welcome preview · This is a standalone prototype.",
@@ -116,6 +118,8 @@ window.AIslandIntroText = {
     controls: {
       play: "Play preview",
       replay: "Play from the start",
+      triangle: "Triangle pose",
+      sphere: "Sphere pose",
       skip: "Skip intro",
       soundOn: "Sound on",
       soundOff: "Sound off",
@@ -162,14 +166,14 @@ window.AIslandIntroText = {
       { kicker: "ALWAYS WITHIN REACH", title: "Always within reach.", caption: "The island settles at the top center. Use the native preview to align it with your Mac’s notch.", nativeCaption: "Back to the notch on this screen." }
     ],
     sceneList: [
-      { time: "00–03", title: "Opening", description: "Resonance and a brief welcome" },
+      { time: "00–03", title: "Opening", description: "Resonance; visuals carry the story" },
       { time: "03–05", title: "Agents gather", description: "Nine logos gather as the sound grows" },
       { time: "05–08", title: "Tasks gather", description: "Four native task rows flow into the island" },
       { time: "08–11", title: "Approval", description: "Native file request with Allow / Deny" },
       { time: "11–13", title: "Answer", description: "A native question with answer choices" },
       { time: "13–16", title: "Sessions", description: "The native list shows who’s busy" },
       { time: "16–18", title: "Done", description: "The native completion summary" },
-      { time: "18–22", title: "Home", description: "A slow inward breath and a soft landing" }
+      { time: "18–22", title: "Home", description: "Return to the notch; triangle morphs into a sphere" }
     ],
     description: {
       logos: "A separate brand animation featuring nine agent logos.",

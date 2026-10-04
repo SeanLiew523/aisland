@@ -55,7 +55,5 @@ html[lang=en] .stage-shell:fullscreen .stage-copy h2,html[data-native-review=tru
 /* SVG bodies use the exact website engine. They share the existing scene clock. */
 .gather-bloub,.home-orbit{position:absolute;z-index:1;pointer-events:none;transform:translate(-50%,-50%)}
 .gather-bloub[hidden],.home-orbit[hidden]{display:none}
-.gather-bloub svg,.home-agent svg{display:block;width:100%;height:100%;overflow:visible;fill:initial}
+.gather-bloub svg,.home-orbit svg{display:block;width:100%;height:100%;overflow:visible;fill:initial}
 .home-orbit{border:1px solid #6c7dca30;border-radius:50%}
-.home-agent{position:absolute;width:var(--agent-size);height:var(--agent-size);transform:translate(-50%,-50%)}
-.home-agent span{position:absolute;left:50%;bottom:0;transform:translate(-50%,100%);font:400 clamp(7px,1vw,11px)/1.4 "SFMono-Regular",Menlo,monospace;white-space:nowrap;color:#60718f}

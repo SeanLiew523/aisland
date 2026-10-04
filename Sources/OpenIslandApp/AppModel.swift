@@ -207,6 +207,10 @@ final class AppModel {
             || hooks.grokHooksInstalled
             || hooks.piExtensionInstalled
             || hooks.ohMyPiExtensionInstalled
+            || hooks.hermesHookStatus?.isInstalled == true
+            || hooks.desktopConnectionStates.values.contains {
+                $0 == .configuredFiles || $0 == .waitingForActivation || $0 == .eventReceived
+            }
     }
     func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
     func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }

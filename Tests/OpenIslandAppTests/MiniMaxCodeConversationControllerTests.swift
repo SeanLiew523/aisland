@@ -6,6 +6,35 @@ import Testing
 @testable import OpenIslandCore
 
 struct MiniMaxCodeConversationControllerTests {
+    @Test func initialActivationWaitsForForegroundWithinOriginalBudget() {
+        var time: TimeInterval = 0
+        var pauses = 0
+        let admitted = MiniMaxCodeActivationAdmission.wait(deadline: 3, clock: { time },
+            available: { true }, frontmost: { pauses == 4 },
+            pause: { _ in pauses += 1; time += 0.04 })
+        #expect(admitted && pauses == 4 && time < 3)
+        pauses = 0
+        #expect(MiniMaxCodeActivationAdmission.wait(deadline: 3, clock: { time },
+            available: { true }, frontmost: { true }, pause: { _ in pauses += 1 }))
+        #expect(pauses == 0)
+    }
+
+    @Test func activationTimeoutAndRevokedAccessNeverAdmitCopy() {
+        var time: TimeInterval = 0
+        #expect(!MiniMaxCodeActivationAdmission.wait(deadline: 0.12, clock: { time },
+            available: { true }, frontmost: { false }, pause: { _ in time += 0.04 }))
+        var pauses = 0
+        time = 0
+        #expect(!MiniMaxCodeActivationAdmission.wait(deadline: 3, clock: { time },
+            available: { pauses == 0 }, frontmost: { false },
+            pause: { _ in pauses += 1; time += 0.04 }))
+        #expect(pauses == 1)
+        time = 3
+        #expect(!MiniMaxCodeActivationAdmission.wait(deadline: 3, clock: { time },
+            available: { true }, frontmost: { true }, pause: { _ in pauses += 1 }))
+        #expect(pauses == 1)
+    }
+
     @Test func accessibilityUnavailableStopsBeforeSourceOrUIActions() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         fixture.accessibilityAvailable = false

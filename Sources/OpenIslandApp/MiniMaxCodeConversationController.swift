@@ -75,6 +75,21 @@ struct MiniMaxCodeConversationController: Sendable {
     }
 }
 
+/// An activation request returns before macOS necessarily changes the frontmost
+/// process. Wait within the original navigation budget, without reactivating.
+enum MiniMaxCodeActivationAdmission {
+    static func wait(deadline: TimeInterval, clock: () -> TimeInterval,
+                     available: () -> Bool, frontmost: () -> Bool,
+                     pause: (TimeInterval) -> Void) -> Bool {
+        while clock() < deadline {
+            guard available() else { return false }
+            if frontmost() { return clock() < deadline }
+            pause(deadline)
+        }
+        return false
+    }
+}
+
 private enum MiniMaxCodeAXNavigation {
     private static let acceptanceDiagnosticsEnabled = Bundle.main.bundleIdentifier?
         .hasPrefix("dev.aisland.v011.acceptance.") == true
@@ -103,6 +118,15 @@ private enum MiniMaxCodeAXNavigation {
         case pasteboardIdentity = "pasteboard-identity"
         case pasteboardRestore = "pasteboard-restore"
         case selectionTimeout = "selection-timeout"
+        case activationEntry = "activation-entry"
+        case activationAdmission = "activation-admission"
+        case copyEntryDeadline = "copy-entry-deadline"
+        case copyEntryFrontmost = "copy-entry-frontmost"
+        case copyEntryWindow = "copy-entry-window"
+        case copyTitleButton = "copy-title-button"
+        case copyTitlePress = "copy-title-press"
+        case copyMenuItem = "copy-menu-item"
+        case copyMenuPress = "copy-menu-press"
     }
     private enum DiagnosticRole: String {
         case group = "AXGroup", button = "AXButton", staticText = "AXStaticText"
@@ -203,6 +227,13 @@ private enum MiniMaxCodeAXNavigation {
                        _ deadline: TimeInterval) -> Bool {
         guard remaining(deadline), AXIsProcessTrusted(), let app = app(source) else { return false }
         app.unhide(); app.activate(options: [.activateAllWindows])
+        acceptanceLog(.activationEntry, flag: frontmost(source))
+        let activated = MiniMaxCodeActivationAdmission.wait(deadline: deadline,
+            clock: { ProcessInfo.processInfo.systemUptime },
+            available: { AXIsProcessTrusted() && self.app(source) != nil },
+            frontmost: { self.frontmost(source) }, pause: pause)
+        acceptanceLog(.activationAdmission, flag: activated)
+        guard activated else { return false }
         var expandedOnce = false
         while remaining(deadline) {
             guard let root = window(source) else { pause(deadline); continue }
@@ -247,9 +278,27 @@ private enum MiniMaxCodeAXNavigation {
     }
     static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> String? {
-        guard remaining(deadline), frontmost(source), let root = window(source),
-              let more = titleMenuButton(root, title: record.title, deadline: deadline), press(more, deadline) else { return nil }
-        guard let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline), press(copy, deadline) else { return nil }
+        let inTime = remaining(deadline)
+        acceptanceLog(.copyEntryDeadline, flag: inTime)
+        guard inTime else { return nil }
+        let inFront = frontmost(source)
+        acceptanceLog(.copyEntryFrontmost, flag: inFront)
+        guard inFront else { return nil }
+        let root = window(source)
+        acceptanceLog(.copyEntryWindow, flag: root != nil)
+        guard let root else { return nil }
+        let more = titleMenuButton(root, title: record.title, deadline: deadline)
+        acceptanceLog(.copyTitleButton, flag: more != nil)
+        guard let more else { return nil }
+        let titlePressed = press(more, deadline)
+        acceptanceLog(.copyTitlePress, flag: titlePressed)
+        guard titlePressed else { return nil }
+        let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline)
+        acceptanceLog(.copyMenuItem, flag: copy != nil)
+        guard let copy else { return nil }
+        let copyPressed = press(copy, deadline)
+        acceptanceLog(.copyMenuPress, flag: copyPressed)
+        guard copyPressed else { return nil }
         let opened = openCopySubmenu(copy, source: source, deadline: deadline)
         acceptanceLog(.copySubmenu, flag: opened)
         guard opened else { return nil }

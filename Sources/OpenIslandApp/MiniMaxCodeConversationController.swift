@@ -119,6 +119,7 @@ private enum MiniMaxCodeAXNavigation {
         case pasteboardRestore = "pasteboard-restore"
         case selectionTimeout = "selection-timeout"
         case activationEntry = "activation-entry"
+        case activationRequest = "activation-request"
         case activationAdmission = "activation-admission"
         case copyEntryDeadline = "copy-entry-deadline"
         case copyEntryFrontmost = "copy-entry-frontmost"
@@ -226,7 +227,17 @@ private enum MiniMaxCodeAXNavigation {
     static func select(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> Bool {
         guard remaining(deadline), AXIsProcessTrusted(), let app = app(source) else { return false }
-        app.unhide(); app.activate(options: [.activateAllWindows])
+        // Jump work runs off-main. Issue the single foreground request on the
+        // AppKit thread, using the same explicit activation policy as other
+        // desktop jumps. Do not reactivate once copying has begun.
+        let request: @Sendable () -> Bool = {
+            guard remaining(deadline), AXIsProcessTrusted(), self.app(source) != nil else { return false }
+            app.unhide()
+            return app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
+        let requested = Thread.isMainThread ? request() : DispatchQueue.main.sync(execute: request)
+        acceptanceLog(.activationRequest, flag: requested)
+        guard requested else { return false }
         acceptanceLog(.activationEntry, flag: frontmost(source))
         let activated = MiniMaxCodeActivationAdmission.wait(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime },

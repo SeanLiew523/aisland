@@ -44,15 +44,15 @@ async function render(state,time,size,name) {
   'prototypes/v0.1.1-review/assets/bloub-MIT.txt','scripts/generate-onboarding-r9-visuals.cjs',
   ...fs.readdirSync(path.join(root,'aisland-website/src/vendor/bloub')).filter(n=>n.endsWith('.ts')).map(n=>'aisland-website/src/vendor/bloub/'+n)];
  const provenance={revision:9,approvedVisual:'R9 user-approved visual; original website orbit state; R8 score handled separately',
-  sourceCommit:'54c4492b615f86a8d9dd05812aeac7fe67f5a4fd',
+  sourceCommit:'dec44c5e1b16e93e723f2c3335c385c0ad2f540c',
   generator:'scripts/generate-onboarding-r9-visuals.cjs; @napi-rs/canvas SVG decode at explicit intrinsic resource dimensions, transparent PNG at fixed sizes',
   rasterization:{svgIntrinsicDimensions:'width=height=resource size; viewBox and paths unchanged',avoids:'implicit 316px decode followed by bitmap enlargement',sizes:{idle:256,thinking:256,orbit:1024}},
   source_files_sha256:Object.fromEntries(sourceFiles.map(n=>[n,hash(fs.readFileSync(path.join(root,n)))])),
   manifest_file:'bloub-r9.json',manifest_sha256:hash(manifestBytes),generated_files_sha256:generated,
   geometry:{orbitDiameter:'min(viewportWidth*.68,viewportHeight*.66)*.7',orbitCenter:['viewportWidth/2','viewportHeight*.55'],
    leftCharacter:'centerX = island.centerX - island.width*.35; centerY = island.centerY; size = island.height*.82'},
-  timing:{duration:22,gather:5.3,arrived:7.95,approval:8.2,orbitStart:18.9,orbitSpeed:1.1,orbitSourceEnd:3.3,
-   orbitOpacity:'clamp((sceneTime-18.9)/.35)',reducedTime:{idle:1,thinking:1,orbit:2.5}},
+  timing:{duration:22,gather:5.3,arrived:7.95,approval:8.2,orbitStart:18.1,orbitSettled:20.7,orbitSpeed:3.3/(20.7-18.1),orbitSourceEnd:3.3,
+   orbitOpacity:'clamp((sceneTime-18.1)/.35)',reducedTime:{idle:1,thinking:1,orbit:2.5}},
   sampling:'30fps original engine samples, absolute scene ticks for glyphs and source-time ticks for orbit, matching prototype cache keys. Thinking enters at 7.95 (half-tick), then 7.96667/8.0/...; its first partial frame samples 7.95. Native samples hold until the next tick. No silhouette redraw or screenshot crossfade.',
   cache:'Native preloads compressed bytes, keeps only one decoded frame per sequence plus three reduced-motion stills. No full 100-frame retina predecode.',
   scope:'Brand illustration, not real task sessions or source integration evidence.'};

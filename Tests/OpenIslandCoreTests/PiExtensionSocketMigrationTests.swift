@@ -4,6 +4,21 @@ import Testing
 @testable import OpenIslandCore
 
 struct PiExtensionSocketMigrationTests {
+    @Test func existingPrivateTmpDestinationRetainsItsAdmittedLiteral() throws {
+        let root = URL(fileURLWithPath: "/private/tmp/aisland-pi-existing-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socket = root.appendingPathComponent("bridge.sock")
+        try Data().write(to: socket)
+        let manager = PiExtensionInstallationManager(agent: .ohMyPi, agentDirectory: root.appendingPathComponent("agent"))
+        let status = try manager.install(extensionSourceData: Data(source.utf8), targetSocketURL: socket)
+        #expect(status.isCurrent && status.manifest?.targetSocketPath == socket.path)
+        #expect(try manager.status(targetSocketURL: socket).isCurrent)
+        #expect(throws: PiExtensionInstallationError.invalidSocketPath) {
+            try manager.status(targetSocketURL: URL(fileURLWithPath: root.path + "/../bridge.sock"))
+        }
+    }
+
     private let source = """
     const AGENT_SOURCE = "__OPEN_ISLAND_PI_SOURCE__";
     const SOCKET_PATH =

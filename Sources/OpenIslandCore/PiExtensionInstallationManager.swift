@@ -263,7 +263,10 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
         let path = url.path
         guard url.isFileURL, path.hasPrefix("/"), path.utf8.count < 104,
               !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-              url.standardizedFileURL.path == path else { throw PiExtensionInstallationError.invalidSocketPath }
+              !url.pathComponents.contains("."), !url.pathComponents.contains("..") else { throw PiExtensionInstallationError.invalidSocketPath }
+        // Foundation rewrites an existing /private/tmp entry to /tmp during
+        // standardization. A live Unix socket must keep its admitted literal;
+        // lexical traversal is rejected without filesystem-dependent rewriting.
         return path
     }
 

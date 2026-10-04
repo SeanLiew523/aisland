@@ -82,7 +82,7 @@ struct GhosttySourceBindingTests {
         var queries = 0
         let store = GhosttySourceBindingStore(directory: directory, snapshotProvider: {
             queries += 1
-            return snapshot(focused, shared: agent != "gemini")
+            return snapshot(focused, shared: agent == "claude" || agent == "codex")
         })
         let provider: GhosttySourceBindingProvider = { agent, id, tty, cwd, event in
             store.resolve(agent: agent, sessionID: id, tty: tty, cwd: cwd, event: event)

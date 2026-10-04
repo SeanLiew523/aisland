@@ -435,6 +435,7 @@ Managed status is **healthy only when every event above** is present with an AIs
 - Stdin JSON uses **camelCase** keys (`sessionId`, `hookEventName`, `toolName`, `toolResult`).
 - `hookEventName` may arrive as PascalCase (`PreToolUse`), snake_case (`pre_tool_use`) or camelCase (`preToolUse`); all are accepted.
 - Envelopes may carry `promptId`; it is decoded as `promptID` but not acted on yet (reserved for ignoring stale-prompt reports).
+- `UserPromptSubmit` also fires observe-only for auto-wake turns (task/subagent completion and scheduler) and subagent sessions. Its event name is not sufficient evidence of interactive user input. Ghostty source admission uses the unique-directory capture policy for both `SessionStart` and `UserPromptSubmit`, verifies foreground/focus stability, and never overwrites an admitted ID. Multiple unbound pages in the same directory remain unresolved until stronger source evidence becomes available. See the official [UserPromptSubmit contract](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md#userpromptsubmit-decision-control).
 - `StopCancelled` carries `reason` (`user_interrupt`, `permission_rejected`, `permission_cancelled`, `max_turns`, `no_progress`, `unknown`), `cancelledBy` (`user` / `runtime` / `unknown`) and optional `cancelTrigger` / `reasonDetails` / `lastAssistantMessage`.
 - PreToolUse decision format (not used by the managed install yet): `{"decision":"allow"}` / `{"decision":"deny","reason":"..."}`.
 - Sessions also land under `~/.grok/sessions/<url-encoded-cwd>/<session-id>/` for offline discovery (not yet scanned by AIsland).
@@ -469,8 +470,11 @@ The hook process infers the terminal type from environment variables at runtime:
 For iTerm and Terminal, existing metadata queries supply session ID/TTY/title.
 Ghostty uses a stable private binding keyed by source agent, native session ID
 and real callback TTY. Source startup can bind an unambiguous directory;
-Claude/Codex/Grok `UserPromptSubmit` and Pi/OMP interactive input can bind the
+Claude/Codex `UserPromptSubmit` and Pi/OMP interactive input can bind the
 stable focused surface after verifying foreground and directory evidence.
+Grok `UserPromptSubmit` also runs for automatic wakeups and subagent turns, so
+it only reuses an existing binding or captures a uniquely matching directory;
+an unbound Grok source sharing a directory with another page remains unresolved.
 Tools, stops, heartbeats and notifications reuse that binding and never query
 the current focused page. Gemini `BeforeAgent` does not establish interactive
 input; without a startup binding, same-directory multi-page selection remains

@@ -419,8 +419,13 @@ public extension GrokHookPayload {
             // process. Payload IDs and the currently focused pane are not
             // trustworthy evidence on background hooks.
             payload.terminalTTY = currentTTYProvider()
-            let sourceEvent: GhosttySourceEvent = payload.hookEventName == .sessionStart
-                ? .startup : payload.hookEventName == .userPromptSubmit ? .userSubmit : .background
+            // Grok also emits UserPromptSubmit for auto-wake/scheduler and
+            // subagent turns. It is not proof of foreground user input. Both
+            // startup and submit use the store's unique-directory policy;
+            // an existing receipt is reused without looking at current focus.
+            let allowsUniqueDirectoryCapture = payload.hookEventName == .sessionStart
+                || payload.hookEventName == .userPromptSubmit
+            let sourceEvent: GhosttySourceEvent = allowsUniqueDirectoryCapture ? .startup : .background
             let binding = ghosttyBindingProvider(
                 "grok", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
             )

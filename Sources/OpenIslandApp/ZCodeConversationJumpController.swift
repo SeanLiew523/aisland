@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import Foundation
 import SQLite3
 
@@ -120,6 +121,50 @@ enum ZCodeConversationFocusResult: Equatable, Sendable {
     case unavailable(String)
 }
 
+/// Only metadata from a failed, explicitly requested navigation is retained.
+/// Attribute values can contain URLs or IDs, so retain hashes rather than text.
+struct ZCodeNavigationDiagnostic: Equatable, Sendable {
+    struct Element: Equatable, Sendable {
+        var attributeNames: [String]
+        var identityHashes: [String: String]
+        var identityMatches: [String: Bool]
+
+        init(attributeNames: [String], identityValues: [String: String], targetID: String) {
+            self.attributeNames = attributeNames.filter {
+                $0.hasPrefix("AX") && $0.count <= 80
+                    && $0.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+            }.sorted().prefix(64).map { $0 }
+            let allowed = ["AXIdentifier", "AXDOMIdentifier", "AXURL"]
+            let values = identityValues.filter { allowed.contains($0.key) && $0.value.utf8.count <= 4_096 }
+            identityHashes = values.mapValues { ZCodeNavigationDiagnostic.hash($0) }
+            identityMatches = values.mapValues { $0 == targetID }
+        }
+    }
+
+    var targetHash: String
+    var rowCount: Int
+    var selectedRowCount: Int
+    var headingMatches: Bool
+    var row: Element?
+    var content: Element?
+    var samplingExpired = false
+
+    static func hash(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    var line: String {
+        func describe(_ element: Element?) -> String {
+            guard let element else { return "missing" }
+            let values = element.identityHashes.keys.sorted().map { key in
+                "\(key):\(element.identityHashes[key] ?? ""):equal=\(element.identityMatches[key] == true)"
+            }.joined(separator: ",")
+            return "attrs=\(element.attributeNames.joined(separator: ","));identities=\(values)"
+        }
+        return "reason=active-content-unverified targetHash=\(targetHash) rows=\(rowCount) selected=\(selectedRowCount) headingMatches=\(headingMatches) samplingExpired=\(samplingExpired) row=[\(describe(row))] content=[\(describe(content))]"
+    }
+}
+
 /// Focuses a ZCode conversation without reopening its workspace. ZCode 3.14
 /// does not route conversation IDs through its URL scheme, but its task index
 /// and Chromium accessibility tree expose enough stable information to press
@@ -132,17 +177,23 @@ struct ZCodeConversationJumpController: Sendable {
     private let sleeper: Sleeper
     private let clock: MonotonicClock
     private let focusTimeout: TimeInterval
+    private let metadataDiagnosticsEnabled: @Sendable () -> Bool
+    private let metadataDiagnostics: @Sendable (ZCodeNavigationDiagnostic) -> Void
 
     init(
         taskIndex: ZCodeTaskIndex = ZCodeTaskIndex(),
         sleeper: @escaping Sleeper = { Thread.sleep(forTimeInterval: $0) },
         clock: @escaping MonotonicClock = { ProcessInfo.processInfo.systemUptime },
-        focusTimeout: TimeInterval = 3
+        focusTimeout: TimeInterval = 3,
+        metadataDiagnosticsEnabled: @escaping @Sendable () -> Bool = Self.defaultMetadataDiagnosticsEnabled,
+        metadataDiagnostics: @escaping @Sendable (ZCodeNavigationDiagnostic) -> Void = Self.writeMetadataDiagnostic
     ) {
         self.taskIndex = taskIndex
         self.sleeper = sleeper
         self.clock = clock
         self.focusTimeout = max(0, focusTimeout)
+        self.metadataDiagnosticsEnabled = metadataDiagnosticsEnabled
+        self.metadataDiagnostics = metadataDiagnostics
     }
 
     func focus(conversationID: String) -> ZCodeConversationFocusResult {
@@ -247,6 +298,9 @@ struct ZCodeConversationJumpController: Sendable {
             }
         }
 
+        if metadataDiagnosticsEnabled(), let window = firstWindow(of: application) {
+            recordFailedNavigation(conversation, window: window, allowsStandaloneLookup: allowsStandaloneLookup)
+        }
         if !hasTimeRemaining(before: deadline) {
             return .unavailable("focus-timeout")
         }
@@ -309,8 +363,11 @@ struct ZCodeConversationJumpController: Sendable {
                 in: window,
                 before: deadline
                ),
-               domClasses(of: item).contains("bg-selected"),
-               hasConversationHeading(title, in: window, before: deadline) {
+               Self.verifiesActiveConversation(
+                    rowCount: 1,
+                    selectedRowCount: domClasses(of: item).contains("bg-selected") ? 1 : 0,
+                    headingMatches: hasConversationHeading(title, in: window, before: deadline)
+               ) {
                 return true
             }
             if attempt < 59 {
@@ -318,6 +375,68 @@ struct ZCodeConversationJumpController: Sendable {
             }
         }
         return false
+    }
+
+    static func verifiesActiveConversation(rowCount: Int, selectedRowCount: Int, headingMatches: Bool) -> Bool {
+        rowCount == 1 && selectedRowCount == 1 && headingMatches
+    }
+
+    private static let diagnosticMarker = "/tmp/aisland-zcode-metadata-diagnostics-enabled"
+    private static let diagnosticLog = "/tmp/aisland-zcode-metadata-diagnostics.log"
+
+    private static func defaultMetadataDiagnosticsEnabled() -> Bool {
+        (try? FileManager.default.attributesOfItem(atPath: diagnosticMarker)[.type] as? FileAttributeType) == .typeRegular
+    }
+
+    private static func writeMetadataDiagnostic(_ diagnostic: ZCodeNavigationDiagnostic) {
+        guard defaultMetadataDiagnosticsEnabled() else { return }
+        let descriptor = open(diagnosticLog, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_uid == getuid(), info.st_size < 65_536 else { return }
+        let data = Data((diagnostic.line + "\n").utf8)
+        guard info.st_size + off_t(data.count) <= 65_536, fchmod(descriptor, 0o600) == 0 else { return }
+        _ = data.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+    }
+
+    private func recordFailedNavigation(
+        _ conversation: ZCodeConversationRecord,
+        window: AXUIElement,
+        allowsStandaloneLookup: Bool
+    ) {
+        // A separate small diagnostic budget must not extend navigation polling.
+        let deadline = clock() + 0.15
+        let workspace = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
+        let container = projectContainer(named: workspace, in: window, before: deadline)
+            ?? (allowsStandaloneLookup ? window : nil)
+        let rows = container.map { taskItems(titled: conversation.title, in: $0, before: deadline) } ?? []
+        let selected = rows.filter { domClasses(of: $0).contains("bg-selected") }
+        let content = descendants(of: window, before: deadline).first {
+            copyStringValue(of: $0, attribute: kAXDOMIdentifierAttribute as CFString) == "conversation"
+        }
+        func metadata(_ element: AXUIElement?) -> ZCodeNavigationDiagnostic.Element? {
+            guard let element else { return nil }
+            var names: CFArray?
+            _ = AXUIElementCopyAttributeNames(element, &names)
+            var values: [String: String] = [:]
+            for key in ["AXIdentifier", "AXDOMIdentifier", "AXURL"] {
+                var value: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success {
+                    if let text = value as? String { values[key] = text }
+                    else if let url = value as? URL { values[key] = url.absoluteString }
+                }
+            }
+            return .init(attributeNames: names as? [String] ?? [], identityValues: values, targetID: conversation.id)
+        }
+        metadataDiagnostics(.init(
+            targetHash: ZCodeNavigationDiagnostic.hash(conversation.id), rowCount: rows.count,
+            selectedRowCount: selected.count,
+            headingMatches: content.map { hasConversationHeading(conversation.title, in: $0, before: deadline) } ?? false,
+            row: metadata(selected.first ?? rows.first), content: metadata(content),
+            samplingExpired: !hasTimeRemaining(before: deadline)
+        ))
     }
 
     private func ensureProjectsView(in root: AXUIElement, before deadline: TimeInterval) {
@@ -435,7 +554,8 @@ struct ZCodeConversationJumpController: Sendable {
         in projectContainer: AXUIElement,
         before deadline: TimeInterval
     ) -> AXUIElement? {
-        taskItems(titled: title, in: projectContainer, before: deadline).first
+        let items = taskItems(titled: title, in: projectContainer, before: deadline)
+        return items.count == 1 ? items[0] : nil
     }
 
     private func conversationItem(

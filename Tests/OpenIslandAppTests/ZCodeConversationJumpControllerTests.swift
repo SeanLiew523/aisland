@@ -5,6 +5,48 @@ import Testing
 
 struct ZCodeConversationJumpControllerTests {
     @Test
+    func selectedSidebarWithoutMatchingContentCannotVerifyNavigation() {
+        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
+            rowCount: 1, selectedRowCount: 1, headingMatches: false))
+        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
+            rowCount: 2, selectedRowCount: 1, headingMatches: true))
+        #expect(!ZCodeConversationJumpController.verifiesActiveConversation(
+            rowCount: 1, selectedRowCount: 0, headingMatches: true))
+        #expect(ZCodeConversationJumpController.verifiesActiveConversation(
+            rowCount: 1, selectedRowCount: 1, headingMatches: true))
+    }
+
+    @Test
+    func failedNavigationMetadataNeverRetainsTitlesURLsOrRawSessionIDs() {
+        let target = "sess_private-fixture"
+        let row = ZCodeNavigationDiagnostic.Element(
+            attributeNames: ["AXRole", "AXDOMIdentifier", "not an attribute\nprivate"],
+            identityValues: ["AXDOMIdentifier": target, "AXURL": "file:///private/workspace",
+                             "AXValue": "Private conversation text", "data-session-id": target],
+            targetID: target)
+        let diagnostic = ZCodeNavigationDiagnostic(
+            targetHash: ZCodeNavigationDiagnostic.hash(target), rowCount: 1,
+            selectedRowCount: 1, headingMatches: false, row: row, content: nil)
+        #expect(row.attributeNames == ["AXDOMIdentifier", "AXRole"])
+        #expect(row.identityMatches["AXDOMIdentifier"] == true)
+        #expect(row.identityMatches["AXURL"] == false)
+        #expect(row.identityHashes.count == 2)
+        #expect(!diagnostic.line.contains(target))
+        #expect(!diagnostic.line.contains("/private/workspace"))
+        #expect(!diagnostic.line.contains("Private conversation text"))
+        #expect(!diagnostic.line.contains("data-session-id"))
+        #expect(diagnostic.line.contains("content=[missing]"))
+    }
+
+    @Test
+    func oversizedIdentityMetadataIsDiscarded() {
+        let metadata = ZCodeNavigationDiagnostic.Element(
+            attributeNames: [], identityValues: ["AXURL": String(repeating: "x", count: 4_097)],
+            targetID: "sess_fixture")
+        #expect(metadata.identityHashes.isEmpty)
+    }
+
+    @Test
     func taskIndexResolvesConversationTitleAndWorkspaceByHookSessionID() throws {
         let fixture = try makeTaskIndex()
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }

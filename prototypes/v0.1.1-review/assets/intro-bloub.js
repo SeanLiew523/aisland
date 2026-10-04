@@ -1647,7 +1647,7 @@
   var thinking = new BotEngine(RAYON, "thinking");
   function layout(scene) {
     const { w, h, t, x, y, iw, ih, gather, arrived, approval, dock, setup } = scene;
-    const size = Math.min(w * 0.68, h * 0.66), start = dock + 0.8;
+    const size = Math.min(w * 0.68, h * 0.66) * 0.7, start = dock + 0.8;
     return {
       glyph: {
         visible: !setup && t >= gather && t < approval,

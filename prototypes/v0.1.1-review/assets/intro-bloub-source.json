@@ -38,8 +38,24 @@
     "aisland-website/src/vendor/bloub/shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
     "aisland-website/src/vendor/bloub/skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
     "aisland-website/src/vendor/bloub/states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
-    "prototypes/v0.1.1-review/intro-bloub.ts": "f33af50a47f73a17e993ff1ac304fd4b73b7e326d3c5726309a82662ba682373"
+    "prototypes/v0.1.1-review/intro-bloub.ts": "8defe147de2931f591996418e8fe64846bf138df28ffdd11a791e9ca5cd8989f"
   },
-  "bundle_sha256": "1740d03eef4b7664a49b629114067f198b4e5178db4e678f5e19b3ce06d88b9c",
-  "scope": "Prototype brand animation; not runtime sessions or acceptance evidence"
+  "bundle_sha256": "1548c1b31346c2bdec2c287d2bd375c8d7b9b0af4176dd4aaf7086af7846dfff",
+  "scope": "Prototype brand animation; not runtime sessions or acceptance evidence",
+  "build": {
+    "tool": "esbuild",
+    "version": "0.25.11",
+    "format": "iife",
+    "target": "es2022",
+    "command": "npm exec --offline --package=esbuild@0.25.11 -- esbuild prototypes/v0.1.1-review/intro-bloub.ts --bundle --format=iife --target=es2022 --outfile=prototypes/v0.1.1-review/assets/intro-bloub.js"
+  },
+  "revision": 9,
+  "geometry": {
+    "diameter": "min(width * .68, height * .66) * .7",
+    "center": [
+      "width / 2",
+      "height * .55"
+    ],
+    "morph": "unchanged original orbit sample 0\u20133.3 seconds at 1.1x"
+  }
 }

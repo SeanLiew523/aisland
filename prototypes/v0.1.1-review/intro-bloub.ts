@@ -27,7 +27,7 @@ interface Scene { w: number; h: number; t: number; x: number; y: number; iw: num
   gather: number; arrived: number; approval: number; dock: number; motion: boolean; setup: boolean }
 function layout(scene: Scene) {
   const { w, h, t, x, y, iw, ih, gather, arrived, approval, dock, setup } = scene;
-  const size = Math.min(w * .68, h * .66), start = dock + .8;
+  const size = Math.min(w * .68, h * .66) * .7, start = dock + .8;
   return {
     glyph: { visible: !setup && t >= gather && t < approval, state: t >= arrived ? 'thinking' : 'idle',
       x: x - iw * .35, y, size: ih * .82 },

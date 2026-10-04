@@ -35,6 +35,8 @@ enum OnboardingTimeline {
     static let duration = 22.0
     static let agents = 3.0, gather = 5.3, approval = 8.2, answer = 10.7
     static let back = 13.2, completed = 15.7, dock = 18.1, settled = 20.7
+    static let tasksArrived = 7.95
+    static let orbitStart = dock + 0.8, orbitSpeed = 1.1, orbitSourceDuration = 3.3
     static func frameIndex(time: Double, start: Double, fps: Double, frames: Int, looping: Bool = false) -> Int {
         let index = Int(max(0, time - start) * fps)
         return looping ? index % max(1, frames) : min(max(0, frames - 1), index)
@@ -45,5 +47,36 @@ enum OnboardingTimeline {
         if time >= answer && time < back { return ("answer", answer) }
         if time >= back && time < completed { return ("sessions", back) }
         return nil
+    }
+}
+
+/// The approved R9 prototype adapter's geometry, in the native view's flipped
+/// coordinates. Layout is recomputed after every screen/size change; clock and
+/// lifetime remain owned by the existing 22-second presentation controller.
+enum OnboardingBrandGeometry {
+    struct Sprite: Equatable {
+        let state: String
+        let rect: CGRect
+        let sampleTime: Double
+        let opacity: Double
+    }
+
+    static func gather(time: Double, island: CGRect, reduceMotion: Bool) -> Sprite? {
+        guard time >= OnboardingTimeline.gather, time < OnboardingTimeline.approval else { return nil }
+        let size = island.height * 0.82
+        return Sprite(state: time >= OnboardingTimeline.tasksArrived ? "thinking" : "idle",
+                      rect: CGRect(x: island.midX - island.width * 0.35 - size / 2,
+                                   y: island.midY - size / 2, width: size, height: size),
+                      sampleTime: reduceMotion ? 1 : time, opacity: 1)
+    }
+
+    static func orbit(time: Double, bounds: CGSize, reduceMotion: Bool) -> Sprite? {
+        guard time >= OnboardingTimeline.orbitStart else { return nil }
+        let size = min(bounds.width * 0.68, bounds.height * 0.66) * 0.7
+        return Sprite(state: "orbit", rect: CGRect(x: bounds.width / 2 - size / 2,
+            y: bounds.height * 0.55 - size / 2, width: size, height: size),
+            sampleTime: reduceMotion ? 2.5 : min(OnboardingTimeline.orbitSourceDuration,
+                max(0, (time - OnboardingTimeline.orbitStart) * OnboardingTimeline.orbitSpeed)),
+            opacity: reduceMotion ? 1 : min(1, max(0, (time - OnboardingTimeline.orbitStart) / 0.35)))
     }
 }

@@ -18,6 +18,7 @@ final class OnboardingMedia {
     let clips: [String: Frames]
     let logos: [CGImage]
     let rows: [CGImage]
+    let brand: OnboardingBrandMedia
 
     init(language: OnboardingLanguage, bundle: Bundle = .appResources) throws {
         func url(_ name: String) throws -> URL {
@@ -67,5 +68,6 @@ final class OnboardingMedia {
         self.rows = try ["claude", "codex", "gemini", "workbuddy"].map {
             try image("native-row-\($0)-\(language == .chinese ? "zh-Hans" : "en")@2x.png")
         }
+        self.brand = try OnboardingBrandMedia(bundle: bundle)
     }
 }

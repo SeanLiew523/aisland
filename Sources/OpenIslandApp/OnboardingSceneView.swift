@@ -1,7 +1,8 @@
 import AppKit
 import OpenIslandCore
 
-/// Native port of approved review/v0.1.1-intro-r6 intro-scene.js. All task
+/// Native port of approved R9 visuals, with the original shell and task paths.
+/// Bloub sprites are exported from the actual website engine/SVG painter. All task
 /// pixels are recorded demo sessions, never live source acceptance evidence.
 @MainActor
 final class OnboardingSceneView: NSView {
@@ -67,19 +68,33 @@ final class OnboardingSceneView: NSView {
         } else if !hasPanel {
             island(c, x, y, iw, ih, t, s)
         }
+        if let glyph = OnboardingBrandGeometry.gather(time: t,
+            island: CGRect(x: x-iw/2, y: y-ih/2, width: iw, height: ih), reduceMotion: reduceMotion) {
+            brandCharacter(c, glyph)
+        }
+        if let orbit = OnboardingBrandGeometry.orbit(time: t, bounds: bounds.size, reduceMotion: reduceMotion) {
+            brandCharacter(c, orbit)
+        }
         if t >= 1.35 && t < 2.45 && motion {
             let elapsed = (t-1.35)/1.1
             c.saveGState(); c.setAlpha((1-elapsed)*0.32); c.setStrokeColor(color("bfd8ff")); c.setLineWidth(0.9)
             let rx = iw*0.6+elapsed*75*s, ry = ih*0.64+elapsed*28*s
             c.strokeEllipse(in: CGRect(x: x-rx, y: y-ry, width: rx*2, height: ry*2)); c.restoreGState()
         }
-        title(t, w, h, motion)
         let lightBackground = t >= 5.3 && t < 8.2 || t >= 13.2
         let brand = NSAttributedString(string: "AIsland", attributes: [
             .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
             .foregroundColor: NSColor(cgColor: color(lightBackground ? "24354f" : "f7f5ee"))!
         ])
         brand.draw(at: CGPoint(x: 30, y: max(40, window?.screen?.safeAreaInsets.top ?? 0) + 12))
+    }
+
+    private func brandCharacter(_ c: CGContext, _ sprite: OnboardingBrandGeometry.Sprite) {
+        guard let frame = media.brand.image(state: sprite.state, sampleTime: sprite.sampleTime,
+                                            reduceMotion: reduceMotion) else { return }
+        c.saveGState(); c.setAlpha(sprite.opacity)
+        image(c, frame, sprite.rect)
+        c.restoreGState()
     }
 
     private func background(_ c: CGContext, _ w: Double, _ h: Double, _ t: Double, _ motion: Bool) {
@@ -195,19 +210,4 @@ final class OnboardingSceneView: NSView {
         c.setStrokeColor(color("ffffff",0.055)); c.setLineWidth(1); c.move(to: CGPoint(x: -w*0.36,y: -h/2+1)); c.addLine(to: CGPoint(x: w*0.36,y: -h/2+1)); c.strokePath(); c.restoreGState()
     }
 
-    private func title(_ t: Double, _ w: Double, _ h: Double, _ motion: Bool) {
-        guard t < 3 || t >= 18.1 else { return }
-        let opening = t < 3
-        let opacity = !motion ? 1 : opening ? smooth((t-0.6)/0.6)*(1-smooth((t-2.5)/0.42)) : smooth((t-20.2)/0.5)
-        guard opacity > 0 else { return }
-        let copy = language == .chinese ? (opening ? "让等待，有回应。" : "随时，回应。") : (opening ? "A little island.\nA timely response." : "Always within reach.")
-        let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineHeightMultiple = 1.2
-        let fontSize = min(74,max(34,w*0.038))
-        let text = NSAttributedString(string: copy, attributes: [.font: NSFont(name: language == .chinese ? "PingFangSC-Medium" : "AvenirNext-Medium",size: fontSize) ?? NSFont.systemFont(ofSize: fontSize,weight: .medium), .foregroundColor: NSColor(cgColor: color(opening ? "f7f5ee" : "24354f",opacity))!, .paragraphStyle: paragraph, .kern: -fontSize*0.035])
-        let size = text.boundingRect(with: CGSize(width: w*0.84, height: .greatestFiniteMagnitude),
-                                     options: [.usesLineFragmentOrigin, .usesFontLeading]).size
-        text.draw(with: CGRect(x: w*0.08, y: h*(opening ? 0.61 : 0.46), width: w*0.84,
-                               height: ceil(size.height) + 2),
-                  options: [.usesLineFragmentOrigin, .usesFontLeading])
-    }
 }

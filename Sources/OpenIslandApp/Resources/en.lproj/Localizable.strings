@@ -296,4 +296,4 @@
 
 "setup.desktop.openSource" = "Open source app";
 
-"setup.connection.sourceSetupScope" = "This isolated case automatically configures only its listed Hermes, DeepSeek and MiniMaxCode Desktop sources. Other source configurations are preserved; manual installation and profile changes are disabled.";
+"setup.connection.sourceSetupScope" = "This isolated case automatically configures only its explicitly listed sources. Other source configurations are preserved; manual installation and profile changes are disabled.";

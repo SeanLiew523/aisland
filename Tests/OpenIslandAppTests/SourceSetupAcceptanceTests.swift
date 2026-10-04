@@ -101,6 +101,32 @@ struct SourceSetupAdmissionTests {
 }
 
 @MainActor struct SourceSetupStartupTests {
+    @Test func ohMyPiReceivesExplicitCaseSocketAndStartupDoesNotRewriteIt() async throws {
+        let f = try SourceSetupFixture(agents: ["ohMyPi"]); defer { f.cleanup() }; try f.helper()
+        let config = try f.configuration(), setup = try #require(config.sourceSetup)
+        let home = f.root.appendingPathComponent("source-home"), bin = home.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("omp")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let manager = PiExtensionInstallationManager(agent: .ohMyPi, agentDirectory: home.appendingPathComponent(".omp/agent"))
+        let coordinator = HookInstallationCoordinator(intentStore: AgentIntentStore(defaults: try config.isolatedPreferences()),
+            isRuntimeAcceptance: true, sourceSetupAcceptance: setup, ohMyPiExtensionInstallationManager: manager,
+            installationDetector: AgentInstallationDetector(executableDirectories: [bin], applicationDirectories: [], home: home))
+        await coordinator.runStartupSetup {}
+        #expect(coordinator.automaticConnectionErrors.isEmpty)
+        #expect(coordinator.ohMyPiExtensionStatus?.isCurrent == true)
+        #expect(coordinator.ohMyPiExtensionStatus?.requestedSocketPath == setup.socketURL.path)
+        #expect(coordinator.ohMyPiExtensionStatus?.manifest?.targetSocketPath == setup.socketURL.path)
+        let bytes = try Data(contentsOf: manager.extensionURL)
+        #expect(!coordinator.shouldAutoInstall(.ohMyPi))
+        await coordinator.runStartupSetup {}
+        #expect(try Data(contentsOf: manager.extensionURL) == bytes)
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".pi").path))
+        coordinator.intentStore.setIntent(.uninstalled, for: .ohMyPi)
+        #expect(!coordinator.shouldAutoInstall(.ohMyPi))
+    }
+
     @Test func actualDetectionConfigurationAndCallbackStayIsolatedAndPreserveConsent() async throws {
         let f = try SourceSetupFixture(); defer { f.cleanup() }; try f.helper(real: true)
         let config = try f.configuration(), setup = try #require(config.sourceSetup)

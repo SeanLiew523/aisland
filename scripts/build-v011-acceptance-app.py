@@ -21,7 +21,7 @@ V6 = "32c94f2fb0282242d17ef4db63f6c169a874e25f"
 IDENTITY = "Open Island Dev Local"
 APPROVED_NATIVE_R9 = "932c7caf4a6090b7660f0adc0f1e2f22e95feed2"
 APPROVED_SHARP_R9 = "007f131dac35e9a50a83a408667b0e30ad457171"
-SOURCE_SETUP_AGENTS = ("hermes", "deepSeekDesktop", "miniMaxCodeDesktop")
+SOURCE_SETUP_AGENTS = ("hermes", "deepSeekDesktop", "miniMaxCodeDesktop", "ohMyPi")
 PRODUCTS = ("OpenIslandApp", "OpenIslandHooks", "OpenIslandSetup", "MiniMaxCodeSourceProbe")
 
 

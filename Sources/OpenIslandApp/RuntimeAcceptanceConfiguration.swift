@@ -36,7 +36,7 @@ struct RuntimeAcceptanceConfiguration: Sendable {
     var skipsHookStatusReadsAndInstallation: Bool { sourceSetup == nil }
 
     /// This intentionally bounded acceptance case uses the production detector
-    /// and installer path, but only the three explicitly authorized sources.
+    /// and installer path, but only the explicitly listed sources.
     struct SourceSetup: Sendable {
         let agents: Set<AgentIdentifier>
         let supportURL: URL
@@ -172,7 +172,7 @@ struct RuntimeAcceptanceConfiguration: Sendable {
                   Set(names).count == names.count,
                   let support = infoDictionary["AIslandSourceSetupSupportPath"] as? String,
                   support.hasPrefix("/"), try Self.canonical(URL(fileURLWithPath: support)).path == directory.appendingPathComponent("support").path else { throw ConfigurationError.unsafePath }
-            let allowed: Set<AgentIdentifier> = [.hermes, .deepSeekDesktop, .miniMaxCodeDesktop]
+            let allowed: Set<AgentIdentifier> = [.hermes, .deepSeekDesktop, .miniMaxCodeDesktop, .ohMyPi]
             let agents = Set(names.compactMap(AgentIdentifier.init(rawValue:)))
             guard agents.count == names.count, agents.isSubset(of: allowed) else { throw ConfigurationError.invalidMetadata }
             sourceSetup = SourceSetup(agents: agents, supportURL: directory.appendingPathComponent("support"),

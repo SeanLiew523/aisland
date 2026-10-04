@@ -295,4 +295,4 @@
 
 "setup.desktop.openSource" = "開啟來源應用";
 
-"setup.connection.sourceSetupScope" = "此獨立驗收僅自動配置清單中的 Hermes、DeepSeek 與 MiniMaxCode 桌面；其他來源配置保持原樣，手動安裝和切換 profile 已停用。";
+"setup.connection.sourceSetupScope" = "此獨立驗收僅自動配置建構清單中的來源；其他來源配置保持原樣，手動安裝和切換 profile 已停用。";

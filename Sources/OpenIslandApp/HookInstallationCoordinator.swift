@@ -173,7 +173,7 @@ final class HookInstallationCoordinator {
     }
     private var isolatedStatusSummary: String {
         if sourceSetupAcceptance != nil {
-            return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "此独立验收仅配置清单中的 Hermes、DeepSeek 与 MiniMaxCode 桌面；其它来源配置保持原样。" : "This isolated case configures only its listed Hermes, DeepSeek and MiniMaxCode Desktop sources; other source configurations are preserved."
+            return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "此独立验收仅配置构建清单中的来源；其它来源配置保持原样。" : "This isolated case configures only its explicitly listed sources; other source configurations are preserved."
         }
         return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "来源读取与安装已停用。" : "Source reads and installation are disabled."
     }
@@ -787,7 +787,13 @@ final class HookInstallationCoordinator {
         }
         // The dedicated source-setup case never reads unrelated hook configs,
         // usage caches or repairs the optional usage bridge.
-        if sourceSetupAcceptance != nil { return }
+        if let sourceSetupAcceptance {
+            if sourceSetupAcceptance.agents.contains(.ohMyPi), detectedInstallations[.ohMyPi] != nil {
+                do { ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(targetSocketURL: sourceSetupAcceptance.socketURL) }
+                catch { automaticConnectionErrors[.ohMyPi] = error.localizedDescription }
+            }
+            return
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
@@ -1105,6 +1111,7 @@ final class HookInstallationCoordinator {
                 }
             } else if receivedSourceSetupAgents.contains(agent) { state = .eventReceived }
             else if agent == .hermes && hermesHookStatus?.isCurrent == true { state = hermesHookStatus?.hasConsent == true ? .configured : .waitingForConsent }
+            else if agent == .ohMyPi && ohMyPiExtensionStatus?.isCurrent == true { state = .configured }
             else { state = .installed }
             do { try sourceSetupAcceptance.record(agent: agent, state: state) }
             catch { onStatusMessage?("Isolated source-setup receipt could not be written.") }
@@ -1120,7 +1127,8 @@ final class HookInstallationCoordinator {
         if agent == .pi || agent == .ohMyPi {
             guard let data = loadBundledPiExtension() else { throw AutomaticConnectionError.missingExtension }
             let manager = agent == .pi ? piExtensionInstallationManager : ohMyPiExtensionInstallationManager
-            let updated = try await Task.detached { try manager.install(extensionSourceData: data) }.value
+            let socket = sourceSetupAcceptance?.socketURL
+            let updated = try await Task.detached { try manager.install(extensionSourceData: data, targetSocketURL: socket) }.value
             if agent == .pi { piExtensionStatus = updated } else { ohMyPiExtensionStatus = updated }
             return
         }
@@ -1163,6 +1171,7 @@ final class HookInstallationCoordinator {
         case .deepseekHarness: agent = .deepSeekDesktop
         case .minimaxCodeDesktop: agent = .miniMaxCodeDesktop
         case .hermesCLI: agent = .hermes
+        case .ohMyPi: agent = .ohMyPi
         default: agent = nil
         }
         if let agent {
@@ -1170,7 +1179,7 @@ final class HookInstallationCoordinator {
                profile.hasPrefix("/") {
                 hermesSessionEventProfiles.insert(URL(fileURLWithPath: profile).standardizedFileURL.path)
             }
-            if agent != .hermes { desktopConnectionStates[agent] = .eventReceived }
+            if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop { desktopConnectionStates[agent] = .eventReceived }
             receivedSourceSetupAgents.insert(agent)
             recordSourceSetupStates()
         }
@@ -1634,7 +1643,7 @@ final class HookInstallationCoordinator {
                 return
             }
         } else {
-            sourceData = nil
+            sourceData = loadBundledPiExtension()
         }
 
         self[keyPath: busy] = true
@@ -1643,10 +1652,10 @@ final class HookInstallationCoordinator {
             guard let self else { return }
             defer { self[keyPath: busy] = false }
             do {
-                let updated = if let sourceData {
+                let updated = if install, let sourceData {
                     try manager.install(extensionSourceData: sourceData)
                 } else {
-                    try manager.uninstall()
+                    try manager.uninstall(extensionSourceData: sourceData)
                 }
                 self[keyPath: status] = updated
                 self.intentStore.setIntent(install ? .installed : .uninstalled, for: agent)

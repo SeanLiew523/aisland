@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Verify script admission and exact loopback serving, without launching apps."""
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import plistlib
@@ -9,6 +11,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 import uuid
@@ -67,6 +70,39 @@ class FixtureScriptTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(origin+path)
                 self.assertEqual(error.exception.code,404); error.exception.close()
         finally: server.shutdown(); server.server_close(); thread.join()
+    def testCleanupRefusesProcessQueryErrorsBeforeAnyMutation(self):
+        for code in [2,3,-9]:
+            with self.subTest(returncode=code), patch('sys.argv',['fixture','--cleanup',str(self.root)]), \
+                 patch.object(module.subprocess,'run',return_value=subprocess.CompletedProcess([],code)) as query, \
+                 patch.object(module.shutil,'rmtree') as remove:
+                with self.assertRaisesRegex(ValueError,'process check failed.*cleanup refused'):
+                    module.main()
+                query.assert_called_once()
+                self.assertEqual(query.call_args.args[0][:2],['pgrep','-f'])
+                remove.assert_not_called()
+                self.assertTrue(self.root.exists())
+    def testCleanupRefusesMatchingLiveFixtureBeforeAnyMutation(self):
+        with patch('sys.argv',['fixture','--cleanup',str(self.root)]), \
+             patch.object(module.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as query, \
+             patch.object(module.shutil,'rmtree') as remove:
+            with self.assertRaisesRegex(ValueError,'Quit this fixture app'):
+                module.main()
+            query.assert_called_once(); remove.assert_not_called()
+    def testCleanupContinuesOnlyAfterConfirmedNoMatch(self):
+        with patch('sys.argv',['fixture','--cleanup',str(self.root)]), \
+             patch.object(module.subprocess,'run',return_value=subprocess.CompletedProcess([],1)) as query, \
+             patch.object(module.shutil,'rmtree') as remove, contextlib.redirect_stdout(io.StringIO()):
+            module.main()
+            self.assertEqual(query.call_count,2)
+            self.assertEqual(query.call_args_list[1].args[0],['defaults','delete',self.identifier])
+            self.assertEqual(remove.call_count,2)
+            self.assertEqual(remove.call_args_list[0].args[0],Path('/private/tmp/aisland-v011-acceptance')/self.manifest['runtime_case'])
+            self.assertEqual(remove.call_args_list[1].args[0],self.root)
+    def testCleanupPatternCompilesOnActualMacOSPgrep(self):
+        app=self.root/'installed/AIsland.app'
+        pattern='^'+module.re.escape(str(app/'Contents/MacOS/OpenIslandApp'))+'( |$)'
+        result=subprocess.run(['pgrep','-f',pattern],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+        self.assertEqual(result.returncode,1,result.stderr)
     def testSignerSwiftTypeChecksWithoutPreparingOrLaunchingApps(self):
         with tempfile.TemporaryDirectory(prefix='aisland-updater-signer-check-') as tmp:
             swift=Path(tmp)/'Signer.swift'; swift.write_text(module.SIGNER)

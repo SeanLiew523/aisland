@@ -229,8 +229,10 @@ def main():
     elif a.inspect: inspect(a.inspect,a.expect)
     elif a.cleanup:
         root,m,app,_=load(a.cleanup)
-        running=subprocess.run(['pgrep','-f','^'+re.escape(str(app/'Contents/MacOS/OpenIslandApp'))+'(?: |$)'],stdout=subprocess.DEVNULL).returncode==0
-        if running: raise ValueError('Quit this fixture app before cleanup; this script never terminates another app.')
+        result=subprocess.run(['pgrep','-f','^'+re.escape(str(app/'Contents/MacOS/OpenIslandApp'))+'( |$)'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+        if result.returncode not in (0,1):
+            raise ValueError(f'Fixture process check failed (pgrep exit {result.returncode}); cleanup refused.')
+        if result.returncode==0: raise ValueError('Quit this fixture app before cleanup; this script never terminates another app.')
         subprocess.run(['defaults','delete',m['bundle_id']],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         runtime=Path('/private/tmp/aisland-v011-acceptance')/m['runtime_case']
         if runtime.resolve()!=runtime: raise ValueError('Runtime tree redirected; cleanup refused.')

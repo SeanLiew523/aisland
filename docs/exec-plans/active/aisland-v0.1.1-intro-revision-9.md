@@ -109,6 +109,28 @@ or replay. Listen to the complete 22 seconds, focusing on 18.1–21.5 seconds.
 Triangle/Sphere buttons inspect 19.8/21.6-second static frames without sound.
 Existing fullscreen, mute, exit and reduced-motion review controls remain.
 
-Actual browser size/resize, audio output, perceived material/volume and user
-approval are pending. Native synchronization and formal app build remain gated
-on user confirmation; offline waveform checks do not approve the sound.
+### Root browser verification
+
+The first browser replay exposed stale cached scripts: the page displayed 09
+but still scheduled R8's home sound. The six script references now include their
+SHA-256 content prefixes. After reloading, the actual browser reported exactly
+one home cue, `dock-contacts`, at 18.1 s with stopAt 21.5 s. A label alone is not
+version evidence.
+
+Actual 22-second playback completed: 2649 recorded frames, maximum gap 11.5 ms,
+approval/answer transition maximum gap 9.5 ms, no gaps over 50 ms, audio context
+running, and zero owned audio sources at natural completion. These measurements
+describe this run, not a guarantee on all hardware. Evidence is
+`output/verification/v0.1.1-intro-revision-9/browser-playback.json`.
+
+The actual window stage (477 × 498) produced diameter 227.046875 px, matching
+the .7 formula within pixel rounding. The actual 1728 × 1080 fullscreen sphere
+screenshot shows the smaller centered character and unchanged top island;
+diameter is approximately 499 px. Screenshot:
+`output/verification/v0.1.1-intro-revision-9/browser-zh-fullscreen-sphere.png`.
+The screenshot is a fullscreen static frame; full playback timing was recorded
+in the ordinary browser view.
+
+Perceived material/volume and user approval remain pending. Native
+synchronization and formal app build remain gated on user confirmation;
+waveform checks and a running audio context do not approve the sound.

@@ -14,9 +14,14 @@ const definitions={idle:{sampleStart:5.3,frames:80,size:256,stillTime:1},
   orbit:{sampleStart:0,frames:100,size:1024,stillTime:2.5}};
 async function render(state,time,size,name) {
   const frame=engine.sample(state,time),colors=state==='orbit'?[]:['#f2ead8','#04070d'];
-  const svg=engine.svg(frame,'native-bloub',...colors);
+  // The SVG viewBox spans 316 logical units. Without intrinsic dimensions,
+  // loadImage rasterizes it at 316px before drawImage enlarges that bitmap.
+  // Rasterize the unchanged paths directly at the existing resource size.
+  const svg=engine.svg(frame,'native-bloub',...colors).replace('<svg ',`<svg width="${size}" height="${size}" `);
   const canvas=createCanvas(size,size),ctx=canvas.getContext('2d');
-  ctx.drawImage(await loadImage(Buffer.from(svg)),0,0,size,size);
+  const image=await loadImage(Buffer.from(svg));
+  if(image.width!==size||image.height!==size)throw new Error(`SVG decoder dimensions differ from resource size: ${state}`);
+  ctx.drawImage(image,0,0,size,size);
   const bytes=canvas.toBuffer('image/png');fs.writeFileSync(path.join(output,name),bytes);return hash(bytes);
 }
 (async()=>{
@@ -40,7 +45,8 @@ async function render(state,time,size,name) {
   ...fs.readdirSync(path.join(root,'aisland-website/src/vendor/bloub')).filter(n=>n.endsWith('.ts')).map(n=>'aisland-website/src/vendor/bloub/'+n)];
  const provenance={revision:9,approvedVisual:'R9 user-approved visual; original website orbit state; R8 score handled separately',
   sourceCommit:'54c4492b615f86a8d9dd05812aeac7fe67f5a4fd',
-  generator:'scripts/generate-onboarding-r9-visuals.cjs; @napi-rs/canvas SVG decode, transparent PNG at fixed sizes',
+  generator:'scripts/generate-onboarding-r9-visuals.cjs; @napi-rs/canvas SVG decode at explicit intrinsic resource dimensions, transparent PNG at fixed sizes',
+  rasterization:{svgIntrinsicDimensions:'width=height=resource size; viewBox and paths unchanged',avoids:'implicit 316px decode followed by bitmap enlargement',sizes:{idle:256,thinking:256,orbit:1024}},
   source_files_sha256:Object.fromEntries(sourceFiles.map(n=>[n,hash(fs.readFileSync(path.join(root,n)))])),
   manifest_file:'bloub-r9.json',manifest_sha256:hash(manifestBytes),generated_files_sha256:generated,
   geometry:{orbitDiameter:'min(viewportWidth*.68,viewportHeight*.66)*.7',orbitCenter:['viewportWidth/2','viewportHeight*.55'],

@@ -5,6 +5,26 @@ import OpenIslandCore
 @testable import OpenIslandApp
 
 struct OnboardingR9VisualTests {
+    @Test @MainActor func brandWarmupPreservesTheCallersGraphicsContext() throws {
+        let media = try OnboardingMedia(language: .english)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        let previous = NSGraphicsContext.current
+        defer { NSGraphicsContext.current = previous }
+        NSGraphicsContext.current = context
+        context.cgContext.clear(CGRect(x: 0, y: 0, width: 64, height: 64))
+        context.cgContext.translateBy(x: 7, y: 11)
+        context.cgContext.scaleBy(x: 2, y: 3)
+        let transform = context.cgContext.ctm
+        let geometry = OnboardingGeometry(width: 302, height: 32, hardwareLeft: 650, hardwareRight: 860, hasHardwareNotch: true)
+        _ = OnboardingSceneView(media: media, language: .english, geometry: geometry)
+        #expect(NSGraphicsContext.current === context)
+        #expect(context.cgContext.ctm == transform)
+        #expect(bitmap.colorAt(x: 20, y: 20)?.alphaComponent == 0)
+    }
+
     @Test func geometryMatchesApprovedPrototypeAtEveryViewportAndResize() throws {
         for reduced in [false, true] {
             for size in [CGSize(width: 380,height: 500), CGSize(width: 1702,height: 1016),

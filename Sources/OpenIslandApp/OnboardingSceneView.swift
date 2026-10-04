@@ -11,6 +11,7 @@ final class OnboardingSceneView: NSView {
     var geometry: OnboardingGeometry
     var time: Double = 0
     var reduceMotion = false
+    private var brandLabels: [NSAttributedString] = []
     override var isFlipped: Bool { true }
 
     init(media: OnboardingMedia, language: OnboardingLanguage, geometry: OnboardingGeometry) {
@@ -19,6 +20,25 @@ final class OnboardingSceneView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel(language == .chinese ? "AIsland 欢迎介绍，示例任务演示" : "AIsland welcome, demo task scenes")
+        brandLabels = ["f7f5ee", "24354f"].map {
+            NSAttributedString(string: "AIsland", attributes: [
+                .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+                .foregroundColor: NSColor(cgColor: color($0))!
+            ])
+        }
+        // Cold AppKit font layout/rasterization took ~36ms in the isolated
+        // first-render probe. Prime only this small label before the score;
+        // never render full scenes or retain full-screen warmup textures.
+        if let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 128, pixelsHigh: 40,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+           let context = NSGraphicsContext(bitmapImageRep: bitmap) {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            for label in brandLabels { label.draw(at: .zero) }
+            context.cgContext.flush()
+            NSGraphicsContext.restoreGraphicsState()
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
@@ -82,11 +102,7 @@ final class OnboardingSceneView: NSView {
             c.strokeEllipse(in: CGRect(x: x-rx, y: y-ry, width: rx*2, height: ry*2)); c.restoreGState()
         }
         let lightBackground = t >= 5.3 && t < 8.2 || t >= 13.2
-        let brand = NSAttributedString(string: "AIsland", attributes: [
-            .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
-            .foregroundColor: NSColor(cgColor: color(lightBackground ? "24354f" : "f7f5ee"))!
-        ])
-        brand.draw(at: CGPoint(x: 30, y: max(40, window?.screen?.safeAreaInsets.top ?? 0) + 12))
+        brandLabels[lightBackground ? 1 : 0].draw(at: CGPoint(x: 30, y: max(40, window?.screen?.safeAreaInsets.top ?? 0) + 12))
     }
 
     private func brandCharacter(_ c: CGContext, _ sprite: OnboardingBrandGeometry.Sprite) {

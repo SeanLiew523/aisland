@@ -170,14 +170,27 @@ public struct RuntimeLifecycleReducer: Sendable {
         if let previous {
             guard payload.timestamp >= previous.timestamp else { return [] }
             if let sequence = payload.sequence, let oldSequence = previous.sequence, sequence <= oldSequence { return [] }
+            // MiniMax's reader may first observe a committed terminal for a
+            // newer native turn. Synchronize it silently after a finished or
+            // restored-unobserved cursor; never replace a live observed turn.
+            // BridgeServer admits MiniMax outcomes only through its DB monitor.
+            let synchronizesNewNativeTerminal = payload.source.isMiniMaxCode
+                && payload.sourceObservedStart == false
+                && [.turnCompleted, .turnFailed, .turnInterrupted].contains(payload.event)
+                && !previous.observedStart
+                && payload.sourceRuntimeVersion == (payload.source == .minimaxCodeDesktop ? "3.1.0" : "0.5.3")
+                && payload.metadataDatabasePath?.hasPrefix("/") == true
+                && payload.metadataDatabasePath?.hasSuffix("/v2/sqlite/runtime-state.sqlite") == true
+                && payload.turnID.map { $0 != previous.turnID && !previous.seenTurns.contains($0) } == true
             if payload.event == .turnStarted {
                 // Replayed starts cannot reopen completed turns or become live after restart.
                 if let turn = payload.turnID, previous.seenTurns.contains(turn) { return [] }
             } else {
-                if let turn = payload.turnID, let current = previous.turnID, turn != current { return [] }
+                if let turn = payload.turnID, let current = previous.turnID, turn != current,
+                   !synchronizesNewNativeTerminal { return [] }
                 if payload.event == .sessionEnded {
                     if previous.sessionEnded { return [] }
-                } else if previous.finished { return [] }
+                } else if previous.finished && !synchronizesNewNativeTerminal { return [] }
             }
         }
         let started = payload.event == .turnStarted

@@ -158,6 +158,89 @@ struct MiniMaxCodeMetadataTests {
         #expect(monitor.monitoredSessionCount == 128)
     }
 
+    @Test func twoNativeConversationsInOneWorkspaceKeepIndependentLifecycleAndRestoreIdentity() throws {
+        let fixture = try Fixture(); defer { fixture.dispose() }
+        try fixture.insert()
+        try fixture.insert(turn: "t2", session: "s2", sequence: 2)
+        let registry = fixture.directory.appendingPathComponent("two-session-registry.json")
+        var monitor = MiniMaxCodeLifecycleMonitor()
+        var reducer = RuntimeLifecycleReducer(registryURL: registry)
+        var state = SessionState()
+        for value in [observation(fixture), observation(fixture, turn: "t2", session: "s2")] {
+            for event in monitor.observe(value, now: time).flatMap({ reducer.receive($0) }) { state.apply(event) }
+        }
+        #expect(monitor.monitoredSessionCount == 2)
+        #expect(state.liveRunningCount == 2)
+        try fixture.exec("UPDATE local_runtime_turn_ingress SET status='completed',completed_at_ms=101000 WHERE session_id='s1' AND turn_id='t1'")
+        let ends = monitor.poll(now: time.addingTimeInterval(1))
+        #expect(ends.map(\.sessionID) == ["s1"])
+        for event in ends.flatMap({ reducer.receive($0) }) { state.apply(event) }
+        #expect(state.liveRunningCount == 1)
+        #expect(state.sessions.count == 2)
+        let targets = Dictionary(uniqueKeysWithValues: state.sessions.map { ($0.id, $0.jumpTarget) })
+        var restored = SessionState()
+        for event in RuntimeLifecycleReducer(registryURL: registry).restoredEvents { restored.apply(event) }
+        #expect(restored.sessions.count == 2)
+        #expect(restored.liveRunningCount == 1)
+        #expect(Dictionary(uniqueKeysWithValues: restored.sessions.map { ($0.id, $0.jumpTarget) }) == targets)
+        for _ in 0..<3 {
+            let alive = MiniMaxCodeDesktopLiveness.aliveSessionIDs(in: restored.sessions, runningSourceVersions: ["3.1.0"])
+            _ = restored.markProcessLiveness(aliveSessionIDs: alive)
+            _ = restored.removeInvisibleSessions()
+        }
+        #expect(restored.sessions.count == 2)
+        #expect(Set(restored.sessions.compactMap { $0.jumpTarget?.appConversationID }) == ["s1", "s2"])
+    }
+
+    @Test func subsequentTerminalFirstNativeTurnSynchronizesWithoutSuccessOrReplay() throws {
+        for status in ["completed", "failed", "aborted"] {
+            let fixture = try Fixture(); defer { fixture.dispose() }
+            try fixture.insert()
+            var monitor = MiniMaxCodeLifecycleMonitor()
+            var reducer = RuntimeLifecycleReducer()
+            var state = SessionState()
+            for event in monitor.observe(observation(fixture), now: time).flatMap({ reducer.receive($0) }) { state.apply(event) }
+            try fixture.exec("UPDATE local_runtime_turn_ingress SET status='completed',completed_at_ms=101000 WHERE turn_id='t1'")
+            for event in monitor.poll(now: time.addingTimeInterval(1)).flatMap({ reducer.receive($0) }) { state.apply(event) }
+            try fixture.insert(turn: "t2", status: status, accepted: 102000, sequence: 2, completed: 103000)
+            let end = try #require(monitor.observe(observation(fixture, turn: "t2", timestamp: time.addingTimeInterval(3)), now: time.addingTimeInterval(3)).first)
+            #expect(end.sourceObservedStart == false)
+            let synchronized = reducer.receive(end)
+            #expect(synchronized.count == 2)
+            #expect(!succeeds(synchronized))
+            for event in synchronized { state.apply(event) }
+            #expect(state.sessions.first?.updatedAt == time.addingTimeInterval(3))
+            #expect(state.sessions.first?.runtimeOutcome == (status == "completed" ? .succeeded : status == "failed" ? .failed : .interrupted))
+            #expect(reducer.receive(end).isEmpty)
+            var oldReplay = end; oldReplay.turnID = "t1"; oldReplay.timestamp = time.addingTimeInterval(4)
+            #expect(reducer.receive(oldReplay).isEmpty)
+        }
+    }
+
+    @Test func restoredUnobservedRunningTurnCanSynchronizeANewerTerminalButLiveTurnCannot() throws {
+        let fixture = try Fixture(); defer { fixture.dispose() }; try fixture.insert()
+        let registry = fixture.directory.appendingPathComponent("running-registry.json")
+        var firstMonitor = MiniMaxCodeLifecycleMonitor()
+        var firstReducer = RuntimeLifecycleReducer(registryURL: registry)
+        _ = firstMonitor.observe(observation(fixture), now: time).flatMap { firstReducer.receive($0) }
+        try fixture.exec("UPDATE local_runtime_turn_ingress SET status='completed',completed_at_ms=101000 WHERE turn_id='t1'")
+        try fixture.insert(turn: "t2", status: "completed", accepted: 102000, sequence: 2, completed: 103000)
+        var newMonitor = MiniMaxCodeLifecycleMonitor()
+        let end = try #require(newMonitor.observe(observation(fixture, turn: "t2", timestamp: time.addingTimeInterval(3)), now: time.addingTimeInterval(3)).first)
+        // A genuinely observed current start cannot be ended by another turn.
+        #expect(firstReducer.receive(end).isEmpty)
+        var restored = RuntimeLifecycleReducer(registryURL: registry)
+        let synchronized = restored.receive(end)
+        #expect(synchronized.count == 2)
+        #expect(!succeeds(synchronized))
+        var state = SessionState()
+        for event in synchronized { state.apply(event) }
+        #expect(state.sessions.first?.phase == .completed)
+        #expect(state.sessions.first?.jumpTarget?.appConversationID == "s1")
+        var lateOld = end; lateOld.turnID = "t1"; lateOld.timestamp = time.addingTimeInterval(4)
+        #expect(restored.receive(lateOld).isEmpty)
+    }
+
     private final class Fixture {
         let directory: URL
         let path: String

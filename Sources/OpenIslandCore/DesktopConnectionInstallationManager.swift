@@ -47,16 +47,14 @@ public struct DesktopConnectionInstallationManager: Sendable {
         // or ask a normal App user to install a development toolchain.
         guard let bundledProbeURL, FileManager.default.isExecutableFile(atPath: bundledProbeURL.path) else { throw Failure.missingRuntime }
         let probeHash = digest(try regular(bundledProbeURL, maximum: 4 * 1024 * 1024))
-        let externalNode = nodeURL.flatMap { value -> URL? in
-            FileManager.default.isExecutableFile(atPath: value.path)
-                && (try? value.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true ? value : nil
-        }
-        let runtime = externalNode ?? evidence.executableURL
+        // Desktop hooks must not depend on an unrelated CLI's Node installation.
+        // Use the reviewed source application's own Electron runtime throughout.
+        let runtime = evidence.executableURL
         guard FileManager.default.isExecutableFile(atPath: runtime.path),
               (try runtime.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { throw Failure.missingRuntime }
-        let kind = externalNode == nil ? "minimaxDesktopElectron" : "node"
+        let kind = "minimaxDesktopElectron"
         var runtimeEnvironment = environment
-        if externalNode == nil { runtimeEnvironment["ELECTRON_RUN_AS_NODE"] = "1" }
+        runtimeEnvironment["ELECTRON_RUN_AS_NODE"] = "1"
         let installer = packagesDirectory.appendingPathComponent("MiniMaxCode/scripts/install.mjs")
         _ = try regular(installer)
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)

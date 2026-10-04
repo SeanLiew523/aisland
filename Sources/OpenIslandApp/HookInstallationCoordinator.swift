@@ -1225,7 +1225,9 @@ final class HookInstallationCoordinator {
         let manager = DesktopConnectionInstallationManager(supportDirectory: sourceSetupAcceptance?.supportURL,
             packagesDirectory: packages, nodeURL: node, bundledProbeURL: probe,
             bridgeSocketURL: sourceSetupAcceptance?.socketURL ?? BridgeSocketLocation.defaultURL,
-            preservesPreviousHelper: sourceSetupAcceptance != nil)
+            // Relocate receipt-validated helpers to this runtime's durable
+            // support directory; never retain a dependency on a test directory.
+            preservesPreviousHelper: true)
         if agent == .miniMaxCodeDesktop {
             let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
                 .filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }

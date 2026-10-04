@@ -86,18 +86,19 @@ struct DesktopConnectionInstallationTests {
         try Data("foreign change".utf8).write(to: root.appendingPathComponent("support/deepseek-passive/package/core.mjs"))
         #expect(throws: DesktopConnectionInstallationManager.Failure.unownedInstallation) { try manager.configureDeepSeek(evidence: evidence, sourceRunning: false) }
     }
-    @Test func nativeMiniMaxRequiresBundledProbeAndUsesOfficialRuntimeWhenExternalNodeIsAbsent() throws {
+    @Test func nativeMiniMaxUsesOfficialRuntimeAndRelocatesAnOwnedTemporaryHelper() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("aisland-native-probe-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("MiniMax Code.app")
         let executable = source.appendingPathComponent("Contents/MacOS/MiniMax Code")
         let probe = root.appendingPathComponent("MiniMaxCodeSourceProbe")
+        let externalNode = root.appendingPathComponent("unrelated-cli/bin/node")
         let installer = root.appendingPathComponent("packages/MiniMaxCode/scripts/install.mjs")
         let dataDir = root.appendingPathComponent("active")
-        for directory in [executable.deletingLastPathComponent(), installer.deletingLastPathComponent(), dataDir] {
+        for directory in [executable.deletingLastPathComponent(), externalNode.deletingLastPathComponent(), installer.deletingLastPathComponent(), dataDir] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        for file in [executable, probe] {
+        for file in [executable, probe, externalNode] {
             try Data("#!/bin/sh\nexit 0\n".utf8).write(to: file)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
         }
@@ -105,14 +106,24 @@ struct DesktopConnectionInstallationTests {
         let evidence = AgentInstallationDetector.Evidence(executableURL: executable, bundleURL: source, version: "3.1.0")
         let missing = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil)
         #expect(throws: DesktopConnectionInstallationManager.Failure.missingRuntime) { try missing.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) }
+        let oldHelper = root.appendingPathComponent("temporary-helper/minimaxcode-passive")
+        let config = dataDir.appendingPathComponent("plugins/aisland-minimaxcode-passive/config.json")
+        try FileManager.default.createDirectory(at: oldHelper, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = try JSONSerialization.data(withJSONObject: ["sourceDiscovery": ["probePath": oldHelper.appendingPathComponent("source-probe").path]])
+        try original.write(to: config)
+        try JSONSerialization.data(withJSONObject: ["owner": "aisland.minimaxcode-passive.installer", "dataDir": dataDir.resolvingSymlinksInPath().path, "helperDirectory": oldHelper.path]).write(to: oldHelper.appendingPathComponent("receipt.json"))
         let box = Calls()
-        let manager = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil, bundledProbeURL: probe) { url, args, env in
+        let manager = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: externalNode, bundledProbeURL: probe, preservesPreviousHelper: true) { url, args, env in
             box.record(url: url, arguments: args)
             #expect(url == executable)
             #expect(env["ELECTRON_RUN_AS_NODE"] == "1")
             #expect(args[0] == installer.path)
             let request = try #require(JSONSerialization.jsonObject(with: Data(args[1].utf8)) as? [String: Any])
             #expect(request["hookRuntimeKind"] as? String == "minimaxDesktopElectron")
+            #expect(request["nodePath"] as? String == executable.path)
+            #expect(request["supportDir"] as? String == root.appendingPathComponent("Library/Application Support/AIsland").path)
+            #expect(request["previousHelperDirectory"] as? String == oldHelper.path)
             #expect(request["bundledProbePath"] as? String == probe.path)
             #expect((request["bundledProbeHash"] as? String)?.count == 64)
             #expect(request["enableCLI"] as? Bool == false)
@@ -121,6 +132,7 @@ struct DesktopConnectionInstallationTests {
         }
         #expect(try manager.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) == .waitingForActivation)
         #expect(box.count == 2)
+        #expect(try Data(contentsOf: config) == original) // Planning never rewrites source configuration.
         // A successful process with empty/non-JSON stdout is still a failed
         // metadata handshake; it must never progress to apply:true.
         let emptyCalls = Calls()

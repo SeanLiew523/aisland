@@ -108,6 +108,35 @@ struct HookInstallationCoordinatorTests {
     }
 
     @Test
+    func oldOwnedOhMyPiTemplateIsRefreshedUnlessUserRemovedConnection() async throws {
+        let roots = try makeIsolatedRoots()
+        defer { roots.cleanup() }
+        let executable = roots.omp.appendingPathComponent("omp")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let manager = PiExtensionInstallationManager(agent: .ohMyPi, agentDirectory: roots.omp)
+        _ = try manager.install(extensionSourceData: Data("// Older, owned extension __OPEN_ISLAND_PI_SOURCE__\n".utf8))
+        #expect(try manager.status().isCurrent)
+        let suite = "aisland-omp-template-refresh-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let intent = AgentIntentStore(defaults: defaults)
+        let coordinator = HookInstallationCoordinator(
+            intentStore: intent,
+            piExtensionInstallationManager: PiExtensionInstallationManager(agent: .pi, agentDirectory: roots.pi),
+            ohMyPiExtensionInstallationManager: manager,
+            installationDetector: AgentInstallationDetector(executableDirectories: [roots.omp], applicationDirectories: [])
+        )
+        await coordinator.detectInstalledSources()
+        coordinator.loadPiExtensionStatuses()
+        #expect(coordinator.ohMyPiExtensionStatus?.isInstalled == true)
+        #expect(coordinator.ohMyPiExtensionStatus?.isCurrent == false)
+        #expect(coordinator.shouldAutoInstall(.ohMyPi))
+        intent.setIntent(.uninstalled, for: .ohMyPi)
+        #expect(!coordinator.shouldAutoInstall(.ohMyPi))
+    }
+
+    @Test
     func loadPiExtensionStatusesIsolatesCorruptedOhMyPiManifest() throws {
         let roots = try makeIsolatedRoots()
         defer { roots.cleanup() }

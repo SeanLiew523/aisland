@@ -789,7 +789,7 @@ final class HookInstallationCoordinator {
         // usage caches or repairs the optional usage bridge.
         if let sourceSetupAcceptance {
             if sourceSetupAcceptance.agents.contains(.ohMyPi), detectedInstallations[.ohMyPi] != nil {
-                do { ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(targetSocketURL: sourceSetupAcceptance.socketURL) }
+                do { ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(targetSocketURL: sourceSetupAcceptance.socketURL, extensionSourceData: loadBundledPiExtension()) }
                 catch { automaticConnectionErrors[.ohMyPi] = error.localizedDescription }
             }
             return
@@ -981,8 +981,11 @@ final class HookInstallationCoordinator {
     /// corrupted manifest cannot block the other agent's status refresh.
     func loadPiExtensionStatuses() {
         guard !isRuntimeAcceptance else { return }
+        // Ownership alone does not mean the installed template is current.
+        // Compare against this build so existing connections receive fixes.
+        let sourceData = loadBundledPiExtension()
         do {
-            piExtensionStatus = try piExtensionInstallationManager.status()
+            piExtensionStatus = try piExtensionInstallationManager.status(extensionSourceData: sourceData)
         } catch {
             onStatusMessage?(
                 "Failed to read Pi extension status: \(error.localizedDescription)"
@@ -990,7 +993,7 @@ final class HookInstallationCoordinator {
         }
 
         do {
-            ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status()
+            ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(extensionSourceData: sourceData)
         } catch {
             onStatusMessage?(
                 "Failed to read Oh My Pi extension status: \(error.localizedDescription)"

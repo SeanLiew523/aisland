@@ -1428,6 +1428,9 @@ final class ProcessMonitoringCoordinator {
     // MARK: - Display helpers
 
     func liveAttachmentKey(for session: AgentSession) -> String? {
+        if let identity = MiniMaxCodeDisplayIdentity.key(for: session) {
+            return identity
+        }
         guard let jumpTarget = session.jumpTarget else {
             return nil
         }

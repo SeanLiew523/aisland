@@ -42,22 +42,34 @@ struct GhosttySourceBindingStore {
     var directory: URL
     var snapshotProvider: () -> GhosttySourceSnapshot?
     var now: () -> Date = Date.init
+    var diagnostic: (GhosttyDiagnosticEvent) -> Void = { _ in }
 
     static func production(
         agent: String, sessionID: String, tty: String?, cwd: String, event: GhosttySourceEvent
     ) -> GhosttySourceBinding? {
         let directory = BridgeSocketLocation.defaultURL.deletingLastPathComponent()
             .appendingPathComponent("ghostty-source-bindings", isDirectory: true)
-        return Self(directory: directory, snapshotProvider: GhosttySourceLocator.snapshot)
+        return Self(directory: directory, snapshotProvider: GhosttySourceLocator.snapshot, diagnostic: GhosttyDiagnostics.record)
             .resolve(agent: agent, sessionID: sessionID, tty: tty, cwd: cwd, event: event)
     }
 
     func resolve(
         agent: String, sessionID: String, tty: String?, cwd: String, event: GhosttySourceEvent
     ) -> GhosttySourceBinding? {
+        var reason = "invalidSource"
+        var surfaceID: String?
+        var flags = ["hasRealTTY": Self.realTTY(tty) != nil]
+        var counts: [String: Int] = [:]
+        let eventName = event == .startup ? "startup" : event == .userSubmit ? "userSubmit" : "background"
+        defer { diagnostic(.init(stage: "binding", agent: agent, event: eventName, reason: reason,
+                                 nativeID: sessionID, surfaceID: surfaceID, flags: flags, counts: counts)) }
         guard !agent.isEmpty, agent.utf8.count <= 32, sessionID.utf8.count <= 512,
-              !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let tty = Self.realTTY(tty), let normalizedCWD = Self.path(cwd) else { return nil }
+              !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        reason = "missingTTY"
+        guard let tty = Self.realTTY(tty) else { return nil }
+        reason = "invalidCWD"
+        guard let normalizedCWD = Self.path(cwd) else { return nil }
+        reason = "storageUnavailable"
         let keyData = try? JSONEncoder().encode([agent, sessionID, tty])
         guard let keyData else { return nil }
         let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
@@ -70,6 +82,7 @@ struct GhosttySourceBindingStore {
                   (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else { return nil }
             try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         } catch { return nil }
+        reason = "lockUnavailable"
         let lockURL = directory.appendingPathComponent(key + ".lock")
         let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
         guard lockFD >= 0 else { return nil }
@@ -79,6 +92,7 @@ struct GhosttySourceBindingStore {
         let receiptURL = directory.appendingPathComponent(key + ".json")
         var admittedID: String?
         if let attrs = try? fm.attributesOfItem(atPath: receiptURL.path) {
+            reason = "receiptRejected"
             guard attrs[.type] as? FileAttributeType == .typeRegular,
                   ((attrs[.size] as? NSNumber)?.intValue ?? Int.max) <= 16_384,
                   (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
@@ -88,29 +102,47 @@ struct GhosttySourceBindingStore {
                   now().timeIntervalSince(binding.capturedAt) >= 0 else { return nil }
             // A changed cwd does not identify a different surface. Keep the ID;
             // terminal shells and agents can legitimately change directories.
-            if now().timeIntervalSince(binding.capturedAt) < 24 * 60 * 60 { return binding }
+            surfaceID = binding.sessionID
+            if now().timeIntervalSince(binding.capturedAt) < 24 * 60 * 60 { reason = "receiptHit"; return binding }
+            reason = "receiptExpired"
             guard event != .background else { return nil }
             // Refresh an aged receipt only from an admitted source event and
             // only if that same surface is still focused. Never replace its ID.
             admittedID = binding.sessionID
         }
-        guard event != .background,
-              let snapshot = snapshotProvider(),
-              snapshot.frontmostBefore, snapshot.frontmostAfter,
-              !snapshot.focusedBefore.isEmpty, snapshot.focusedBefore == snapshot.focusedAfter,
-              !snapshot.surfaces.isEmpty, snapshot.surfaces.count <= 256,
+        reason = "backgroundWithoutReceipt"
+        guard event != .background else { return nil }
+        reason = "snapshotUnavailable"
+        guard let snapshot = snapshotProvider() else { return nil }
+        flags["frontmostBefore"] = snapshot.frontmostBefore
+        flags["frontmostAfter"] = snapshot.frontmostAfter
+        flags["focusStable"] = !snapshot.focusedBefore.isEmpty && snapshot.focusedBefore == snapshot.focusedAfter
+        counts["surfaceCount"] = snapshot.surfaces.count
+        surfaceID = snapshot.focusedBefore
+        reason = "notFrontmost"
+        guard snapshot.frontmostBefore, snapshot.frontmostAfter else { return nil }
+        reason = "focusChanged"
+        guard !snapshot.focusedBefore.isEmpty, snapshot.focusedBefore == snapshot.focusedAfter else { return nil }
+        reason = "invalidInventory"
+        guard !snapshot.surfaces.isEmpty, snapshot.surfaces.count <= 256,
               snapshot.surfaces.allSatisfy({ !$0.id.isEmpty }),
               Set(snapshot.surfaces.map(\.id)).count == snapshot.surfaces.count else { return nil }
         let matches = snapshot.surfaces.filter { Self.path($0.cwd) == normalizedCWD }
-        guard let focused = matches.first(where: { $0.id == snapshot.focusedBefore }),
-              admittedID == nil || admittedID == focused.id,
-              event == .userSubmit || matches.count == 1 else { return nil }
+        counts["cwdMatchCount"] = matches.count
+        reason = "focusedCWDNotFound"
+        guard let focused = matches.first(where: { $0.id == snapshot.focusedBefore }) else { return nil }
+        reason = "differentAdmittedID"
+        guard admittedID == nil || admittedID == focused.id else { return nil }
+        reason = "ambiguousCWD"
+        guard event == .userSubmit || matches.count == 1 else { return nil }
         let binding = GhosttySourceBinding(sessionID: focused.id, workingDirectory: normalizedCWD,
                                            title: focused.title, capturedAt: now())
+        reason = "receiptWriteFailed"
         do {
             let data = try JSONEncoder().encode(binding)
             try data.write(to: receiptURL, options: .atomic)
             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: receiptURL.path)
+            reason = "receiptWritten"
             return binding
         } catch { return nil }
     }
@@ -146,8 +178,8 @@ enum GhosttySourceLocator {
     // mutation, keystrokes, activation or focus changes.
     static let script = """
     tell application "Ghostty"
-        if not (it is running) then return ""
-        if not frontmost then return ""
+        if not (it is running) then return "diagnostic:notRunning"
+        if not frontmost then return "diagnostic:notFrontmost"
         set firstID to id of focused terminal of selected tab of front window
         set rows to ""
         set surfaceCount to 0
@@ -155,14 +187,14 @@ enum GhosttySourceLocator {
             repeat with tabRef in tabs of win
                 repeat with terminalRef in terminals of tabRef
                     set surfaceCount to surfaceCount + 1
-                    if surfaceCount > 256 then return ""
+                    if surfaceCount > 256 then return "diagnostic:tooManySurfaces"
                     set rows to rows & (id of terminalRef as text) & (ASCII character 31) & (working directory of terminalRef as text) & (ASCII character 31) & (name of terminalRef as text) & linefeed
                 end repeat
             end repeat
         end repeat
-        if not frontmost then return ""
+        if not frontmost then return "diagnostic:notFrontmost"
         set lastID to id of focused terminal of selected tab of front window
-        if firstID is not lastID then return ""
+        if firstID is not lastID then return "diagnostic:focusChanged"
         return (firstID as text) & linefeed & rows
     end tell
     """
@@ -185,6 +217,10 @@ enum GhosttySourceLocator {
     }
 
     static func snapshot() -> GhosttySourceSnapshot? {
+        var reason = "launchFailed"
+        var status: Int?
+        defer { GhosttyDiagnostics.record(.init(stage: "locator", reason: reason,
+                                               counts: status.map { ["exitStatus": $0] } ?? [:])) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -202,14 +238,30 @@ enum GhosttySourceLocator {
             }
             readFinished.signal()
         }
+        reason = "timeout"
         guard finished.wait(timeout: .now() + 1.5) == .success else {
             process.terminate()
             return nil
         }
-        guard readFinished.wait(timeout: .now() + 0.2) == .success,
-              process.terminationStatus == 0, let data = output.value,
-              let text = String(data: data, encoding: .utf8) else { return nil }
-        return parse(text.trimmingCharacters(in: .newlines))
+        status = Int(process.terminationStatus)
+        reason = "readTimeout"
+        guard readFinished.wait(timeout: .now() + 0.2) == .success else { return nil }
+        reason = "exitFailed"
+        guard process.terminationStatus == 0 else { return nil }
+        reason = "invalidOutput"
+        guard let data = output.value, let text = String(data: data, encoding: .utf8) else { return nil }
+        return decodeDiagnosticOutput(text, diagnostic: { reason = $0 })
+    }
+
+    static func decodeDiagnosticOutput(_ output: String, diagnostic: (String) -> Void) -> GhosttySourceSnapshot? {
+        let text = output.trimmingCharacters(in: .newlines)
+        if ["diagnostic:notRunning", "diagnostic:notFrontmost", "diagnostic:tooManySurfaces", "diagnostic:focusChanged"].contains(text) {
+            diagnostic(String(text.dropFirst("diagnostic:".count)))
+            return nil
+        }
+        let snapshot = parse(text)
+        diagnostic(snapshot != nil ? "snapshotReady" : text.isEmpty ? "emptySnapshot" : "parseFailed")
+        return snapshot
     }
 
     private final class Output: @unchecked Sendable {

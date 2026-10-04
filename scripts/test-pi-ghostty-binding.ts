@@ -31,6 +31,7 @@ for (const agent of ["pi", "oh-my-pi"]) {
         const handlers = new Map<string, Function>(), sent: any[] = [];
         const ctx = { cwd: "/tmp/shared", hasUI: true, sessionManager: { getSessionId: () => id } };
         extension({ on: (name: string, handler: Function) => handlers.set(name, handler) }, {
+          diagnostic: () => {},
           environment: { TERM_PROGRAM: "ghostty", TERM_SESSION_ID: "foreign-terminal-id", GHOSTTY_SURFACE_ID: "unsupported-id" },
           getTTY: () => "/dev/synthetic", normalizeDirectory: normalize, heartbeatIntervalMs: 5,
           ghosttySnapshot: () => { reads++; return snapshot(focusedID); },
@@ -71,6 +72,7 @@ for (const agent of ["pi", "oh-my-pi"]) {
 test("unique cwd startup binds only UI source; plain before_agent_start cannot capture", () => {
   const handlers = new Map<string, Function>(), sent: any[] = []; let reads = 0;
   callback({ on: (name, handler) => handlers.set(name, handler) }, {
+    diagnostic: () => {},
     environment: { TERM_PROGRAM: "ghostty", TERM_SESSION_ID: "foreign" }, getTTY: () => undefined,
     normalizeDirectory: normalize, ghosttySnapshot: () => { reads++; return { ...snapshot(), surfaces: [surfaces[0]] }; },
     sendCommand: async command => { sent.push(command); },
@@ -86,6 +88,7 @@ test("unique cwd startup binds only UI source; plain before_agent_start cannot c
 test("authoritative non-Ghostty terminal rejects inherited Ghostty markers", () => {
   const handlers = new Map<string, Function>(), sent: any[] = [];
   callback({ on: (name, handler) => handlers.set(name, handler) }, {
+    diagnostic: () => {},
     environment: { TERM_PROGRAM: "Apple_Terminal", GHOSTTY_RESOURCES_DIR: "/synthetic/inherited", TERM_SESSION_ID: "terminal-session" },
     getTTY: () => undefined, normalizeDirectory: normalize,
     ghosttySnapshot: () => { throw new Error("must not query unrelated Ghostty"); },

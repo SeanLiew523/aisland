@@ -89,6 +89,7 @@ final class AppModel {
     let overlay = OverlayUICoordinator()
     let discovery = SessionDiscoveryCoordinator()
     @ObservationIgnored private let startupWorkflows = StartupWorkflows()
+    @ObservationIgnored private var shouldRecordJumpDiagnostics = false
     let monitoring = ProcessMonitoringCoordinator()
     let codexAppServer = CodexAppServerCoordinator()
     let updateChecker = UpdateChecker()
@@ -1171,6 +1172,7 @@ final class AppModel {
         hasStarted = true
 
         let loadRuntimeState = loadRuntimeState && acceptanceConfiguration == nil
+        shouldRecordJumpDiagnostics = GhosttyJumpDiagnostics.shouldRecord(loadRuntimeState: loadRuntimeState, isAcceptance: acceptanceConfiguration != nil)
         if loadRuntimeState {
             isResolvingInitialLiveSessions = true
 
@@ -1461,6 +1463,7 @@ final class AppModel {
     func jumpToSession(_ session: AgentSession) {
         guard let jumpTarget = resolvedJumpTarget(for: session),
               jumpTarget.terminalApp.lowercased() != "unknown" else {
+            recordJumpDiagnostic(target: session.jumpTarget, phase: "failure")
             lastActionMessage = "Cannot jump: terminal app is unknown."
             return
         }
@@ -1494,12 +1497,15 @@ final class AppModel {
             return
         }
         guard let jumpTarget else {
+            recordJumpDiagnostic(target: nil, phase: "failure")
             lastActionMessage = "No jump target is available yet."
             return
         }
 
         let shouldDelayForDismissAnimation = isOverlayVisible
         let jumpAction = terminalJumpAction
+
+        recordJumpDiagnostic(target: jumpTarget, phase: "start")
 
         dismissOverlayForJump()
         jumpTask?.cancel()
@@ -1518,6 +1524,7 @@ final class AppModel {
                 }
 
                 self?.lastActionMessage = result
+                self?.recordJumpDiagnostic(target: jumpTarget, phase: "success")
             } catch is CancellationError {
                 return
             } catch {
@@ -1526,8 +1533,14 @@ final class AppModel {
                 }
 
                 self?.lastActionMessage = "Jump failed: \(error.localizedDescription)"
+                self?.recordJumpDiagnostic(target: jumpTarget, phase: "failure", error: error)
             }
         }
+    }
+
+    private func recordJumpDiagnostic(target: JumpTarget?, phase: String, error: Error? = nil) {
+        guard shouldRecordJumpDiagnostics else { return }
+        GhosttyDiagnostics.record(GhosttyJumpDiagnostics.event(target: target, phase: phase, error: error))
     }
 
     func approvePermission(for sessionID: String, approved: Bool) {

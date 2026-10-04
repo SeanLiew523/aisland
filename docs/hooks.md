@@ -506,3 +506,9 @@ and explicit missing-ID redirection. The `cmux` terminal uses `CMUX_SURFACE_ID`.
 | [`Sources/OpenIslandApp/Resources/open-island-pi.ts`](../Sources/OpenIslandApp/Resources/open-island-pi.ts) | Shared Pi/OMP runtime extension |
 | [`Sources/OpenIslandCore/BridgeServer.swift`](../Sources/OpenIslandCore/BridgeServer.swift) | Unix socket server — handles incoming hook payloads |
 | [`Sources/OpenIslandCore/BridgeTransport.swift`](../Sources/OpenIslandCore/BridgeTransport.swift) | Protocol codec and envelope types |
+
+### Opt-in Ghostty support diagnostics
+
+An existing, user-owned empty regular file `.ghostty-diagnostics-enabled` with mode `0600` in the OpenIsland support directory enables metadata diagnostics. Removing that marker stops recording. Neither the app nor hooks create it. The private `ghostty-diagnostics.jsonl` is capped at 256 KiB; unsafe markers/logs, symlinks, a busy diagnostic lock, or a full log cause recording to be skipped. A leftover `.ghostty-diagnostics.lock` after a crash also disables writes until the operator removes it.
+
+Records use fixed stage/reason/agent/event categories, booleans and bounded counts. Native and surface identifiers use lowercase SHA-256 of their UTF-8 bytes; Pi/OMP hash the emitted prefixed native session ID. No working directory, title, TTY value, prompt, arguments, environment values or stderr are recorded. Source binding traces distinguish missing TTY, event gates, receipt reuse, directory ambiguity and locator errors; click traces distinguish start, success and approved failure categories. This trace does not change source admission, terminal focus policy or product UI, and is not evidence of successful real navigation until the user checks the selected source.

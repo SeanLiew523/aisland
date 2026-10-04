@@ -10,6 +10,7 @@ struct HermesHookSettingsRow: View {
     var setupDisabledExplanationKey = "setup.connection.isolated"
     var sourceDetected = true
     var automaticStatus: HermesHookInstallationStatus? = nil
+    var receivedSessionEventProfiles: Set<String> = []
     var onConfigurationChanged: ((HermesHookInstallationStatus, AgentHookIntent) -> Void)? = nil
     @State private var profileDirectory = HermesHookInstallationManager.defaultProfileDirectory
     @State private var pythonURL = HermesHookInstallationManager.defaultPythonURL
@@ -18,14 +19,24 @@ struct HermesHookSettingsRow: View {
     @State private var busy = false
     private var chinese: Bool { lang.language.resolvedCode.hasPrefix("zh") }
     private func text(_ en: String, _ zh: String) -> String { chinese ? zh : en }
+    private var hasReceivedSessionEvent: Bool {
+        status?.isInstalled != false && receivedSessionEventProfiles.contains(profileDirectory.standardizedFileURL.path)
+    }
+    private var connectionDescription: String {
+        if hasReceivedSessionEvent { return text("Session events received", "已收到会话事件") }
+        if status?.isInstalled == true {
+            return status?.hasConsent == true
+                ? text("Configured · consent recorded", "已配置 · 已记录授权")
+                : text("Configured · Hermes consent pending", "已配置 · 等待 Hermes 授权")
+        }
+        return lang.t(status == nil ? "setup.connection.unknown" : "setup.connection.notConfigured")
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Hermes CLI").fontWeight(.medium)
                 Spacer()
-                Text(status?.isInstalled == true
-                    ? (status?.hasConsent == true ? text("Configured · consent recorded", "已配置 · 已记录授权") : text("Configured · Hermes consent pending", "已配置 · 等待 Hermes 授权"))
-                    : lang.t(status == nil ? "setup.connection.unknown" : "setup.connection.notConfigured"))
+                Text(connectionDescription)
                     .foregroundStyle(.secondary).font(.caption)
                 Button(text("Refresh", "刷新")) { refresh() }.disabled(busy || setupDisabled)
                 Button(lang.t(status?.isInstalled == true ? "setup.connection.update" : "setup.connection.configure")) { perform(install: true) }
@@ -42,7 +53,7 @@ struct HermesHookSettingsRow: View {
             }
             Text(lang.t("setup.connection.hermesExplanation"))
                 .font(.caption).foregroundStyle(.secondary)
-            if !sourceDetected && !setupDisabled {
+            if !sourceDetected && !setupDisabled && !hasReceivedSessionEvent {
                 Text(lang.t("setup.connection.sourceMissing")).font(.caption).foregroundStyle(.secondary)
             }
             if setupDisabled || hooksBinaryURL == nil {

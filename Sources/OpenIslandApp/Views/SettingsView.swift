@@ -827,7 +827,7 @@ struct SetupSettingsPane: View {
                 desktopConnectionRow(agent: .deepSeekDesktop, name: "DeepSeek Harness Desktop")
                 desktopConnectionRow(agent: .miniMaxCodeDesktop, name: "MiniMaxCode Desktop")
 
-                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, setupDisabledExplanationKey: model.hooks.sourceSetupAcceptance == nil ? "setup.connection.isolated" : "setup.connection.sourceSetupScope", sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus) { status, intent in
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, setupDisabledExplanationKey: model.hooks.sourceSetupAcceptance == nil ? "setup.connection.isolated" : "setup.connection.sourceSetupScope", sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus, receivedSessionEventProfiles: model.hooks.hermesSessionEventProfiles) { status, intent in
                     model.hooks.hermesHookStatus = status
                     model.hooks.intentStore.setIntent(intent, for: .hermes)
                 }

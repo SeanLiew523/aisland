@@ -40,6 +40,9 @@ final class HookInstallationCoordinator {
     @ObservationIgnored private let connectionObservationStarted = Date()
     @ObservationIgnored private var receivedSourceSetupAgents: Set<AgentIdentifier> = []
     var hermesHookStatus: HermesHookInstallationStatus?
+    /// Runtime observation is separate from Hermes' persisted consent record.
+    /// Profile identity comes from the validated bridge event, never the focused terminal.
+    var hermesSessionEventProfiles: Set<String> = []
 
     var codexHookStatus: CodexHookInstallationStatus?
     var claudeHookStatus: ClaudeHookInstallationStatus?
@@ -1163,6 +1166,10 @@ final class HookInstallationCoordinator {
         default: agent = nil
         }
         if let agent {
+            if agent == .hermes, let profile = start.jumpTarget?.runtimeProfileID,
+               profile.hasPrefix("/") {
+                hermesSessionEventProfiles.insert(URL(fileURLWithPath: profile).standardizedFileURL.path)
+            }
             if agent != .hermes { desktopConnectionStates[agent] = .eventReceived }
             receivedSourceSetupAgents.insert(agent)
             recordSourceSetupStates()

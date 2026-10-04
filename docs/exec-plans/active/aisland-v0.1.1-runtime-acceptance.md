@@ -53,7 +53,7 @@ Hermes CLI、DeepSeek Harness Desktop、MiniMaxCode Desktop 的真实基础 flow
 完整验收包已实际构建、严格签名并运行。首启/自然结束进入 Setup/第二次不重播、
 中英文与多行排版、强制播放和 Watch 隐藏的现状见
 `v0.1.1-native-mandatory-playback.md`。不是仅 plan-only 或 offscreen 验证。
-R7 浏览器修订已准备并通过实际全屏复测，仍等用户效果确认后才能同步 Native。
+R7 待确认方案已被用户 R8 修订取代。R8 去掉介绍文字并加入站点原始三角到圆形动效，浏览器预览已准备；仍等用户效果确认后才能同步 Native。
 
 实际导入一个 7.027 秒 MP3，保存到独立验收域的管理目录。MiniMaxCode Desktop
 真实新回合在 build 7 和 8 完成后，App 的声音回执均记录 `customAudioPlaying:true`；
@@ -125,6 +125,10 @@ Build 37（`29aa626`）在剪贴板并发保护修订后再次通过同一真实
 `output/verification/v0.1.1-live/native-app/settings-watch-hidden-b37.png`。
 
 当前仍未整体验收完成：Hermes GUI 终端 pane/前台、三类声音中的审批/回答真实
-事件、必要既有来源导航回归仍待验证。R7 原型效果待用户阶段确认，Native 仍保留
+事件、必要既有来源导航回归仍待验证。R8 原型效果待用户阶段确认，Native 仍保留
 已批准 V6。mcode 按用户要求延期；GitHub 在线完整安装升级仍需发布已签名的
 appcast/升级包，本轮本地真实更新链路和设置查询已验证，未接手 v0.1.0 公证或发布。
+
+### 接入配置页面说明实测
+
+Build 38（源码 `9653e2a`）明确将设置“安装引导”改称“接入引导”；“配置 AIsland 接入”只添加事件回调或插件，不安装来源 Agent。旧灰色状态由辅助程序缺失决定，未检测 Agent 本体安装。隔离验收包跳过辅助程序/来源配置读取，原有不需辅助程序的插件按钮曾保持可点但实际禁写；现在 UI 与此模式一致，并显示原因、避免未知状态冒称未配置。实际页首与中文按钮排版、禁用状态、无 Watch 的侧栏已验证，见 `v0.1.1-setup-clarity.md`。正式来源配置写入没有在本轮执行。

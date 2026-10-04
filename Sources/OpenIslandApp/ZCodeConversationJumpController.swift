@@ -128,8 +128,15 @@ struct ZCodeNavigationDiagnostic: Equatable, Sendable {
         var attributeNames: [String]
         var identityHashes: [String: String]
         var identityMatches: [String: Bool]
+        var hasPressAction: Bool
+        var hasTaskClass: Bool
+        var hasSelectedClass: Bool
 
-        init(attributeNames: [String], identityValues: [String: String], targetID: String) {
+        init(attributeNames: [String], identityValues: [String: String], targetID: String,
+             hasPressAction: Bool = false, hasTaskClass: Bool = false, hasSelectedClass: Bool = false) {
+            self.hasPressAction = hasPressAction
+            self.hasTaskClass = hasTaskClass
+            self.hasSelectedClass = hasSelectedClass
             self.attributeNames = attributeNames.filter {
                 $0.hasPrefix("AX") && $0.count <= 80
                     && $0.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
@@ -147,6 +154,8 @@ struct ZCodeNavigationDiagnostic: Equatable, Sendable {
     var headingMatches: Bool
     var row: Element?
     var content: Element?
+    var matchingLabelCount = 0
+    var labelAncestors: [Element] = []
     var samplingExpired = false
 
     static func hash(_ value: String) -> String {
@@ -159,9 +168,10 @@ struct ZCodeNavigationDiagnostic: Equatable, Sendable {
             let values = element.identityHashes.keys.sorted().map { key in
                 "\(key):\(element.identityHashes[key] ?? ""):equal=\(element.identityMatches[key] == true)"
             }.joined(separator: ",")
-            return "attrs=\(element.attributeNames.joined(separator: ","));identities=\(values)"
+            return "press=\(element.hasPressAction);taskClass=\(element.hasTaskClass);selectedClass=\(element.hasSelectedClass);attrs=\(element.attributeNames.joined(separator: ","));identities=\(values)"
         }
-        return "reason=active-content-unverified targetHash=\(targetHash) rows=\(rowCount) selected=\(selectedRowCount) headingMatches=\(headingMatches) samplingExpired=\(samplingExpired) row=[\(describe(row))] content=[\(describe(content))]"
+        let ancestors = labelAncestors.prefix(4).map { describe($0) }.joined(separator: " | ")
+        return "reason=active-content-unverified targetHash=\(targetHash) rows=\(rowCount) selected=\(selectedRowCount) labels=\(matchingLabelCount) headingMatches=\(headingMatches) samplingExpired=\(samplingExpired) row=[\(describe(row))] content=[\(describe(content))] labelAncestors=[\(ancestors)]"
     }
 }
 
@@ -413,8 +423,13 @@ struct ZCodeConversationJumpController: Sendable {
             ?? (allowsStandaloneLookup ? window : nil)
         let rows = container.map { taskItems(titled: conversation.title, in: $0, before: deadline) } ?? []
         let selected = rows.filter { domClasses(of: $0).contains("bg-selected") }
-        let content = descendants(of: window, before: deadline).first {
+        let sampledNodes = descendants(of: window, before: deadline)
+        let content = sampledNodes.first {
             copyStringValue(of: $0, attribute: kAXDOMIdentifierAttribute as CFString) == "conversation"
+        }
+        let labels = sampledNodes.filter {
+            copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXStaticText"
+                && displayedText(of: $0) == conversation.title
         }
         func metadata(_ element: AXUIElement?) -> ZCodeNavigationDiagnostic.Element? {
             guard let element else { return nil }
@@ -428,13 +443,26 @@ struct ZCodeConversationJumpController: Sendable {
                     else if let url = value as? URL { values[key] = url.absoluteString }
                 }
             }
-            return .init(attributeNames: names as? [String] ?? [], identityValues: values, targetID: conversation.id)
+            let classes = domClasses(of: element)
+            return .init(attributeNames: names as? [String] ?? [], identityValues: values, targetID: conversation.id,
+                         hasPressAction: hasAction(kAXPressAction as CFString, on: element),
+                         hasTaskClass: classes.contains("group/task-item"), hasSelectedClass: classes.contains("bg-selected"))
+        }
+        var labelAncestors: [ZCodeNavigationDiagnostic.Element] = []
+        if var current = labels.first {
+            for _ in 0..<4 where hasTimeRemaining(before: deadline) {
+                guard let parent = copyElementValue(of: current, attribute: kAXParentAttribute as CFString),
+                      let sample = metadata(parent) else { break }
+                labelAncestors.append(sample)
+                current = parent
+            }
         }
         metadataDiagnostics(.init(
             targetHash: ZCodeNavigationDiagnostic.hash(conversation.id), rowCount: rows.count,
             selectedRowCount: selected.count,
             headingMatches: content.map { hasConversationHeading(conversation.title, in: $0, before: deadline) } ?? false,
             row: metadata(selected.first ?? rows.first), content: metadata(content),
+            matchingLabelCount: labels.count, labelAncestors: labelAncestors,
             samplingExpired: !hasTimeRemaining(before: deadline)
         ))
     }

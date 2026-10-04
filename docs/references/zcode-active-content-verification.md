@@ -16,4 +16,17 @@ For a real existing-card click, an explicit regular-file marker `/tmp/aisland-zc
 
 Next acceptance gate: prove a read-only active-content stable session identity reachable through the normal product path, then compare it with the indexed target and selected row. A missing identity, duplicate title, draft/no active content, or different session must fail closed. Until that proof exists, a generic heading remains unavailable rather than becoming a successful precision jump.
 
+Build 55 real observation: the owned task replied to `AISLAND-ZCODE-B55-OK`,
+but jumping from an empty draft failed with `sidebar-conversation-miss`.
+The bounded sample had zero admitted rows and no conversation content root;
+this is not yet proof of a heading-only failure. The matching task remained in
+the sidebar, and its indexed title was unchanged. Sampling now also records
+the first matching label's four ancestors with action/class booleans and the
+same redacted attribute metadata, without changing navigation admission.
+
+The installed 3.14.4 main router accepts workspace paths, not native session
+IDs. Renderer `restoreSession` is a startup boolean that restores saved tab
+state; it is not a deep-link session selector. The workspace route asks for
+confirmation and may open a draft. It cannot replace exact conversation focus.
+
 Validation: `swift build --product OpenIslandApp` passed. An isolated temporary package using the actual controller and test file passed all 8 tests with CLT Testing framework flags and cross-import overlays disabled; the package was removed afterward. The ordinary full-package test entry stopped at the existing CLT `Testing` / `_Testing_Foundation` module issue. No app, source task or GUI was launched for this check.

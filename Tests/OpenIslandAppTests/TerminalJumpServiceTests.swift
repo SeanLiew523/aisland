@@ -43,7 +43,7 @@ struct TerminalJumpServiceTests {
     }
 
     @Test
-    func ghosttyJumpScriptFallsBackToWorkingDirectoryAndTitle() {
+    func ghosttyJumpScriptRequiresPreviouslyResolvedID() {
         let target = JumpTarget(
             terminalApp: "Ghostty",
             workspaceName: "open-island",
@@ -53,9 +53,9 @@ struct TerminalJumpServiceTests {
 
         let script = TerminalJumpService().ghosttyJumpScript(for: target)
 
-        #expect(script.contains("(working directory of aTerminal as text) is \"/Users/wangruobing/Personal/open-island\""))
-        #expect(script.contains("(name of aTerminal as text) contains \"codex ~/p/open-island\""))
-        #expect(script.contains("if \"\" is \"\" then"))
+        #expect(script.contains("if \"\" is \"\" then return \"\""))
+        #expect(!script.contains("working directory"))
+        #expect(!script.contains("contains"))
     }
 
     @Test(.enabled(
@@ -115,18 +115,16 @@ struct TerminalJumpServiceTests {
             appleScriptRunner: { _ in "" }
         )
 
-        let result = try service.jump(
-            to: JumpTarget(
+        #expect(throws: TerminalJumpError.self) {
+            try service.jump(to: JumpTarget(
                 terminalApp: "Ghostty",
                 workspaceName: "open-island",
                 paneTitle: "Claude open-island",
                 workingDirectory: "/Users/wangruobing/Personal/open-island",
                 terminalTTY: "/dev/ttys002"
-            )
-        )
-
-        #expect(result == "Activated Ghostty. Exact pane targeting could not find the live terminal.")
-        #expect(openedArguments.values == [["-b", "com.mitchellh.ghostty"]])
+            ))
+        }
+        #expect(openedArguments.values.isEmpty)
     }
 
     @Test

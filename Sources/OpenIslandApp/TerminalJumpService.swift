@@ -1192,127 +1192,110 @@ struct TerminalJumpService {
         return panes.first(where: { $0.id == paneID })?.tabPosition
     }
 
+    struct GhosttyTerminal: Equatable {
+        var id: String
+        var workingDirectory: String
+        var title: String
+    }
+    enum GhosttySelection: Equatable {
+        case matched(GhosttyTerminal), missing, ambiguous
+    }
+    static func selectGhosttyTerminal(_ terminals: [GhosttyTerminal], target: JumpTarget) -> GhosttySelection {
+        let matches: [GhosttyTerminal]
+        if let id = target.terminalSessionID, !id.isEmpty {
+            // A stale or foreign ID must never select a different surface.
+            matches = terminals.filter { $0.id == id }
+        } else if let cwd = target.workingDirectory, !cwd.isEmpty {
+            // Shared directories remain ambiguous even if a title seems helpful.
+            // A known directory miss must not select a similarly titled foreign pane.
+            matches = terminals.filter { $0.workingDirectory == cwd }
+        } else {
+            matches = terminals.filter { !$0.title.isEmpty && $0.title == target.paneTitle }
+        }
+        if matches.count > 1 { return .ambiguous }
+        guard let terminal = matches.first, !terminal.id.isEmpty else { return .missing }
+        return .matched(terminal)
+    }
+    static func parseGhosttyInventory(_ output: String) -> [GhosttyTerminal]? {
+        guard output.utf8.count <= 1_048_576 else { return nil }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        guard lines.count <= 256 else { return nil }
+        var result: [GhosttyTerminal] = []
+        for line in lines {
+            let fields = line.components(separatedBy: String(UnicodeScalar(31)!))
+            guard fields.count == 3, !fields[0].isEmpty,
+                  !result.contains(where: { $0.id == fields[0] }) else { return nil }
+            result.append(.init(id: fields[0], workingDirectory: fields[1], title: fields[2]))
+        }
+        return result
+    }
+    private static let ghosttyInventoryScript = """
+    tell application "Ghostty"
+        if not (it is running) then return ""
+        if (count of terminals) > 256 then return ""
+        set output to ""
+        repeat with aTerminal in terminals
+            set output to output & (id of aTerminal as text) & (ASCII character 31) & (working directory of aTerminal as text) & (ASCII character 31) & (name of aTerminal as text) & linefeed
+        end repeat
+        return output
+    end tell
+    """
     private func jumpToGhosttyTerminal(_ target: JumpTarget) throws -> Bool {
-        try runAppleScript(ghosttyJumpScript(for: target)) == "matched"
+        guard let inventory = Self.parseGhosttyInventory(try runAppleScript(Self.ghosttyInventoryScript)) else {
+            throw TerminalJumpError.conversationUnavailable("Ghostty", "terminal-inventory-unavailable")
+        }
+        let terminal: GhosttyTerminal
+        switch Self.selectGhosttyTerminal(inventory, target: target) {
+        case let .matched(value): terminal = value
+        case .missing: throw TerminalJumpError.conversationUnavailable("Ghostty", "terminal-id-or-unique-target-missing")
+        case .ambiguous: throw TerminalJumpError.conversationUnavailable("Ghostty", "ambiguous-terminal")
+        }
+        var resolved = target
+        resolved.terminalSessionID = terminal.id
+        guard try runAppleScript(ghosttyJumpScript(for: resolved)) == terminal.id else {
+            throw TerminalJumpError.conversationUnavailable("Ghostty", "focused-terminal-id-unverified")
+        }
+        return true
     }
 
+    /// Selection happens against a read-only inventory first. This script focuses
+    /// only that resolved ID and returns the observed focused ID, including for
+    /// legacy targets resolved by a unique directory or exact title.
     func ghosttyJumpScript(for target: JumpTarget) -> String {
         let terminalSessionID = escapeAppleScript(target.terminalSessionID)
-        let workingDirectory = escapeAppleScript(target.workingDirectory)
-        let paneTitle = escapeAppleScript(target.paneTitle)
-
         return """
         tell application "Ghostty"
             if not (it is running) then return ""
-            activate
-
+            if "\(terminalSessionID)" is "" then return ""
             set targetWindow to missing value
             set targetTab to missing value
             set targetTerminal to missing value
-
+            set matchCount to 0
             repeat with aWindow in windows
                 repeat with aTab in tabs of aWindow
                     repeat with aTerminal in terminals of aTab
-                        if "\(terminalSessionID)" is not "" and (id of aTerminal as text) is "\(terminalSessionID)" then
+                        if (id of aTerminal as text) is "\(terminalSessionID)" then
+                            set matchCount to matchCount + 1
                             set targetWindow to aWindow
                             set targetTab to aTab
                             set targetTerminal to aTerminal
-                            exit repeat
                         end if
                     end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
                 end repeat
-
-                if targetTerminal is not missing value then
-                    exit repeat
-                end if
             end repeat
-
-            if targetTerminal is missing value and "\(workingDirectory)" is not "" then
-                repeat with aWindow in windows
-                    repeat with aTab in tabs of aWindow
-                        repeat with aTerminal in terminals of aTab
-                            if (working directory of aTerminal as text) is "\(workingDirectory)" then
-                                set targetWindow to aWindow
-                                set targetTab to aTab
-                                set targetTerminal to aTerminal
-                                exit repeat
-                            end if
-                        end repeat
-
-                        if targetTerminal is not missing value then
-                            exit repeat
-                        end if
-                    end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
-                end repeat
-            end if
-
-            if targetTerminal is missing value and "\(paneTitle)" is not "" then
-                repeat with aWindow in windows
-                    repeat with aTab in tabs of aWindow
-                        repeat with aTerminal in terminals of aTab
-                            if (name of aTerminal as text) contains "\(paneTitle)" then
-                                set targetWindow to aWindow
-                                set targetTab to aTab
-                                set targetTerminal to aTerminal
-                                exit repeat
-                            end if
-                        end repeat
-
-                        if targetTerminal is not missing value then
-                            exit repeat
-                        end if
-                    end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
-                end repeat
-            end if
-
-            if targetTerminal is missing value then return ""
-
-            if "\(terminalSessionID)" is "" then
-                if targetWindow is not missing value then
-                    activate window targetWindow
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                if targetTab is not missing value then
-                    select tab targetTab
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                focus targetTerminal
-                delay \(Self.ghosttyFocusSettleDelay)
-                return "matched"
-            end if
-
+            if matchCount is not 1 then return ""
+            activate
             repeat \(Self.ghosttyFocusAttempts) times
-                if targetWindow is not missing value then
-                    activate window targetWindow
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                if targetTab is not missing value then
-                    select tab targetTab
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
+                activate window targetWindow
+                delay \(Self.ghosttyWindowActivationDelay)
+                select tab targetTab
+                delay \(Self.ghosttyWindowActivationDelay)
                 focus targetTerminal
                 -- Ghostty updates the focused split asynchronously after focus returns.
                 delay \(Self.ghosttyFocusSettleDelay)
-
                 try
-                    if (id of focused terminal of selected tab of front window as text) is "\(terminalSessionID)" then
-                        return "matched"
+                    if frontmost and (id of focused terminal of selected tab of front window as text) is "\(terminalSessionID)" then
+                        return (id of focused terminal of selected tab of front window as text)
                     end if
                 end try
             end repeat

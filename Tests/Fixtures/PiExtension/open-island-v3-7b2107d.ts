@@ -3,8 +3,6 @@
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
 
 const AGENT_SOURCE = "__OPEN_ISLAND_PI_SOURCE__";
 const SESSION_PREFIX = AGENT_SOURCE === "oh-my-pi" ? "omp" : "pi";
@@ -45,13 +43,11 @@ interface ModelLike {
 
 interface ExtensionContextLike {
   cwd: string;
-  hasUI?: boolean;
   sessionManager?: SessionManagerLike;
   model?: ModelLike;
 }
 
 interface ExtensionEvent {
-  source?: "interactive" | "rpc" | "extension";
   prompt?: string;
   toolName?: string;
   args?: unknown;
@@ -106,73 +102,10 @@ function detectTTY(): string | undefined {
   return undefined;
 }
 
-export interface GhosttySurface { id: string; cwd: string; title: string }
-export interface GhosttySnapshot { frontmost: boolean; focusedID: string; surfaces: GhosttySurface[] }
-interface GhosttyBinding extends GhosttySurface {}
+const detectedTTY = detectTTY();
 
-function normalizedDirectory(cwd: string): string {
-  try { return realpathSync(cwd); } catch { return resolve(cwd); }
-}
-
-// 1.3.1 exposes ID/name/cwd, but no TTY/PID or documented inheritable surface ID.
-// Do not admit TERM_SESSION_ID or an assumed GHOSTTY_SURFACE_ID as a Ghostty ID.
-export function admitGhosttyBinding(snapshot: GhosttySnapshot | undefined, cwd: string,
-  normalize: (value: string) => string = normalizedDirectory, interactiveInput = false): GhosttyBinding | undefined {
-  if (!snapshot?.frontmost || !snapshot.focusedID || snapshot.surfaces.length > 256) return;
-  if (new Set(snapshot.surfaces.map(surface => surface.id)).size !== snapshot.surfaces.length) return;
-  const matches = snapshot.surfaces.filter(surface => surface.id && normalize(surface.cwd) === normalize(cwd));
-  const focused = matches.filter(surface => surface.id === snapshot.focusedID);
-  if (focused.length !== 1 || (!interactiveInput && matches.length !== 1)) return;
-  return { ...focused[0], cwd: normalize(cwd) };
-}
-
-export function parseGhosttySnapshot(output: string): GhosttySnapshot | undefined {
-  if (Buffer.byteLength(output) > 1_048_576) return;
-  const lines = output.trimEnd().split("\n");
-  const header = lines.shift()?.split("\x1f");
-  if (header?.length !== 2 || header[0] !== "focused" || !header[1] || lines.length > 256) return;
-  const surfaces: GhosttySurface[] = [];
-  for (const line of lines) {
-    const fields = line.split("\x1f");
-    if (fields.length !== 3 || !fields[0] || !fields[1]) return;
-    surfaces.push({ id: fields[0], cwd: fields[1], title: fields[2] });
-  }
-  return { frontmost: true, focusedID: header[1], surfaces };
-}
-
-function readGhosttySnapshot(): GhosttySnapshot | undefined {
-  // Read metadata only. Never activate Ghostty or capture terminal content.
-  const script = `tell application "Ghostty"
-    if not (it is running) then return ""
-    if not frontmost then return ""
-    if (count of terminals) > 256 then return ""
-    set focusedID to id of focused terminal of selected tab of front window as text
-    set output to "focused" & (ASCII character 31) & focusedID & linefeed
-    repeat with aTerminal in terminals
-      set output to output & (id of aTerminal as text) & (ASCII character 31) & (working directory of aTerminal as text) & (ASCII character 31) & (name of aTerminal as text) & linefeed
-    end repeat
-    if not frontmost then return ""
-    if (id of focused terminal of selected tab of front window as text) is not focusedID then return ""
-    return output
-  end tell`;
-  try {
-    return parseGhosttySnapshot(execFileSync("/usr/bin/osascript", ["-e", script], {
-      timeout: 1500, maxBuffer: 1_048_576, stdio: ["ignore", "pipe", "ignore"],
-    }).toString());
-  } catch { return undefined; }
-}
-
-export interface PiExtensionDependencies {
-  environment?: Record<string, string | undefined>;
-  getTTY?: () => string | undefined;
-  ghosttySnapshot?: () => GhosttySnapshot | undefined;
-  normalizeDirectory?: (value: string) => string;
-  sendCommand?: (command: unknown) => Promise<void>;
-  heartbeatIntervalMs?: number;
-}
-
-function terminalFields(env: Record<string, string | undefined>, detectedTTY: string | undefined,
-  binding?: GhosttyBinding): Record<string, string> {
+function terminalFields(): Record<string, string> {
+  const env = process.env;
   const result: Record<string, string> = {};
   if (env.ITERM_SESSION_ID) {
     result.terminal_app = "iTerm";
@@ -185,18 +118,14 @@ function terminalFields(env: Record<string, string | undefined>, detectedTTY: st
     const paneID = env.ZELLIJ_PANE_ID || "";
     const sessionName = env.ZELLIJ_SESSION_NAME || "";
     if (paneID) result.terminal_session_id = `${paneID}:${sessionName}`;
-  } else if ((env.TERM_PROGRAM || "").toLowerCase().includes("ghostty") || (!env.TERM_PROGRAM && env.GHOSTTY_RESOURCES_DIR)) {
+  } else if (env.GHOSTTY_RESOURCES_DIR || (env.TERM_PROGRAM || "").toLowerCase().includes("ghostty")) {
     result.terminal_app = "Ghostty";
-    if (binding) {
-      result.terminal_session_id = binding.id;
-      result.terminal_title = binding.title;
-    }
   } else if (env.TERM_PROGRAM === "Apple_Terminal") {
     result.terminal_app = "Terminal";
   } else if (env.TERM_PROGRAM) {
     result.terminal_app = env.TERM_PROGRAM;
   }
-  if (result.terminal_app !== "Ghostty" && env.TERM_SESSION_ID && !result.terminal_session_id) {
+  if (env.TERM_SESSION_ID && !result.terminal_session_id) {
     result.terminal_session_id = env.TERM_SESSION_ID;
   }
   if (detectedTTY) result.terminal_tty = detectedTTY;
@@ -231,34 +160,15 @@ function safeJSON(value: unknown): string | undefined {
   }
 }
 
-export default function openIslandPiExtension(pi: ExtensionAPICompat, dependencies: PiExtensionDependencies = {}) {
-  const environment = dependencies.environment || process.env;
-  const tty = (dependencies.getTTY || detectTTY)();
-  const locator = dependencies.ghosttySnapshot || readGhosttySnapshot;
-  const normalize = dependencies.normalizeDirectory || normalizedDirectory;
-  const sendCommand = dependencies.sendCommand || sendToSocket;
-  const heartbeatInterval = dependencies.heartbeatIntervalMs === undefined ? HEARTBEAT_INTERVAL_MS
-    : heartbeatIntervalFromEnvironment(String(dependencies.heartbeatIntervalMs));
-  const ghosttyBindings = new Map<string, GhosttyBinding>();
-  function sessionID(ctx: ExtensionContextLike): string {
-    return ctx.sessionManager?.getSessionId?.() || ctx.sessionManager?.getSessionFile?.() || `${ctx.cwd}:${process.pid}`;
-  }
-  function captureGhosttyBinding(ctx: ExtensionContextLike, interactiveInput = false): void {
-    if (!ctx.hasUI) return;
-    if (terminalFields(environment, tty).terminal_app !== "Ghostty") return;
-    const key = sessionID(ctx);
-    const existing = ghosttyBindings.get(key);
-    if (existing?.cwd === normalize(ctx.cwd || process.cwd())) return;
-    ghosttyBindings.delete(key);
-    const binding = admitGhosttyBinding(locator(), ctx.cwd || process.cwd(), normalize, interactiveInput);
-    if (binding) ghosttyBindings.set(key, binding);
-  }
+export default function openIslandPiExtension(pi: ExtensionAPICompat) {
   let lastAssistantMessage = "";
   let stopSent = false;
   let heartbeatTimer: NodeJS.Timeout | undefined;
   function contextFields(ctx: ExtensionContextLike): Record<string, unknown> {
     const sessionManager = ctx.sessionManager;
-    const rawID = sessionID(ctx);
+    const rawID = sessionManager?.getSessionId?.()
+      || sessionManager?.getSessionFile?.()
+      || `${ctx.cwd}:${process.pid}`;
     const model = ctx.model
       ? [ctx.model.provider, ctx.model.id].filter(Boolean).join("/")
       : undefined;
@@ -268,8 +178,7 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
       cwd: ctx.cwd || process.cwd(),
       model,
       transcript_path: sessionManager?.getSessionFile?.(),
-      ...terminalFields(environment, tty,
-        ghosttyBindings.get(rawID)?.cwd === normalize(ctx.cwd || process.cwd()) ? ghosttyBindings.get(rawID) : undefined),
+      ...terminalFields(),
     };
   }
 
@@ -278,7 +187,7 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
     ctx: ExtensionContextLike,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    return sendCommand({
+    return sendToSocket({
       type: "processPiHook",
       piHook: {
         hook_event_name: eventName,
@@ -297,7 +206,7 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
     stopHeartbeat();
     heartbeatTimer = setInterval(() => {
       void send("Heartbeat", ctx);
-    }, heartbeatInterval);
+    }, HEARTBEAT_INTERVAL_MS);
     heartbeatTimer.unref();
   }
 
@@ -311,19 +220,10 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
   }
 
   pi.on("session_start", (_event, ctx) => {
-    captureGhosttyBinding(ctx);
     lastAssistantMessage = "";
     stopSent = false;
     void send("SessionStart", ctx);
     startHeartbeat(ctx);
-  });
-
-  // Pi and OMP identify actual TUI input as interactive. This is the source
-  // evidence that distinguishes two processes sharing one working directory.
-  // Never inspect event.text; before_agent_start can also originate in RPC or
-  // an extension, so it must not infer ownership from the currently focused pane.
-  pi.on("input", (event, ctx) => {
-    if (event.source === "interactive" && ctx.hasUI) captureGhosttyBinding(ctx, true);
   });
 
   pi.on("before_agent_start", (event, ctx) => {

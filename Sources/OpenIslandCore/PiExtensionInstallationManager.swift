@@ -36,6 +36,7 @@ public struct PiExtensionInstallationStatus: Equatable, Codable, Sendable {
     public var manifest: PiExtensionInstallerManifest?
     public var actualExtensionSHA256: String?
     public var requestedSocketPath: String?
+    public var expectedExtensionSHA256: String?
 
     public var isInstalled: Bool {
         extensionFilePresent
@@ -47,6 +48,7 @@ public struct PiExtensionInstallationStatus: Equatable, Codable, Sendable {
         isInstalled && manifest?.version == PiExtensionInstallerManifest.currentVersion
             && manifest?.extensionSHA256 != nil && manifest?.extensionSHA256 == actualExtensionSHA256
             && manifest?.targetSocketPath == requestedSocketPath
+            && (expectedExtensionSHA256 == nil || actualExtensionSHA256 == expectedExtensionSHA256)
     }
 
     public init(
@@ -58,7 +60,8 @@ public struct PiExtensionInstallationStatus: Equatable, Codable, Sendable {
         extensionFilePresent: Bool,
         manifest: PiExtensionInstallerManifest?,
         actualExtensionSHA256: String? = nil,
-        requestedSocketPath: String? = nil
+        requestedSocketPath: String? = nil,
+        expectedExtensionSHA256: String? = nil
     ) {
         self.agent = agent
         self.agentDirectory = agentDirectory
@@ -69,6 +72,7 @@ public struct PiExtensionInstallationStatus: Equatable, Codable, Sendable {
         self.manifest = manifest
         self.actualExtensionSHA256 = actualExtensionSHA256
         self.requestedSocketPath = requestedSocketPath
+        self.expectedExtensionSHA256 = expectedExtensionSHA256
     }
 }
 
@@ -141,7 +145,7 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
         agentDirectory.appendingPathComponent(PiExtensionInstallerManifest.fileName)
     }
 
-    public func status(targetSocketURL: URL? = nil) throws -> PiExtensionInstallationStatus {
+    public func status(targetSocketURL: URL? = nil, extensionSourceData: Data? = nil) throws -> PiExtensionInstallationStatus {
         let target = try validatedSocketPath(targetSocketURL)
         let extensionData = try regularFileData(at: extensionURL)
         return PiExtensionInstallationStatus(
@@ -152,30 +156,16 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
             manifestURL: manifestURL,
             extensionFilePresent: extensionData != nil,
             manifest: try loadManifest(),
-            actualExtensionSHA256: extensionData.map(Self.sha256), requestedSocketPath: target
+            actualExtensionSHA256: extensionData.map(Self.sha256), requestedSocketPath: target,
+            expectedExtensionSHA256: try extensionSourceData.map { Self.sha256(try renderedSource($0, target: target)) }
         )
     }
 
     @discardableResult
     public func install(extensionSourceData: Data, targetSocketURL: URL? = nil) throws -> PiExtensionInstallationStatus {
         let target = try validatedSocketPath(targetSocketURL)
-        guard var source = String(data: extensionSourceData, encoding: .utf8) else {
-            throw PiExtensionInstallationError.invalidSourceEncoding
-        }
-        guard source.contains(Self.agentPlaceholder) else {
-            throw PiExtensionInstallationError.missingAgentPlaceholder
-        }
-
-        source = source.replacingOccurrences(of: Self.agentPlaceholder, with: agent.rawValue)
-        let productionData = Data(source.utf8)
-        if let target {
-            guard source.components(separatedBy: Self.socketDeclaration).count == 2 else {
-                throw PiExtensionInstallationError.missingSocketDeclaration
-            }
-            let literal = String(decoding: try JSONEncoder().encode(target), as: UTF8.self)
-            source = source.replacingOccurrences(of: Self.socketDeclaration, with: "const SOCKET_PATH = \(literal);")
-        }
-        let desired = Data(source.utf8)
+        let productionData = try renderedSource(extensionSourceData, target: nil)
+        let desired = try renderedSource(extensionSourceData, target: target)
         let oldExtension = try regularFileData(at: extensionURL)
         let oldManifestData = try regularFileData(at: manifestURL)
         if oldExtension != nil || oldManifestData != nil {
@@ -190,7 +180,8 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
             if old.version == PiExtensionInstallerManifest.currentVersion {
                 guard let hash = old.extensionSHA256, hash == Self.sha256(oldExtension) else { throw PiExtensionInstallationError.unverifiedOwnedExtension }
             } else {
-                guard old.extensionSHA256 == nil, old.targetSocketPath == nil, oldExtension == productionData else {
+                guard old.extensionSHA256 == nil, old.targetSocketPath == nil,
+                      oldExtension == productionData || isReviewedLegacySource(oldExtension) else {
                     throw PiExtensionInstallationError.unverifiedOwnedExtension
                 }
             }
@@ -201,7 +192,7 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let manifestData = try encoder.encode(manifest)
-        if oldExtension == desired && oldManifestData == manifestData { return try status(targetSocketURL: targetSocketURL) }
+        if oldExtension == desired && oldManifestData == manifestData { return try status(targetSocketURL: targetSocketURL, extensionSourceData: extensionSourceData) }
         try ensureDirectory(agentDirectory)
         try ensureDirectory(extensionsDirectory)
         if let oldExtension, let oldManifestData { try backup(extensionData: oldExtension, manifestData: oldManifestData) }
@@ -217,7 +208,7 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
             }
             throw error
         }
-        return try status(targetSocketURL: targetSocketURL)
+        return try status(targetSocketURL: targetSocketURL, extensionSourceData: extensionSourceData)
     }
 
     @discardableResult
@@ -236,7 +227,7 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
             } else {
                 guard manifest.version == 3, manifest.targetSocketPath == nil, let extensionSourceData,
                       let source = String(data: extensionSourceData, encoding: .utf8), source.contains(Self.agentPlaceholder),
-                      data == Data(source.replacingOccurrences(of: Self.agentPlaceholder, with: agent.rawValue).utf8) else {
+                      data == Data(source.replacingOccurrences(of: Self.agentPlaceholder, with: agent.rawValue).utf8) || isReviewedLegacySource(data) else {
                     throw PiExtensionInstallationError.unverifiedOwnedExtension
                 }
             }
@@ -248,6 +239,33 @@ public final class PiExtensionInstallationManager: @unchecked Sendable {
             try fileManager.removeItem(at: manifestURL)
         }
         return try status()
+    }
+
+    /// Exact production renderings of the reviewed 7b2107d template. Legacy v3
+    /// receipts have no content hash; path/agent/version checks remain required.
+    private func isReviewedLegacySource(_ data: Data) -> Bool {
+        let expected = agent == .pi
+            ? "5c40d10989ee3a01864392c15c3892c573359c54ccbee03f00d08470ecb79726"
+            : "90be4198441fc29223eec68d956880c7d5f103b38bf69140d5d7f0a94d8b9415"
+        return Self.sha256(data) == expected
+    }
+
+    private func renderedSource(_ data: Data, target: String?) throws -> Data {
+        guard var source = String(data: data, encoding: .utf8) else {
+            throw PiExtensionInstallationError.invalidSourceEncoding
+        }
+        guard source.contains(Self.agentPlaceholder) else {
+            throw PiExtensionInstallationError.missingAgentPlaceholder
+        }
+        source = source.replacingOccurrences(of: Self.agentPlaceholder, with: agent.rawValue)
+        if let target {
+            guard source.components(separatedBy: Self.socketDeclaration).count == 2 else {
+                throw PiExtensionInstallationError.missingSocketDeclaration
+            }
+            let literal = String(decoding: try JSONEncoder().encode(target), as: UTF8.self)
+            source = source.replacingOccurrences(of: Self.socketDeclaration, with: "const SOCKET_PATH = \(literal);")
+        }
+        return Data(source.utf8)
     }
 
     private func loadManifest() throws -> PiExtensionInstallerManifest? {

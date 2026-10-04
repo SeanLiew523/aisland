@@ -34,3 +34,16 @@ state; it is not a deep-link session selector. The workspace route asks for
 confirmation and may open a draft. It cannot replace exact conversation focus.
 
 Validation: `swift build --product OpenIslandApp` passed. An isolated temporary package using the actual controller and test file passed all 8 tests with CLT Testing framework flags and cross-import overlays disabled; the package was removed afterward. The ordinary full-package test entry stopped at the existing CLT `Testing` / `_Testing_Foundation` module issue. No app, source task or GUI was launched for this check.
+
+2026-10-05: the new 3.14.4-specific implementation supersedes the interim
+heading requirement above. It admits both public task-row class variants,
+prefers AXPress and permits Enter only after the exact row focus is observed.
+Selection is followed by the current header's public Copy session ID action;
+the copied ID must equal the indexed target, the clipboard must be restored,
+and source PID/version/window/foreground plus indexed metadata must stay
+unchanged. This is stronger than a generic heading or selected row. See
+[the reviewed public contract](../reference/zcode-3.14.4-navigation-contract.md).
+The integrated controller/routing tests passed 38 tests in three suites using
+the CLT entry point with cross-import overlays disabled. Actual source row and
+menu AX dispatch and visible target content still require native acceptance;
+the Mac locked before this retest. No exact-return success is claimed yet.

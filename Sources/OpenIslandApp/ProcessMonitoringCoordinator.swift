@@ -708,6 +708,19 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
+        // The Desktop runtime is an Electron utility process without a TTY.
+        // Missing CLI discovery is not evidence that its conversations ended.
+        // Recheck the live bundle/version; never bind all rows to one PID or cwd.
+        let miniMaxVersions = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
+            .filter { !$0.isTerminated }
+            .compactMap { application -> String? in
+                guard let url = application.bundleURL, let bundle = Bundle(url: url),
+                      bundle.bundleIdentifier == "com.minimax.agent" else { return nil }
+                return bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            })
+        aliveIDs.formUnion(MiniMaxCodeDesktopLiveness.aliveSessionIDs(
+            in: sessions, runningSourceVersions: miniMaxVersions))
+
         // Synthetic sessions: always alive if the process exists.
         let syntheticSessions = sessions.filter { isSyntheticClaudeSession($0) }
         for session in syntheticSessions {

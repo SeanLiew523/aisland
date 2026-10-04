@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="aisland-runtime-tests-") as directory:
     shutil.copytree(root / "Sources/OpenIslandCore", package / "Sources/OpenIslandCore")
     tests = package / "Tests/OpenIslandCoreTests"
     tests.mkdir(parents=True)
-    for name in ["RuntimeLifecycleTests.swift", "MiniMaxCodeMetadataTests.swift", "MiniMaxCodeBridgeTests.swift"]:
+    for name in ["RuntimeLifecycleTests.swift", "MiniMaxCodeMetadataTests.swift", "MiniMaxCodeBridgeTests.swift", "MiniMaxCodeDesktopLivenessTests.swift"]:
         shutil.copy2(root / "Tests/OpenIslandCoreTests" / name, tests / name)
     (package / "Package.swift").write_text('''// swift-tools-version: 6.2
 import PackageDescription

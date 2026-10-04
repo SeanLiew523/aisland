@@ -219,7 +219,7 @@ def main():
     if a.prepare: prepare(a.prepare,a.tamper)
     elif a.serve:
         root,m,_,_=load(a.serve)
-        if not 64<=a.rate_kib<=4096: raise ValueError('Rate must be 64–4096 KiB/s.')
+        if not 64<=a.rate_kib<=8192: raise ValueError('Rate must be 64–8192 KiB/s.')
         server=http.server.ThreadingHTTPServer(('127.0.0.1',int(m['origin'].rsplit(':',1)[1])),Handler)
         server.root=root; server.rate_kib=a.rate_kib
         print('READY '+m['origin']+'; no app launched',flush=True)

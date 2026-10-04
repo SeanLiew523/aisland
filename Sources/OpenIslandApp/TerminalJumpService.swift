@@ -1201,17 +1201,9 @@ struct TerminalJumpService {
         case matched(GhosttyTerminal), missing, ambiguous
     }
     static func selectGhosttyTerminal(_ terminals: [GhosttyTerminal], target: JumpTarget) -> GhosttySelection {
-        let matches: [GhosttyTerminal]
-        if let id = target.terminalSessionID, !id.isEmpty {
-            // A stale or foreign ID must never select a different surface.
-            matches = terminals.filter { $0.id == id }
-        } else if let cwd = target.workingDirectory, !cwd.isEmpty {
-            // Shared directories remain ambiguous even if a title seems helpful.
-            // A known directory miss must not select a similarly titled foreign pane.
-            matches = terminals.filter { $0.workingDirectory == cwd }
-        } else {
-            matches = terminals.filter { !$0.title.isEmpty && $0.title == target.paneTitle }
-        }
+        guard let id = target.terminalSessionID, !id.isEmpty else { return .missing }
+        // CWD/title cannot turn an unbound or stale source into another surface.
+        let matches = terminals.filter { $0.id == id }
         if matches.count > 1 { return .ambiguous }
         guard let terminal = matches.first, !terminal.id.isEmpty else { return .missing }
         return .matched(terminal)
@@ -1259,8 +1251,7 @@ struct TerminalJumpService {
     }
 
     /// Selection happens against a read-only inventory first. This script focuses
-    /// only that resolved ID and returns the observed focused ID, including for
-    /// legacy targets resolved by a unique directory or exact title.
+    /// only the source-owned resolved ID and returns the observed focused ID.
     func ghosttyJumpScript(for target: JumpTarget) -> String {
         let terminalSessionID = escapeAppleScript(target.terminalSessionID)
         return """

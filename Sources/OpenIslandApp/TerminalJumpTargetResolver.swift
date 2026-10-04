@@ -143,9 +143,10 @@ struct TerminalJumpTargetResolver {
         var assignments: [String: GhosttyTerminalSnapshot] = [:]
         var claimedSessionIDs: Set<String> = []
         var claimedSnapshotIDs: Set<String> = []
+        let snapshotCounts = Dictionary(grouping: snapshots, by: \.sessionID).mapValues(\.count)
 
         // Pass 1: exact session ID match via terminal session ID.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
+        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) && snapshotCounts[snapshot.sessionID] == 1 {
             if let session = sessions.first(where: {
                 !claimedSessionIDs.contains($0.id)
                     && nonEmptyValue($0.jumpTarget?.terminalSessionID) == snapshot.sessionID
@@ -156,30 +157,8 @@ struct TerminalJumpTargetResolver {
             }
         }
 
-        // Only a one-to-one fallback can create a new binding. A missing
-        // recorded surface is not permission to redirect to another page.
-        func assignUniqueFallback(_ matches: (GhosttyTerminalSnapshot, AgentSession) -> Bool) {
-            let candidates = sessions.filter {
-                !claimedSessionIDs.contains($0.id) && nonEmptyValue($0.jumpTarget?.terminalSessionID) == nil
-            }
-            let remaining = snapshots.filter { !claimedSnapshotIDs.contains($0.sessionID) }
-            for snapshot in remaining {
-                let matchingSessions = candidates.filter { matches(snapshot, $0) }
-                guard matchingSessions.count == 1, let session = matchingSessions.first,
-                      remaining.filter({ matches($0, session) }).count == 1 else { continue }
-                assignments[session.id] = snapshot
-                claimedSessionIDs.insert(session.id)
-                claimedSnapshotIDs.insert(snapshot.sessionID)
-            }
-        }
-        assignUniqueFallback { snapshot, session in
-            guard let cwd = normalizedPathForMatching(snapshot.workingDirectory) else { return false }
-            return normalizedPathForMatching(session.jumpTarget?.workingDirectory) == cwd
-        }
-        assignUniqueFallback { snapshot, session in
-            guard let title = nonEmptyValue(session.jumpTarget?.paneTitle) else { return false }
-            return nonEmptyValue(snapshot.title) == title
-        }
+        // Working directory and ordinary title are not source identity.
+        // An unbound source must wait for a trusted source-owned surface ID.
 
         return assignments
     }

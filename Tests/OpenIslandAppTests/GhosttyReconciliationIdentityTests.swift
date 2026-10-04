@@ -49,11 +49,11 @@ struct GhosttyReconciliationIdentityTests {
     }
 
     @Test
-    func genuinelyUniqueUnboundSourceStillGetsAnExactSurface() {
+    func uniqueDirectoryCannotProveAnUnboundSourceSurface() {
         let sessions = [session("a")]
         let snapshots = [snapshot("A")]
-        #expect(TerminalJumpTargetResolver().matchGhosttySnapshots(snapshots, to: sessions, activeProcesses: [])["a"]?.sessionID == "A")
-        #expect(resolve(sessions, snapshots)["a"]?.correctedJumpTarget?.terminalSessionID == "A")
+        #expect(TerminalJumpTargetResolver().matchGhosttySnapshots(snapshots, to: sessions, activeProcesses: []).isEmpty)
+        #expect(resolve(sessions, snapshots)["a"]?.correctedJumpTarget == nil)
     }
 
     private func session(_ id: String, surface: String? = nil, tool: AgentTool = .ohMyPi) -> AgentSession {

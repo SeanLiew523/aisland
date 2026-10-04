@@ -61,7 +61,7 @@ struct TerminalSessionAttachmentProbeTests {
     }
 
     @Test
-    func ghosttyRehomesMisbindingWhenRecordedTerminalIsAlreadyClaimed() {
+    func ghosttyDoesNotRehomeRecordedTerminalWhenAlreadyClaimed() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let primary = ghosttySession(
@@ -95,14 +95,13 @@ struct TerminalSessionAttachmentProbeTests {
         )
 
         #expect(resolutions["primary"]?.attachmentState == .attached)
-        #expect(resolutions["rehomed"]?.attachmentState == .attached)
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.terminalSessionID == "ghostty-2")
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.paneTitle == "codex ~/tmp/personal")
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.workspaceName == "personal")
+        #expect(resolutions["rehomed"]?.attachmentState == .stale)
+        #expect(resolutions["rehomed"]?.correctedJumpTarget == nil)
     }
 
+
     @Test
-    func ghosttyRehomesFromTitleWorkspaceWhenJumpTargetDirectoryIsWrong() {
+    func ghosttyDoesNotRehomeFromWorkspaceTitle() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let primary = ghosttySession(
@@ -145,11 +144,10 @@ struct TerminalSessionAttachmentProbeTests {
         )
 
         #expect(resolutions["primary"]?.attachmentState == .attached)
-        #expect(resolutions["rehomed"]?.attachmentState == .attached)
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.terminalSessionID == "ghostty-2")
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.workspaceName == "claude-research")
-        #expect(resolutions["rehomed"]?.correctedJumpTarget?.workingDirectory == "/tmp/claude-research")
+        #expect(resolutions["rehomed"]?.attachmentState == .stale)
+        #expect(resolutions["rehomed"]?.correctedJumpTarget == nil)
     }
+
 
     @Test
     func explicitTerminalMissDropsRecentlyAttachedSessionOutOfLiveState() {
@@ -497,7 +495,7 @@ struct TerminalSessionAttachmentProbeTests {
     }
 
     @Test
-    func unknownTerminalSessionRehomesToGhosttyFromWorkingDirectory() {
+    func unknownTerminalSessionCannotGainGhosttyIDFromWorkingDirectory() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let session = AgentSession(
@@ -532,10 +530,9 @@ struct TerminalSessionAttachmentProbeTests {
         )
 
         #expect(resolutions["claude-session"]?.attachmentState == .attached)
-        #expect(resolutions["claude-session"]?.correctedJumpTarget?.terminalApp == "Ghostty")
-        #expect(resolutions["claude-session"]?.correctedJumpTarget?.terminalSessionID == "ghostty-1")
-        #expect(resolutions["claude-session"]?.correctedJumpTarget?.workingDirectory == "/tmp/open-island")
+        #expect(resolutions["claude-session"]?.correctedJumpTarget == nil)
     }
+
 
     @Test
     func activeCodexSessionDoesNotReplaceMissingRecordedSurfaceWithRemainingPage() {
@@ -628,7 +625,7 @@ struct TerminalSessionAttachmentProbeTests {
     }
 
     @Test
-    func claudeSessionIDPrefixInGhosttyTitleBeatsSameDirectoryCodexSession() {
+    func fullClaudeSessionIDInGhosttyTitleBindsExactSource() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let codexSession = ghosttySession(
@@ -664,7 +661,7 @@ struct TerminalSessionAttachmentProbeTests {
             ghosttyAvailability: .available(
                 [
                     .init(sessionID: "ghostty-codex", workingDirectory: "/tmp/open-island", title: "codex ~/tmp/open-island"),
-                    .init(sessionID: "ghostty-claude", workingDirectory: "/tmp/open-island", title: "open-island · hi · e45d5e87-66d0-4f"),
+                    .init(sessionID: "ghostty-claude", workingDirectory: "/tmp/open-island", title: "open-island · hi · e45d5e87-66d0-4f67-8399-6ebc02f3d453"),
                 ],
                 appIsRunning: true
             ),
@@ -679,11 +676,11 @@ struct TerminalSessionAttachmentProbeTests {
         #expect(resolutions["codex-session"]?.attachmentState == .attached)
         #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.attachmentState == .attached)
         #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.correctedJumpTarget?.terminalSessionID == "ghostty-claude")
-        #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.correctedJumpTarget?.paneTitle == "open-island · hi · e45d5e87-66d0-4f")
+        #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.correctedJumpTarget?.paneTitle == "open-island · hi · e45d5e87-66d0-4f67-8399-6ebc02f3d453")
     }
 
     @Test
-    func claudePrefixClaimOverridesMisbindingRecordedGhosttySessionID() {
+    func fullClaudeSessionIDClaimDoesNotRehomeOtherRecordedSurface() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let misboundCodexSession = ghosttySession(
@@ -691,7 +688,7 @@ struct TerminalSessionAttachmentProbeTests {
             updatedAt: now,
             phase: .running,
             terminalSessionID: "ghostty-claude",
-            paneTitle: "open-island · hi · e45d5e87-66d0-4f",
+            paneTitle: "open-island · hi · e45d5e87-66d0-4f67-8399-6ebc02f3d453",
             workingDirectory: "/tmp/open-island"
         )
         let claudeSession = AgentSession(
@@ -719,7 +716,7 @@ struct TerminalSessionAttachmentProbeTests {
             for: [misboundCodexSession, claudeSession],
             ghosttyAvailability: .available(
                 [
-                    .init(sessionID: "ghostty-claude", workingDirectory: "/tmp/open-island", title: "open-island · hi · e45d5e87-66d0-4f"),
+                    .init(sessionID: "ghostty-claude", workingDirectory: "/tmp/open-island", title: "open-island · hi · e45d5e87-66d0-4f67-8399-6ebc02f3d453"),
                     .init(sessionID: "ghostty-codex", workingDirectory: "/tmp/open-island", title: "codex ~/tmp/open-island"),
                 ],
                 appIsRunning: true
@@ -735,11 +732,11 @@ struct TerminalSessionAttachmentProbeTests {
         #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.attachmentState == .attached)
         #expect(resolutions["e45d5e87-66d0-4f67-8399-6ebc02f3d453"]?.correctedJumpTarget?.terminalSessionID == "ghostty-claude")
         #expect(resolutions["misbound-codex"]?.attachmentState == .attached)
-        #expect(resolutions["misbound-codex"]?.correctedJumpTarget?.terminalSessionID == "ghostty-codex")
+        #expect(resolutions["misbound-codex"]?.correctedJumpTarget == nil)
     }
 
     @Test
-    func activeCodexSessionWithoutJumpTargetCanAttachFromProcessWorkingDirectory() {
+    func activeCodexSessionCanStayAttachedWithoutInventingGhosttyID() {
         let now = Date(timeIntervalSince1970: 1_000)
         let probe = TerminalSessionAttachmentProbe()
         let session = AgentSession(
@@ -767,9 +764,9 @@ struct TerminalSessionAttachmentProbeTests {
         )
 
         #expect(resolutions["active-no-jump-target"]?.attachmentState == .attached)
-        #expect(resolutions["active-no-jump-target"]?.correctedJumpTarget?.terminalSessionID == "ghostty-codex")
-        #expect(resolutions["active-no-jump-target"]?.correctedJumpTarget?.workingDirectory == "/tmp/open-island")
+        #expect(resolutions["active-no-jump-target"]?.correctedJumpTarget == nil)
     }
+
 
     @Test
     func ghosttySessionListRegressionOnlyKeepsLiveLookingTabsAttached() {

@@ -374,14 +374,16 @@ public extension GrokHookPayload {
         withRuntimeContext(
             environment: environment,
             currentTTYProvider: { currentTTY() },
-            terminalLocatorProvider: { terminalLocator(for: $0) }
+            terminalLocatorProvider: { terminalLocator(for: $0) },
+            ghosttyBindingProvider: GhosttySourceBindingStore.production
         )
     }
 
     func withRuntimeContext(
         environment: [String: String],
         currentTTYProvider: () -> String?,
-        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?)
+        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
+        ghosttyBindingProvider: GhosttySourceBindingProvider = { _, _, _, _, _ in nil }
     ) -> GrokHookPayload {
         var payload = self
 
@@ -405,7 +407,7 @@ public extension GrokHookPayload {
             }
         }
 
-        if payload.terminalTTY == nil {
+        if payload.terminalTTY == nil && !isGhosttyTerminalApp(payload.terminalApp) {
             payload.terminalTTY = currentTTYProvider()
         }
 
@@ -413,14 +415,18 @@ public extension GrokHookPayload {
         if isCmuxTerminalApp(payload.terminalApp) || isZellijTerminalApp(payload.terminalApp) {
             useLocator = false
         } else if let terminalApp = payload.terminalApp, isGhosttyTerminalApp(terminalApp) {
-            switch payload.hookEventName {
-            case .sessionStart, .userPromptSubmit, .notification:
-                useLocator = true
-            default:
-                payload.terminalSessionID = nil
-                payload.terminalTitle = nil
-                useLocator = false
-            }
+            // Only the real source TTY and a verified receipt identify this
+            // process. Payload IDs and the currently focused pane are not
+            // trustworthy evidence on background hooks.
+            payload.terminalTTY = currentTTYProvider()
+            let sourceEvent: GhosttySourceEvent = payload.hookEventName == .sessionStart
+                ? .startup : payload.hookEventName == .userPromptSubmit ? .userSubmit : .background
+            let binding = ghosttyBindingProvider(
+                "grok", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
+            )
+            payload.terminalSessionID = binding?.sessionID
+            payload.terminalTitle = binding?.title
+            useLocator = false
         } else {
             useLocator = shouldUseFocusedTerminalLocator(for: payload.terminalApp ?? "")
         }
@@ -598,15 +604,9 @@ public extension GrokHookPayload {
         }
 
         if normalized.contains("ghostty") {
-            let values = osascriptValues(script: """
-            tell application "Ghostty"
-                if not (it is running) then return ""
-                tell focused terminal of selected tab of front window
-                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
-                end tell
-            end tell
-            """)
-            return (sessionID: values[safe: 0], tty: nil, title: values[safe: 2])
+            // Ghostty requires the verified source binding, never this
+            // legacy focused-only locator.
+            return (nil, nil, nil)
         }
 
         if normalized.contains("terminal") {

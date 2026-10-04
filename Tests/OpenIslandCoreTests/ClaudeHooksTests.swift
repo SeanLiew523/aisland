@@ -229,28 +229,28 @@ struct ClaudeHooksTests {
     }
 
     @Test
-    func claudeGhosttyLocatorUsedForSessionStartAndPromptButNotToolUse() {
+    func claudeGhosttyUnverifiedFocusedLocatorCannotPopulateID() {
         let locator: (String) -> (sessionID: String?, tty: String?, title: String?) = { _ in
             (sessionID: "ghostty-frontmost", tty: nil, title: "claude ~/tmp/worktree")
         }
         let env = ["TERM_PROGRAM": "ghostty"]
         let ttyProvider: () -> String? = { "/dev/ttys031" }
 
-        // SessionStart: locator IS used.
+        // A legacy focused-only locator cannot prove source binding.
         let atStart = ClaudeHookPayload(
             cwd: "/tmp/worktree", hookEventName: .sessionStart, sessionID: "s1"
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atStart.terminalSessionID == "ghostty-frontmost")
-        #expect(atStart.terminalTitle == "claude ~/tmp/worktree")
+        #expect(atStart.terminalSessionID == nil)
+        #expect(atStart.terminalTitle == nil)
 
-        // UserPromptSubmit: locator IS used (user just typed, terminal is focused).
+        // Submitting a prompt also requires the new verified binding provider.
         let atPrompt = ClaudeHookPayload(
             cwd: "/tmp/worktree", hookEventName: .userPromptSubmit, sessionID: "s1"
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atPrompt.terminalSessionID == "ghostty-frontmost")
-        #expect(atPrompt.terminalTitle == "claude ~/tmp/worktree")
+        #expect(atPrompt.terminalSessionID == nil)
+        #expect(atPrompt.terminalTitle == nil)
 
         // PreToolUse: locator NOT used, values cleared.
         let atTool = ClaudeHookPayload(

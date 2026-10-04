@@ -546,7 +546,8 @@ public extension CodexHookPayload {
             environment: environment,
             currentTTYProvider: { currentTTY() },
             terminalLocatorProvider: { terminalLocator(for: $0) },
-            warpPaneResolver: Self.defaultWarpPaneResolver
+            warpPaneResolver: Self.defaultWarpPaneResolver,
+            ghosttyBindingProvider: GhosttySourceBindingStore.production
         )
     }
 
@@ -569,7 +570,8 @@ public extension CodexHookPayload {
         environment: [String: String],
         currentTTYProvider: () -> String?,
         terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
-        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver
+        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver,
+        ghosttyBindingProvider: GhosttySourceBindingProvider = { _, _, _, _, _ in nil }
     ) -> CodexHookPayload {
         var payload = self
 
@@ -600,7 +602,7 @@ public extension CodexHookPayload {
             }
         }
 
-        if payload.terminalTTY == nil {
+        if payload.terminalTTY == nil && !isGhosttyTerminalApp(payload.terminalApp) {
             payload.terminalTTY = currentTTYProvider()
         }
 
@@ -610,13 +612,18 @@ public extension CodexHookPayload {
             // no AppleScript locator is available, so skip entirely.
             useLocator = false
         } else if let terminalApp = payload.terminalApp, isGhosttyTerminalApp(terminalApp) {
-            if payload.hookEventName == .sessionStart || payload.hookEventName == .userPromptSubmit {
-                useLocator = true
-            } else {
-                payload.terminalSessionID = nil
-                payload.terminalTitle = nil
-                useLocator = false
-            }
+            // Only the real source TTY and a verified receipt identify this
+            // process. Payload IDs and the currently focused pane are not
+            // trustworthy evidence on background hooks.
+            payload.terminalTTY = currentTTYProvider()
+            let sourceEvent: GhosttySourceEvent = payload.hookEventName == .sessionStart
+                ? .startup : payload.hookEventName == .userPromptSubmit ? .userSubmit : .background
+            let binding = ghosttyBindingProvider(
+                "codex", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
+            )
+            payload.terminalSessionID = binding?.sessionID
+            payload.terminalTitle = binding?.title
+            useLocator = false
         } else {
             useLocator = shouldUseFocusedTerminalLocator(for: payload.terminalApp ?? "")
         }
@@ -816,19 +823,9 @@ public extension CodexHookPayload {
         }
 
         if normalized.contains("ghostty") {
-            let values = osascriptValues(script: """
-            tell application "Ghostty"
-                if not (it is running) then return ""
-                tell focused terminal of selected tab of front window
-                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
-                end tell
-            end tell
-            """)
-            return (
-                sessionID: values[safe: 0],
-                tty: nil,
-                title: values[safe: 2]
-            )
+            // Ghostty requires the verified source binding, never this
+            // legacy focused-only locator.
+            return (nil, nil, nil)
         }
 
         if normalized.contains("terminal") {

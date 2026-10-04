@@ -205,14 +205,16 @@ public extension GeminiHookPayload {
         withRuntimeContext(
             environment: environment,
             currentTTYProvider: { currentTTY() },
-            terminalLocatorProvider: { terminalLocator(for: $0) }
+            terminalLocatorProvider: { terminalLocator(for: $0) },
+            ghosttyBindingProvider: GhosttySourceBindingStore.production
         )
     }
 
     func withRuntimeContext(
         environment: [String: String],
         currentTTYProvider: () -> String?,
-        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?)
+        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
+        ghosttyBindingProvider: GhosttySourceBindingProvider = { _, _, _, _, _ in nil }
     ) -> GeminiHookPayload {
         var payload = self
 
@@ -220,7 +222,7 @@ public extension GeminiHookPayload {
             payload.terminalApp = inferTerminalApp(from: environment)
         }
 
-        if payload.terminalTTY == nil {
+        if payload.terminalTTY == nil && !isGhosttyTerminalApp(payload.terminalApp) {
             payload.terminalTTY = currentTTYProvider()
         }
 
@@ -228,14 +230,18 @@ public extension GeminiHookPayload {
         if isCmuxTerminalApp(payload.terminalApp) || isZellijTerminalApp(payload.terminalApp) {
             useLocator = false
         } else if let terminalApp = payload.terminalApp, isGhosttyTerminalApp(terminalApp) {
-            switch payload.hookEventName {
-            case .sessionStart, .beforeAgent, .notification:
-                useLocator = true
-            case .sessionEnd, .afterAgent:
-                payload.terminalSessionID = nil
-                payload.terminalTitle = nil
-                useLocator = false
-            }
+            // Only the real source TTY and a verified receipt identify this
+            // process. Payload IDs and the currently focused pane are not
+            // trustworthy evidence on background hooks.
+            payload.terminalTTY = currentTTYProvider()
+            let sourceEvent: GhosttySourceEvent = payload.hookEventName == .sessionStart
+                ? .startup : .background
+            let binding = ghosttyBindingProvider(
+                "gemini", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
+            )
+            payload.terminalSessionID = binding?.sessionID
+            payload.terminalTitle = binding?.title
+            useLocator = false
         } else {
             useLocator = shouldUseFocusedTerminalLocator(for: payload.terminalApp ?? "")
         }
@@ -436,12 +442,9 @@ public extension GeminiHookPayload {
         }
 
         if normalized.contains("ghostty") {
-            let values = osascriptValues(script: Self.terminalLocatorAppleScript(for: "Ghostty"))
-            return (
-                sessionID: values[safe: 0],
-                tty: nil,
-                title: values[safe: 2]
-            )
+            // Ghostty requires the verified source binding, never this
+            // legacy focused-only locator.
+            return (nil, nil, nil)
         }
 
         if normalized.contains("terminal") {
@@ -468,14 +471,9 @@ public extension GeminiHookPayload {
             end tell
             """
         case "Ghostty":
-            """
-            tell application "Ghostty"
-                if not (it is running) then return ""
-                tell focused terminal of selected tab of front window
-                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
-                end tell
-            end tell
-            """
+            // The shared GhosttySourceLocator has a different, verified
+            // snapshot contract and is the only production Ghostty reader.
+            ""
         case "Terminal":
             """
             tell application "Terminal"

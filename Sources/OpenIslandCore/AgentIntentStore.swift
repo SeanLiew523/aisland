@@ -33,6 +33,12 @@ public final class AgentIntentStore: @unchecked Sendable {
         AgentIdentifier.allCases.filter { intent(for: $0) == .installed }
     }
 
+    public func shouldAutomaticallyConfigure(_ agent: AgentIdentifier, installationDetected: Bool,
+                                             configurationCurrent: Bool) -> Bool {
+        installationDetected && !configurationCurrent && intent(for: agent) != .uninstalled
+            && agent != .claudeUsageBridge
+    }
+
     // MARK: - First-launch tracking
 
     /// True once the user has completed (or explicitly skipped) onboarding, or
@@ -72,6 +78,8 @@ public final class AgentIntentStore: @unchecked Sendable {
 
         var anyInstalled = false
         for agent in AgentIdentifier.allCases {
+            // Migration must not replace a decision already made by this user.
+            guard defaults.object(forKey: Self.intentKey(for: agent)) == nil else { continue }
             let installed = detectInstalled(agent)
             setIntent(installed ? .installed : .untouched, for: agent)
             if installed { anyInstalled = true }

@@ -551,6 +551,12 @@ struct SetupSettingsPane: View {
             Section {
                 Text(lang.t("setup.connection.explanation"))
                     .font(.callout)
+                Text(lang.t("setup.connection.automatic"))
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.hooks.automaticConnectionErrors.keys.sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { agent in
+                    Text("\(agent.rawValue): \(model.hooks.automaticConnectionErrors[agent] ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Text(lang.t("setup.connection.configurationOnly"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -570,6 +576,7 @@ struct SetupSettingsPane: View {
             Section(lang.t("setup.section.hooks")) {
                 hookRow(
                     name: "Claude Code",
+                    agent: .claudeCode,
                     installed: model.claudeHooksInstalled,
                     configurationKnown: model.claudeHookStatus != nil,
                     busy: model.isClaudeHookSetupBusy,
@@ -588,6 +595,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Codex",
+                    agent: .codex,
                     installed: model.codexHooksInstalled,
                     configurationKnown: model.codexHookStatus != nil,
                     busy: model.isCodexSetupBusy,
@@ -606,6 +614,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "OpenCode",
+                    agent: .openCode,
                     installed: model.openCodePluginInstalled,
                     configurationKnown: model.openCodePluginStatus != nil,
                     busy: model.isOpenCodeSetupBusy,
@@ -625,6 +634,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Qoder",
+                    agent: .qoder,
                     installed: model.qoderHooksInstalled,
                     configurationKnown: model.qoderHookStatus != nil,
                     busy: model.isQoderHookSetupBusy,
@@ -643,6 +653,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Qwen Code",
+                    agent: .qwenCode,
                     installed: model.qwenCodeHooksInstalled,
                     configurationKnown: model.qwenCodeHookStatus != nil,
                     busy: model.isQwenCodeHookSetupBusy,
@@ -661,6 +672,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Factory",
+                    agent: .factory,
                     installed: model.factoryHooksInstalled,
                     configurationKnown: model.factoryHookStatus != nil,
                     busy: model.isFactoryHookSetupBusy,
@@ -679,6 +691,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "CodeBuddy",
+                    agent: .codebuddy,
                     installed: model.codebuddyHooksInstalled,
                     configurationKnown: model.codebuddyHookStatus != nil,
                     busy: model.isCodebuddyHookSetupBusy,
@@ -697,6 +710,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "ZCode",
+                    agent: .zcode,
                     installed: model.zcodeHooksInstalled,
                     configurationKnown: model.zcodeHookStatus != nil,
                     busy: model.isZcodeHookSetupBusy,
@@ -715,6 +729,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "WorkBuddy",
+                    agent: .workbuddy,
                     installed: model.workbuddyHooksInstalled,
                     configurationKnown: model.workbuddyHookStatus != nil,
                     busy: model.isWorkbuddyHookSetupBusy,
@@ -733,6 +748,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Cursor",
+                    agent: .cursor,
                     installed: model.cursorHooksInstalled,
                     configurationKnown: model.cursorHookStatus != nil,
                     busy: model.isCursorHookSetupBusy,
@@ -752,6 +768,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Gemini CLI",
+                    agent: .gemini,
                     installed: model.geminiHooksInstalled,
                     configurationKnown: model.geminiHookStatus != nil,
                     busy: model.isGeminiHookSetupBusy,
@@ -770,6 +787,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Kimi CLI",
+                    agent: .kimi,
                     installed: model.kimiHooksInstalled,
                     configurationKnown: model.kimiHookStatus != nil,
                     busy: model.isKimiHookSetupBusy,
@@ -788,6 +806,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Grok Build",
+                    agent: .grok,
                     installed: model.grokHooksInstalled,
                     configurationKnown: model.grokHookStatus != nil,
                     busy: model.isGrokHookSetupBusy,
@@ -805,10 +824,15 @@ struct SetupSettingsPane: View {
                     Text("This will remove AIsland hooks from ~/.grok/hooks/open-island.json.")
                 }
 
-                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance)
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus) { status, intent in
+                    model.hooks.hermesHookStatus = status
+                    model.hooks.intentStore.setIntent(intent, for: .hermes)
+                }
+                .disabled(model.hooks.isAutomaticConnectionBusy)
 
                 hookRow(
                     name: "Pi",
+                    agent: .pi,
                     installed: model.piExtensionInstalled,
                     configurationKnown: model.piExtensionStatus != nil,
                     busy: model.isPiSetupBusy,
@@ -828,6 +852,7 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Oh My Pi",
+                    agent: .ohMyPi,
                     installed: model.ohMyPiExtensionInstalled,
                     configurationKnown: model.ohMyPiExtensionStatus != nil,
                     busy: model.isOhMyPiSetupBusy,
@@ -913,24 +938,9 @@ struct SetupSettingsPane: View {
 
             Section {
                 Button(lang.t("setup.installAll")) {
-                    if !model.claudeHooksInstalled { model.installClaudeHooks() }
-                    if !model.codexHooksInstalled { model.installCodexHooks() }
-                    if !model.openCodePluginInstalled { model.installOpenCodePlugin() }
-                    if !model.qoderHooksInstalled { model.installQoderHooks() }
-                    if !model.qwenCodeHooksInstalled { model.installQwenCodeHooks() }
-                    if !model.factoryHooksInstalled { model.installFactoryHooks() }
-                    if !model.codebuddyHooksInstalled { model.installCodebuddyHooks() }
-                    if !model.zcodeHooksInstalled { model.installZcodeHooks() }
-                    if !model.workbuddyHooksInstalled { model.installWorkbuddyHooks() }
-                    if !model.cursorHooksInstalled { model.installCursorHooks() }
-                    if !model.geminiHooksInstalled { model.installGeminiHooks() }
-                    if !model.kimiHooksInstalled { model.installKimiHooks() }
-                    if !model.grokHooksInstalled { model.installGrokHooks() }
-                    if !model.piExtensionInstalled { model.installPiExtension() }
-                    if !model.ohMyPiExtensionInstalled { model.installOhMyPiExtension() }
-                    if !model.claudeUsageInstalled { model.installClaudeUsageBridge() }
+                    Task { await model.hooks.configureDetectedSources() }
                 }
-                .disabled(model.hooks.setupBlockReason(requiresBinary: true) != nil || allReady)
+                .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy)
                 .frame(maxWidth: .infinity, alignment: .center)
                 Text(lang.t("setup.connection.configureAllExplanation"))
                     .font(.caption)
@@ -1141,6 +1151,7 @@ struct SetupSettingsPane: View {
     @ViewBuilder
     private func hookRow(
         name: String,
+        agent: AgentIdentifier,
         installed: Bool,
         configurationKnown: Bool,
         busy: Bool,
@@ -1150,6 +1161,7 @@ struct SetupSettingsPane: View {
         uninstallAction: @escaping () -> Void
     ) -> some View {
         let blocked = model.hooks.setupBlockReason(requiresBinary: requiresBinary)
+        let sourceDetected = model.hooks.detectedInstallations[agent] != nil
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label(name, systemImage: "terminal")
@@ -1177,7 +1189,7 @@ struct SetupSettingsPane: View {
                         }
                         .foregroundStyle(.red)
                         .font(.caption)
-                        .disabled(model.hooks.isRuntimeAcceptance)
+                        .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy)
                     }
                 } else if busy {
                     ProgressView().controlSize(.small)
@@ -1185,13 +1197,16 @@ struct SetupSettingsPane: View {
                     Button(lang.t("setup.connection.configure")) {
                         installAction()
                     }
-                    .disabled(blocked != nil)
+                    .disabled(blocked != nil || !sourceDetected || model.hooks.isAutomaticConnectionBusy)
                 }
             }
             if let blocked {
                 Text(lang.t(blocked.rawValue))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else if !sourceDetected {
+                Text(lang.t("setup.connection.sourceMissing"))
+                    .font(.caption).foregroundStyle(.secondary)
             } else if !installed && !busy {
                 Text(lang.t(configurationKnown ? "setup.connection.notConfigured" : "setup.connection.unknown"))
                     .font(.caption)

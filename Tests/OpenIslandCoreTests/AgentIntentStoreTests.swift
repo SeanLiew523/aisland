@@ -67,6 +67,16 @@ struct AgentIntentStoreTests {
     }
 
     @Test
+    func migrationPreservesExplicitDecisionsBeforeFirstMigration() {
+        let (store, _) = makeStore()
+        store.setIntent(.uninstalled, for: .hermes)
+        store.setIntent(.installed, for: .codex)
+        store.migrateFromLegacyStateIfNeeded { _ in true }
+        #expect(store.intent(for: .hermes) == .uninstalled)
+        #expect(store.intent(for: .codex) == .installed)
+    }
+
+    @Test
     func migrationIsIdempotent() {
         let (store, _) = makeStore()
         var calls = 0

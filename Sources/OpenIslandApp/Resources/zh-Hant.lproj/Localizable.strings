@@ -148,7 +148,7 @@
 "setup.optional" = "選用";
 "setup.permissionsTitle" = "輔助使用";
 "setup.permissionsDesc" = "AIsland 可能需要輔助使用權限來偵測終端機視窗。請在「系統設定 → 隱私權與安全性 → 輔助使用」中授權。";
-"setup.installAll" = "設定全部接入";
+"setup.installAll" = "重新偵測並接入已安裝 Agent";
 "setup.banner.noHooks.title" = "開始使用 AIsland";
 "setup.banner.noHooks.message" = "在下方選擇你使用的 Agent，設定它的 AIsland 事件接入。";
 "setup.revealConfigLocation" = "在 Finder 中顯示設定";
@@ -266,5 +266,9 @@
 "setup.connection.unknown" = "尚未讀取接入設定狀態。";
 "setup.connection.missingHelper" = "目前 AIsland 找不到本機接入程式，請使用包含接入元件的完整應用程式。";
 "setup.connection.isolated" = "目前驗收建置已停用 Agent 設定與來源讀取，請在一般應用程式中設定接入。";
-"setup.connection.configureAllExplanation" = "為上方所有 Agent 寫入 AIsland 接入設定，包括尚未安裝的 Agent。只接入你使用的 Agent，請逐項設定。";
+"setup.connection.configureAllExplanation" = "重新偵測已安裝來源，設定缺少的 AIsland 事件接入，保留你主動移除的接入。";
 "setup.connection.hermesExplanation" = "向所選 Hermes profile 加入 AIsland 回合回呼，不安裝 Hermes。設定後重新啟動 Hermes，並在 Hermes 自己的提示中授權兩條 AIsland hook；審批仍留在 Hermes。";
+
+"setup.connection.automatic" = "自動為已安裝的 Agent 設定事件接入；你主動移除的接入會保持關閉。新安裝 Agent 後，可在這裡重新偵測或重啟 AIsland。";
+
+"setup.connection.sourceMissing" = "未偵測到 Agent 安裝。請先安裝 Agent，再重新偵測。";

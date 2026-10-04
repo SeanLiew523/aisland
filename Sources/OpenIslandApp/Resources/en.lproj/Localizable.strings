@@ -148,7 +148,7 @@
 "setup.optional" = "Optional";
 "setup.permissionsTitle" = "Accessibility";
 "setup.permissionsDesc" = "AIsland may need Accessibility permission to detect terminal windows. Grant it in System Settings → Privacy & Security → Accessibility.";
-"setup.installAll" = "Configure All Connections";
+"setup.installAll" = "Check installed agents and connect";
 "setup.banner.noHooks.title" = "Get started with AIsland";
 "setup.banner.noHooks.message" = "Choose the agents you use below to configure their AIsland event connection.";
 "setup.revealConfigLocation" = "Reveal config in Finder";
@@ -267,5 +267,9 @@
 "setup.connection.unknown" = "Connection configuration has not been read yet.";
 "setup.connection.missingHelper" = "This AIsland copy cannot find its local connection helper. Use the complete app with its connection components.";
 "setup.connection.isolated" = "This acceptance build disables agent configuration and source reads. Use the regular app to configure connections.";
-"setup.connection.configureAllExplanation" = "Writes AIsland connection configuration for every agent listed above, even if the agent itself is not installed. Configure individual rows for only the agents you use.";
+"setup.connection.configureAllExplanation" = "Checks installed sources again, configures missing AIsland event connections, and preserves sources you removed.";
 "setup.connection.hermesExplanation" = "Adds AIsland turn hooks to the chosen Hermes profile; it does not install Hermes. Restart Hermes after configuring and approve its two AIsland hooks at the Hermes prompt. Approvals remain in Hermes.";
+
+"setup.connection.automatic" = "Installed agents are connected automatically. Agents you removed stay disconnected. After installing another agent, check again here or restart AIsland.";
+
+"setup.connection.sourceMissing" = "Agent installation not detected. Install the agent first, then check again.";

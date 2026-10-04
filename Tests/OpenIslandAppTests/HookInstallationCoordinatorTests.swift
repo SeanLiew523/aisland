@@ -23,6 +23,24 @@ struct HookInstallationCoordinatorTests {
     }
 
     @Test
+    func acceptanceDoesNotDetectConfigureOrMigratePreferences() async throws {
+        let suite = "aisland-acceptance-auto-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let intent = AgentIntentStore(defaults: defaults)
+        intent.setIntent(.installed, for: .hermes)
+        let coordinator = HookInstallationCoordinator(intentStore: intent, isRuntimeAcceptance: true)
+        await coordinator.detectInstalledSources()
+        await coordinator.configureDetectedSources()
+        coordinator.migrateIntentStoreIfNeeded()
+        #expect(coordinator.detectedInstallations.isEmpty)
+        #expect(coordinator.hermesHookStatus == nil)
+        #expect(!coordinator.isAutomaticConnectionBusy)
+        #expect(intent.migrationVersion == 0)
+        #expect(intent.intent(for: .hermes) == .installed)
+    }
+
+    @Test
     func loadPiExtensionStatusesIsolatesCorruptedPiManifest() throws {
         let roots = try makeIsolatedRoots()
         defer { roots.cleanup() }

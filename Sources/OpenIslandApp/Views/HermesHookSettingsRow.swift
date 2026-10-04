@@ -7,6 +7,9 @@ struct HermesHookSettingsRow: View {
     let hooksBinaryURL: URL?
     let lang: LanguageManager
     var setupDisabled = false
+    var sourceDetected = true
+    var automaticStatus: HermesHookInstallationStatus? = nil
+    var onConfigurationChanged: ((HermesHookInstallationStatus, AgentHookIntent) -> Void)? = nil
     @State private var profileDirectory = HermesHookInstallationManager.defaultProfileDirectory
     @State private var pythonURL = HermesHookInstallationManager.defaultPythonURL
     @State private var status: HermesHookInstallationStatus?
@@ -25,7 +28,7 @@ struct HermesHookSettingsRow: View {
                     .foregroundStyle(.secondary).font(.caption)
                 Button(text("Refresh", "刷新")) { refresh() }.disabled(busy || setupDisabled)
                 Button(lang.t(status?.isInstalled == true ? "setup.connection.update" : "setup.connection.configure")) { perform(install: true) }
-                    .disabled(busy || setupDisabled || hooksBinaryURL == nil)
+                    .disabled(busy || setupDisabled || !sourceDetected || hooksBinaryURL == nil)
                 if status?.isInstalled == true {
                     Button(lang.t("setup.connection.remove")) { perform(install: false) }.disabled(busy || setupDisabled)
                 }
@@ -38,6 +41,9 @@ struct HermesHookSettingsRow: View {
             }
             Text(lang.t("setup.connection.hermesExplanation"))
                 .font(.caption).foregroundStyle(.secondary)
+            if !sourceDetected && !setupDisabled {
+                Text(lang.t("setup.connection.sourceMissing")).font(.caption).foregroundStyle(.secondary)
+            }
             if setupDisabled || hooksBinaryURL == nil {
                 Text(lang.t(setupDisabled ? "setup.connection.isolated" : "setup.connection.missingHelper"))
                     .font(.caption).foregroundStyle(.secondary)
@@ -45,6 +51,9 @@ struct HermesHookSettingsRow: View {
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         }
         .task { refresh() }
+        .onChange(of: automaticStatus) { _, value in
+            if profileDirectory == HermesHookInstallationManager.defaultProfileDirectory { status = value }
+        }
     }
     private func choose(directory: Bool) {
         let panel = NSOpenPanel(); panel.canChooseDirectories = directory; panel.canChooseFiles = !directory
@@ -72,7 +81,11 @@ struct HermesHookSettingsRow: View {
                 }
             }.value
             switch result {
-            case let .success(value): status = value
+            case let .success(value):
+                status = value
+                if let install, profileDirectory.standardizedFileURL == HermesHookInstallationManager.defaultProfileDirectory.standardizedFileURL {
+                    onConfigurationChanged?(value, install ? .installed : .uninstalled)
+                }
             case let .failure(error): message = error.localizedDescription
             }
             busy = false

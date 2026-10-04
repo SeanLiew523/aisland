@@ -13,13 +13,24 @@ final class HookInstallationCoordinator {
         intentStore: AgentIntentStore = AgentIntentStore(),
         isRuntimeAcceptance: Bool = false,
         piExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .pi),
-        ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi)
+        ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi),
+        installationDetector: AgentInstallationDetector = AgentInstallationDetector(),
+        hermesInstallationManager: HermesHookInstallationManager = HermesHookInstallationManager()
     ) {
+        self.installationDetector = installationDetector
+        self.hermesInstallationManager = hermesInstallationManager
         self.intentStore = intentStore
         self.isRuntimeAcceptance = isRuntimeAcceptance
         self.piExtensionInstallationManager = piExtensionInstallationManager
         self.ohMyPiExtensionInstallationManager = ohMyPiExtensionInstallationManager
     }
+
+    @ObservationIgnored private let installationDetector: AgentInstallationDetector
+    @ObservationIgnored let hermesInstallationManager: HermesHookInstallationManager
+    var detectedInstallations: [AgentIdentifier: AgentInstallationDetector.Evidence] = [:]
+    var automaticConnectionErrors: [AgentIdentifier: String] = [:]
+    var isAutomaticConnectionBusy = false
+    var hermesHookStatus: HermesHookInstallationStatus?
 
     var codexHookStatus: CodexHookInstallationStatus?
     var claudeHookStatus: ClaudeHookInstallationStatus?
@@ -647,21 +658,21 @@ final class HookInstallationCoordinator {
         openCodeHealthReport = openCodeReport
 
         // Repair Claude hooks if there are repairable issues
-        if !claudeReport.repairableIssues.isEmpty, hooksBinaryURL != nil {
+        if !claudeReport.repairableIssues.isEmpty, hooksBinaryURL != nil, detectedInstallations[.claudeCode] != nil, intentStore.intent(for: .claudeCode) != .uninstalled {
             onStatusMessage?("Repairing Claude hooks: \(claudeReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installClaudeHooks()
             repaired = true
         }
 
         // Repair Codex hooks if there are repairable issues
-        if !codexReport.repairableIssues.isEmpty, hooksBinaryURL != nil {
+        if !codexReport.repairableIssues.isEmpty, hooksBinaryURL != nil, detectedInstallations[.codex] != nil, intentStore.intent(for: .codex) != .uninstalled {
             onStatusMessage?("Repairing Codex hooks: \(codexReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installCodexHooks()
             repaired = true
         }
 
         // Repair OpenCode plugin if there are repairable issues
-        if !openCodeReport.repairableIssues.isEmpty {
+        if !openCodeReport.repairableIssues.isEmpty, detectedInstallations[.openCode] != nil, intentStore.intent(for: .openCode) != .uninstalled {
             onStatusMessage?("Repairing OpenCode plugin: \(openCodeReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installOpenCodePlugin()
             repaired = true
@@ -752,6 +763,11 @@ final class HookInstallationCoordinator {
     /// Awaitable versions of refresh for use in startup flow to avoid race conditions.
     func refreshAllHookStatusAndWait() async {
         guard !isRuntimeAcceptance else { return }
+        if detectedInstallations[.hermes] != nil {
+            do { hermesHookStatus = try await Task.detached { [hermesInstallationManager, hooksBinaryURL] in
+                try hermesInstallationManager.status(hooksBinaryURL: hooksBinaryURL)
+            }.value } catch { automaticConnectionErrors[.hermes] = error.localizedDescription }
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
@@ -792,6 +808,12 @@ final class HookInstallationCoordinator {
                 } catch {
                     self.onStatusMessage?("Failed to read Claude usage state: \(error.localizedDescription)")
                 }
+            }
+
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                do { self.cursorHookStatus = try self.cursorHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL) }
+                catch { self.onStatusMessage?("Failed to read Cursor hook status: \(error.localizedDescription)") }
             }
 
             // CC fork agents
@@ -996,19 +1018,78 @@ final class HookInstallationCoordinator {
 
     // MARK: - Intent-aware helpers
 
-    /// Reports whether the startup flow should auto-install hooks for the
-    /// given agent.
-    ///
-    /// Post-onboarding, the only case that triggers auto-install is
-    /// `.installed && !present` — i.e. the user asked for this hook in the
-    /// past but it is currently missing (fresh machine, config wiped,
-    /// upgraded binary path, etc). This is a repair, not a surprise
-    /// install. `.untouched` and `.uninstalled` both return false;
-    /// untouched agents are surfaced to the user via the first-run
-    /// onboarding window and the empty-state banner instead.
+    /// Only detected sources are admitted. Explicit removal survives both
+    /// first launch and future source installations. Untouched detected sources
+    /// are configured on each startup/re-scan, independently of onboarding.
+    func detectInstalledSources() async {
+        guard !isRuntimeAcceptance else { return }
+        detectedInstallations = await Task.detached { [installationDetector] in installationDetector.detect() }.value
+    }
+
+    /// Sequential configuration: completion reflects the installer result,
+    /// rather than an unawaited UI action or a fixed delay.
+    func configureDetectedSources() async {
+        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy else { return }
+        isAutomaticConnectionBusy = true
+        defer { isAutomaticConnectionBusy = false }
+        await detectInstalledSources()
+        for agent in AgentIdentifier.allCases where shouldAutoInstall(agent) {
+            do {
+                try await configureDetectedSource(agent)
+                intentStore.setIntent(.installed, for: agent)
+                automaticConnectionErrors[agent] = nil
+            } catch {
+                automaticConnectionErrors[agent] = error.localizedDescription
+                onStatusMessage?("\(agent.rawValue): \(error.localizedDescription)")
+            }
+        }
+        await refreshAllHookStatusAndWait()
+    }
+
+    private func configureDetectedSource(_ agent: AgentIdentifier) async throws {
+        if agent == .pi || agent == .ohMyPi {
+            guard let data = loadBundledPiExtension() else { throw AutomaticConnectionError.missingExtension }
+            let manager = agent == .pi ? piExtensionInstallationManager : ohMyPiExtensionInstallationManager
+            let updated = try await Task.detached { try manager.install(extensionSourceData: data) }.value
+            if agent == .pi { piExtensionStatus = updated } else { ohMyPiExtensionStatus = updated }
+            return
+        }
+        if agent == .openCode {
+            guard let data = loadBundledOpenCodePlugin() else { throw AutomaticConnectionError.missingExtension }
+            let manager = openCodePluginInstallationManager
+            _ = try await Task.detached { try manager.install(pluginSourceData: data) }.value
+            return
+        }
+        guard let binary = hooksBinaryURL else { throw HermesHookInstallationError.missingBinary }
+        let action: @Sendable () throws -> Void
+        switch agent {
+        case .claudeCode: let manager = claudeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .codex: let manager = codexHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .cursor: let manager = cursorHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .qoder: let manager = qoderHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .qwenCode: let manager = qwenCodeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .factory: let manager = factoryHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .codebuddy: let manager = codebuddyHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .zcode: let manager = zcodeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .workbuddy: let manager = workbuddyHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .gemini: let manager = geminiHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .kimi: let manager = kimiHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .grok: let manager = grokHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .openCode: return
+        case .hermes: let manager = hermesInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .pi, .ohMyPi, .claudeUsageBridge, .deepSeekDesktop, .miniMaxCodeDesktop: return
+        }
+        try await Task.detached(priority: .utility) { try action() }.value
+    }
+
+    private enum AutomaticConnectionError: LocalizedError {
+        case missingExtension
+        var errorDescription: String? { "The bundled AIsland event extension is unavailable." }
+    }
+
     func shouldAutoInstall(_ agent: AgentIdentifier) -> Bool {
         guard !isRuntimeAcceptance else { return false }
-        guard intentStore.intent(for: agent) == .installed else {
+        guard intentStore.shouldAutomaticallyConfigure(agent, installationDetected: detectedInstallations[agent] != nil, configurationCurrent: false) else {
             return false
         }
 
@@ -1028,7 +1109,9 @@ final class HookInstallationCoordinator {
         case .grok: return !grokHooksInstalled
         case .pi: return !(piExtensionStatus?.isCurrent ?? false)
         case .ohMyPi: return !(ohMyPiExtensionStatus?.isCurrent ?? false)
-        case .claudeUsageBridge: return !claudeUsageInstalled
+        case .claudeUsageBridge: return false
+        case .hermes: return hermesHookStatus?.isCurrent != true
+        case .deepSeekDesktop, .miniMaxCodeDesktop: return false
         }
     }
 
@@ -1041,7 +1124,6 @@ final class HookInstallationCoordinator {
     /// installed hooks silently forgotten.
     func migrateIntentStoreIfNeeded() {
         if isRuntimeAcceptance {
-            intentStore.migrateFromLegacyStateIfNeeded { _ in false }
             return
         }
         intentStore.migrateFromLegacyStateIfNeeded { [self] agent in
@@ -1062,6 +1144,8 @@ final class HookInstallationCoordinator {
             case .pi: return piExtensionInstalled
             case .ohMyPi: return ohMyPiExtensionInstalled
             case .claudeUsageBridge: return claudeUsageInstalled
+            case .hermes: return hermesHookStatus?.isInstalled == true
+            case .deepSeekDesktop, .miniMaxCodeDesktop: return false
             }
         }
     }

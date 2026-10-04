@@ -148,7 +148,7 @@
 "setup.optional" = "可选";
 "setup.permissionsTitle" = "辅助功能";
 "setup.permissionsDesc" = "AIsland 可能需要辅助功能权限来检测终端窗口。请在「系统设置 → 隐私与安全性 → 辅助功能」中授权。";
-"setup.installAll" = "配置全部接入";
+"setup.installAll" = "重新检测并接入已安装 Agent";
 "setup.banner.noHooks.title" = "开始使用 AIsland";
 "setup.banner.noHooks.message" = "在下方选择你使用的 Agent，配置它的 AIsland 事件接入。";
 "setup.revealConfigLocation" = "在 Finder 中显示配置";
@@ -267,5 +267,9 @@
 "setup.connection.unknown" = "尚未读取接入配置状态。";
 "setup.connection.missingHelper" = "当前 AIsland 找不到本地接入程序，请使用包含接入组件的完整应用。";
 "setup.connection.isolated" = "当前验收构建已停用 Agent 配置与来源读取，请在常规应用中配置接入。";
-"setup.connection.configureAllExplanation" = "为上方所有 Agent 写入 AIsland 接入配置，包括尚未安装的 Agent。只接入你使用的 Agent，请逐项配置。";
+"setup.connection.configureAllExplanation" = "重新检测已安装来源，配置缺失的 AIsland 事件接入，保留你主动移除的接入。";
 "setup.connection.hermesExplanation" = "向所选 Hermes profile 添加 AIsland 回合回调，不安装 Hermes。配置后重启 Hermes，并在 Hermes 自己的提示中授权两条 AIsland hook；审批仍留在 Hermes。";
+
+"setup.connection.automatic" = "自动为已安装的 Agent 配置事件接入；你主动移除的接入会保持关闭。新安装 Agent 后，可在这里重新检测或重启 AIsland。";
+
+"setup.connection.sourceMissing" = "未检测到 Agent 安装。请先安装 Agent，再重新检测。";

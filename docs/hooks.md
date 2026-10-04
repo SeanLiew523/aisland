@@ -464,7 +464,17 @@ The hook process infers the terminal type from environment variables at runtime:
 | `TERM_PROGRAM=Apple_Terminal` | `Terminal` |
 | `TERM_PROGRAM=WezTerm` | `WezTerm` |
 
-For iTerm, Terminal, and Ghostty the process additionally runs an AppleScript query to obtain the session ID, TTY, and window title — used to power the "jump back to terminal" feature. The `cmux` terminal uses `CMUX_SURFACE_ID` instead of AppleScript.
+For iTerm and Terminal, existing metadata queries supply session ID/TTY/title.
+Ghostty uses a stable private binding keyed by source agent, native session ID
+and real callback TTY. Source startup can bind an unambiguous directory;
+Claude/Codex/Grok `UserPromptSubmit` and Pi/OMP interactive input can bind the
+stable focused surface after verifying foreground and directory evidence.
+Tools, stops, heartbeats and notifications reuse that binding and never query
+the current focused page. Gemini `BeforeAgent` does not establish interactive
+input; without a startup binding, same-directory multi-page selection remains
+unresolved. Generic inherited `TERM_SESSION_ID` is not a Ghostty surface ID.
+Ordinary reconciliation and jump-back reject ambiguous directory/title fallback
+and explicit missing-ID redirection. The `cmux` terminal uses `CMUX_SURFACE_ID`.
 
 ---
 

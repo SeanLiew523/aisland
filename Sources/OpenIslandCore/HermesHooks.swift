@@ -33,9 +33,12 @@ public enum HermesHookAdapter {
                     guard let context = WarpProcessResolver.resolveCurrentPaneContext() else { return nil }
                     return WarpSQLiteReader().lookupPaneUUIDByShellPID(context.shellPID, terminalServerPID: context.terminalServerPID)
                 })
+        // Generic inherited shell IDs are not Ghostty surface identities.
+        let inheritedSessionID = runtime.terminalApp?.lowercased() == "ghostty"
+            ? nil : environment["ITERM_SESSION_ID"] ?? environment["TERM_SESSION_ID"]
         return RuntimeLifecycleHookPayload(source: .hermesCLI, event: event, profileID: profile, sessionID: session,
             turnID: turn, cwd: cwd, timestamp: timestamp, terminalApp: runtime.terminalApp,
-            terminalSessionID: runtime.terminalSessionID ?? environment["ITERM_SESSION_ID"] ?? environment["TERM_SESSION_ID"],
+            terminalSessionID: runtime.terminalSessionID ?? inheritedSessionID,
             terminalTTY: runtime.terminalTTY, resultReason: coarseReason(extra["turn_exit_reason"] as? String),
             tmuxTarget: environment["TMUX_PANE"], tmuxSocketPath: environment["TMUX"]?.components(separatedBy: ",").first,
             warpPaneUUID: runtime.warpPaneUUID)

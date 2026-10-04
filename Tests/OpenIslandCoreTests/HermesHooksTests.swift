@@ -3,6 +3,15 @@ import Testing
 @testable import OpenIslandCore
 
 struct HermesHooksTests {
+    @Test func ghosttyRejectsInheritedGenericSessionIDsWithoutLosingRealTTY() throws {
+        let raw = #"{"hook_event_name":"pre_llm_call","session_id":"s","cwd":"/tmp/project","extra":{"turn_id":"t"}}"#
+        let value = try #require(try HermesHookAdapter.decode(Data(raw.utf8), profileID: "default",
+            environment: ["TERM_PROGRAM": "ghostty", "TERM_SESSION_ID": "foreign-shell", "ITERM_SESSION_ID": "inherited-tab"],
+            ttyProvider: { "/dev/ttys002" }))
+        #expect(value.terminalApp == "Ghostty")
+        #expect(value.terminalSessionID == nil)
+        #expect(value.terminalTTY == "/dev/ttys002")
+    }
     @Test func adapterDoesNotForwardContentAndNeverInfersSuccessFromPostLLM() throws {
         let raw = #"{"hook_event_name":"pre_llm_call","session_id":"s","cwd":"/tmp/project","profile":"default","tool_input":{"secret":"private"},"extra":{"turn_id":"t","user_message":"secret","conversation_history":["secret"]}}"#
         let value = try #require(try HermesHookAdapter.decode(Data(raw.utf8), profileID: "profile-path",

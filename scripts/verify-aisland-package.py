@@ -27,7 +27,7 @@ else:
     assert "SUFeedURL" not in plist and "SUPublicEDKey" not in plist
 assert "OpenIslandBloubTrial" not in plist
 assert len(plist["AIslandSourceCommit"]) == 40
-for binary in ["MacOS/OpenIslandApp", "Helpers/OpenIslandHooks", "Helpers/OpenIslandSetup"]:
+for binary in ["MacOS/OpenIslandApp", "Helpers/OpenIslandHooks", "Helpers/OpenIslandSetup", "Helpers/MiniMaxCodeSourceProbe"]:
     archs = subprocess.check_output(["lipo", "-archs", str(app / "Contents" / binary)], text=True).split()
     assert set(archs) == {"arm64", "x86_64"}, (binary, archs)
 for resource in ["AIsland.icns", "LICENSE", "bloub-MIT.txt", "OpenIsland_OpenIslandApp.bundle"]:

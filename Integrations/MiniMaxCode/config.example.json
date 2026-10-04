@@ -10,6 +10,7 @@
     "probePath": "/absolute/AIsland/support/minimaxcode-passive/source-probe",
     "desktopAppPath": "/Applications/MiniMax Code.app",
     "cliPrefix": "/Users/example/.minimax-code",
+    "hookRuntimeKind": "node",
     "allowedSources": ["minimaxCodeDesktop"],
     "profileIDs": {
       "minimaxCodeDesktop": "desktop",

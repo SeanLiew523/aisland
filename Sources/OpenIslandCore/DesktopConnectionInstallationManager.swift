@@ -24,12 +24,13 @@ public struct DesktopConnectionInstallationManager: Sendable {
     public let supportDirectory: URL
     public let packagesDirectory: URL
     public let nodeURL: URL?
+    public let bundledProbeURL: URL?
     private let runner: Runner
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                supportDirectory: URL? = nil, packagesDirectory: URL, nodeURL: URL?,
+                supportDirectory: URL? = nil, packagesDirectory: URL, nodeURL: URL?, bundledProbeURL: URL? = nil,
                 runner: @escaping Runner = { try ConnectionProcessRunner.run($0, arguments: $1, environment: $2, timeout: 45) }) {
         self.home = home; self.supportDirectory = supportDirectory ?? home.appendingPathComponent("Library/Application Support/AIsland")
-        self.packagesDirectory = packagesDirectory; self.nodeURL = nodeURL; self.runner = runner
+        self.packagesDirectory = packagesDirectory; self.nodeURL = nodeURL; self.bundledProbeURL = bundledProbeURL; self.runner = runner
     }
     private var environment: [String: String] {
         ["HOME": home.path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "LC_ALL": "C", "DSH_HOME": home.appendingPathComponent(".dsh").path]
@@ -38,8 +39,20 @@ public struct DesktopConnectionInstallationManager: Sendable {
         guard evidence.version == "3.1.0", let app = evidence.bundleURL else { throw Failure.unsupportedVersion }
         guard let dataDir = activeDataDirectory else { return .waitingForProfile }
         try directory(dataDir)
-        guard let nodeURL, FileManager.default.isExecutableFile(atPath: nodeURL.path) else { throw Failure.missingRuntime }
-        guard (try nodeURL.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { throw Failure.missingRuntime }
+        // The shipped helper is mandatory for native setup. Never invoke swiftc
+        // or ask a normal App user to install a development toolchain.
+        guard let bundledProbeURL, FileManager.default.isExecutableFile(atPath: bundledProbeURL.path) else { throw Failure.missingRuntime }
+        let probeHash = digest(try regular(bundledProbeURL, maximum: 4 * 1024 * 1024))
+        let externalNode = nodeURL.flatMap { value -> URL? in
+            FileManager.default.isExecutableFile(atPath: value.path)
+                && (try? value.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true ? value : nil
+        }
+        let runtime = externalNode ?? evidence.executableURL
+        guard FileManager.default.isExecutableFile(atPath: runtime.path),
+              (try runtime.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { throw Failure.missingRuntime }
+        let kind = externalNode == nil ? "minimaxDesktopElectron" : "node"
+        var runtimeEnvironment = environment
+        if externalNode == nil { runtimeEnvironment["ELECTRON_RUN_AS_NODE"] = "1" }
         let installer = packagesDirectory.appendingPathComponent("MiniMaxCode/scripts/install.mjs")
         _ = try regular(installer)
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
@@ -61,10 +74,11 @@ public struct DesktopConnectionInstallationManager: Sendable {
         }
         var request: [String: Any] = ["operation": "install", "dataDirConfirmed": true,
             "dataDir": dataDir.resolvingSymlinksInPath().path, "supportDir": support.path,
-            "bridgeSocketPath": BridgeSocketLocation.defaultURL.path, "nodePath": nodeURL.path,
+            "bridgeSocketPath": BridgeSocketLocation.defaultURL.path, "nodePath": runtime.path,
+            "hookRuntimeKind": kind, "bundledProbePath": bundledProbeURL.path, "bundledProbeHash": probeHash,
             "desktopAppPath": app.path, "cliPrefix": home.appendingPathComponent(".minimax-code").path,
             "profileID": "desktop", "enableCLI": false]
-        let plan = try jsonData(runner(nodeURL, [installer.path, try jsonString(request)], environment))
+        let plan = try jsonData(runner(runtime, [installer.path, try jsonString(request)], runtimeEnvironment))
         guard let action = plan["action"] as? String else { throw Failure.invalidMetadata }
         if action == "already-installed" { return .waitingForActivation }
         if action == "replace-owned" {
@@ -86,7 +100,7 @@ public struct DesktopConnectionInstallationManager: Sendable {
             try FileManager.default.copyItem(at: URL(fileURLWithPath: helperPath), to: backup.appendingPathComponent("source-probe"))
         }
         request["apply"] = true
-        let result = try jsonData(runner(nodeURL, [installer.path, try jsonString(request)], environment))
+        let result = try jsonData(runner(runtime, [installer.path, try jsonString(request)], runtimeEnvironment))
         guard result["mode"] as? String == "applied", ["installed", "already-installed"].contains(result["result"] as? String ?? "") else { throw Failure.invalidMetadata }
         return .waitingForActivation
     }

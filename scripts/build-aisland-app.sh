@@ -10,14 +10,14 @@ for arg in "$@"; do
         *) echo "Usage: $0 [--install]" >&2; exit 2 ;;
     esac
 done
-for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
     swift build -c debug --product "$product"
 done
 bin_dir="$(swift build -c debug --show-bin-path)"
 bundle="$repo_root/output/aisland/AIsland.app"
 mkdir -p "$bundle/Contents/"{MacOS,Helpers,Resources,Frameworks}
 cp "$bin_dir/OpenIslandApp" "$bundle/Contents/MacOS/OpenIslandApp"
-for helper in OpenIslandHooks OpenIslandSetup; do
+for helper in OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
     cp "$bin_dir/$helper" "$bundle/Contents/Helpers/$helper"
 done
 ditto "$bin_dir/OpenIsland_OpenIslandApp.bundle" "$bundle/Contents/Resources/OpenIsland_OpenIslandApp.bundle"

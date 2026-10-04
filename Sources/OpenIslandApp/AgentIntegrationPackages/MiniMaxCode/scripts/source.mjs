@@ -13,6 +13,9 @@ export function validDiscovery(config) {
     && options.desktopAppPath.endsWith('.app') && Array.isArray(options.allowedSources) && options.allowedSources.length > 0
     && options.allowedSources.length <= 2 && new Set(options.allowedSources).size === options.allowedSources.length
     && options.allowedSources.every(value => ['minimaxCodeDesktop', 'minimaxCodeCLI'].includes(value))
+    && (options.hookRuntimeKind === undefined || options.hookRuntimeKind === 'node'
+      || (options.hookRuntimeKind === 'minimaxDesktopElectron' && config.sourceRuntimeVersion === '3.1.0'
+        && options.allowedSources.length === 1 && options.allowedSources[0] === 'minimaxCodeDesktop'))
     && (options.profileIDs === undefined || (options.profileIDs && typeof options.profileIDs === 'object'
       && !Array.isArray(options.profileIDs) && Object.keys(options.profileIDs).every(key => ['minimaxCodeDesktop', 'minimaxCodeCLI'].includes(key))
       && Object.values(options.profileIDs).every(cleanID)));

@@ -17,8 +17,9 @@ Copy only `.minimax-plugin/plugin.json`, `hooks/hooks.json`, `scripts/core.mjs`,
 `<dataDir>/plugins/aisland-minimaxcode-passive/`. The native local-directory watcher
 rescans that root; source recognition and explicit enablement still need real UI
 verification. Do not symlink the repository or modify installed source packages.
-Use an absolute verified Node interpreter in the rendered hook commands; the
-source safe environment does not guarantee Node or inherit AIsland socket paths.
+Use an absolute verified Node interpreter, or the reviewed Desktop 3.1.0
+executable in `ELECTRON_RUN_AS_NODE=1` mode, in rendered hook commands. The source
+safe environment does not guarantee Node or inherit AIsland socket paths.
 
 Write the reviewed `config.json` next to the manifest directory. Required fields
 are in `config.example.json`. Set `sourceRuntimeVersion` to the verified baseline,
@@ -29,12 +30,17 @@ parent, and profile selection can change it. Inspect the selected active directo
 do not assume the default. Desktop and CLI can share this same plugin/dataDir;
 the configured `source` does not determine the observed runtime.
 
-Compile the reviewable `scripts/source-probe.swift` outside the native plugin
-directory with `swiftc -O <source> -o <owned-helper>`. Native plugin packages do
-not need a bundled executable. Add this required discovery configuration:
+The App builds the reviewed `scripts/source-probe.swift` as the independent
+`MiniMaxCodeSourceProbe` SwiftPM product and ships it in `Contents/Helpers`. Native
+automatic setup must supply `bundledProbePath` and its SHA-256 `bundledProbeHash`;
+the installer checks a bounded regular executable, copies identical bytes to its
+owned external helper directory, rechecks the hash and performs own-PID preflight.
+It does not invoke a compiler or require development tools on the user computer.
+The standalone developer installer retains its explicit legacy compile-source
+mode for compatibility; native App setup never chooses it. Add discovery config:
 
 ```json
-{"sourceDiscovery":{"probePath":"/absolute/owned/source-probe","desktopAppPath":"/Applications/MiniMax Code.app","cliPrefix":"/Users/example/.minimax-code","allowedSources":["minimaxCodeDesktop"],"profileIDs":{"minimaxCodeDesktop":"desktop","minimaxCodeCLI":"cli"}}}
+{"sourceDiscovery":{"probePath":"/absolute/owned/source-probe","desktopAppPath":"/Applications/MiniMax Code.app","cliPrefix":"/Users/example/.minimax-code","hookRuntimeKind":"node","allowedSources":["minimaxCodeDesktop"],"profileIDs":{"minimaxCodeDesktop":"desktop","minimaxCodeCLI":"cli"}}}
 ```
 
 The installer must validate its owned helper and preflight it once using its own
@@ -120,12 +126,15 @@ The caller must confirm the actual active source `dataDir`; the installer does n
 read source configuration, DB, auth or messages to infer it. Paths must be absolute
 and normalized. `dataDir` must exist. `supportDir` may be new, but its immediate
 parent must already be a regular directory. The installer checks the actual app
-Info.plist bundle ID/version, public CLI package identity/version and the canonical
-regular executable Node path without running MiniMaxCode.
+Info.plist bundle ID/version and the canonical regular runtime executable. CLI
+package identity/version is required only for explicit CLI setup. Desktop-only
+setup can use the reviewed official executable in read-only Node mode without
+starting its GUI or tasks.
 
 Review `destination`, `helperDirectory`, `sourceDiscovery`, rendered hooks and
 `fileHashes`. Repeat the same JSON with `"apply":true` to install. Apply copies
-only regular allowlisted package files, compiles the external helper, preflights
+only regular allowlisted package files, copies the hash-bound bundled helper
+(native App mode) or compiles it (legacy standalone developer mode), preflights
 its own PID in staging and at the final location, and writes a private owned
 `receipt.json` containing every installed file and helper SHA-256. It does not
 enable plugins or launch source UI. Enable only this plugin in MiniMaxCode after
@@ -179,3 +188,32 @@ failure, shared-source classification/PID reuse and real command/socket delivery
 The compiled helper test reads its own test process metadata only. They do not replace live source loading,
 normal/failed/aborted final results, Stop continuation, exact navigation, frontmost,
 terminal association, restart recovery, or completion audio acceptance.
+
+## Shipped helper and embedded runtime
+
+`hookRuntimeKind` is `node` or `minimaxDesktopElectron` (absence remains compatible
+with existing owned Node configurations). The latter is Desktop-only: exact
+`com.minimax.agent` 3.1.0 and its `CFBundleExecutable` path, with independently
+verified unchanged RunAsNode fuse. Its fixed read-only versions probe must return
+Node 24.18.0 / Electron 42.8.0. Source/version drift or other kinds are rejected.
+Native setup uses a minimal environment with `ELECTRON_RUN_AS_NODE=1`; all persisted
+hook commands retain the same literal prefix. No Node is downloaded or embedded;
+no source GUI, login or task is launched. `mcode` remains disabled/deferred.
+
+A bundled helper's binary hash participates in idempotence separately from its
+reviewed source hash, so an owned compiled/signed old helper migrates correctly
+without masking a changed bundled binary. Foreign files/receipts and modified
+owned files still block replacement/removal. The App backs up an owned previous
+helper, receipt and plugin configuration before applying its migration.
+
+Run fixture checks without an App bundle build:
+
+```sh
+swift build --product MiniMaxCodeSourceProbe
+AISLAND_TEST_BUNDLED_PROBE_PATH="$(swift build --show-bin-path)/MiniMaxCodeSourceProbe" node --test Integrations/MiniMaxCode/test/*.test.mjs
+python3 scripts/test-auto-connections-isolated.py
+```
+
+All writes stay in temporary fixture trees. Synthetic embedded-version checks
+prove the guard/command contract; real official Electron runtime acceptance is
+separate and belongs to the main flow.

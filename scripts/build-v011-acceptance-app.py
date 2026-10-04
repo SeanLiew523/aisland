@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parent.parent
 PREFIX = "dev.aisland.v011.acceptance."
 V6 = "32c94f2fb0282242d17ef4db63f6c169a874e25f"
 IDENTITY = "Open Island Dev Local"
-PRODUCTS = ("OpenIslandApp", "OpenIslandHooks", "OpenIslandSetup")
+PRODUCTS = ("OpenIslandApp", "OpenIslandHooks", "OpenIslandSetup", "MiniMaxCodeSourceProbe")
 
 
 def run(arguments, *, capture=False):
@@ -171,6 +171,7 @@ def main():
             "receipt": str(directory / "welcome-receipts.jsonl"),
             "native_media_sha256": hashes, "signing_identity": IDENTITY,
             "configuration": args.configuration, "installs": False, "launches": False,
+            "products": list(PRODUCTS), "helpers": list(PRODUCTS[1:]),
             "runtime_acceptance_verified": False,
             "language_instructions": "Use the same case bundle for first/second launch. Launch with -AppleLanguages '(zh-Hans)' or '(en)' for system-language checks; appLanguage stays system. Manual preference cases use their own domain."}
     plist = make_plist(args.case, directory, socket, args.build_number, commit)

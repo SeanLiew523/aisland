@@ -1132,7 +1132,8 @@ final class HookInstallationCoordinator {
         guard let packages = Bundle.appResources.url(forResource: "AgentIntegrationPackages", withExtension: nil) else { throw AutomaticConnectionError.missingExtension }
         let node = installationDetector.executableDirectories.map { $0.appendingPathComponent("node") }
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
-        let manager = DesktopConnectionInstallationManager(packagesDirectory: packages, nodeURL: node)
+        let probe = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MiniMaxCodeSourceProbe")
+        let manager = DesktopConnectionInstallationManager(packagesDirectory: packages, nodeURL: node, bundledProbeURL: probe)
         if agent == .miniMaxCodeDesktop {
             let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
                 .filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }

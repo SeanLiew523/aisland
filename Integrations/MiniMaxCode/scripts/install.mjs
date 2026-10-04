@@ -54,6 +54,7 @@ async function preflight(helperPath, plan) {
 }
 function sameInstallation(plan, receipt) {
   return receipt && receipt.helperSourceHash === plan.helperSourceHash
+    && (plan.helperBuild.kind !== 'copy-bundled' || receipt.helperHash === plan.helperBuild.bundledProbeHash)
     && installedFiles.every(path => receipt.files[path] === plan.fileHashes[path]);
 }
 async function stageInstall(plan, stage) {
@@ -66,7 +67,14 @@ async function stageInstall(plan, stage) {
     await writeFile(join(plugin, path), bytes, { flag: 'wx', mode: path === 'config.json' ? 0o600 : 0o644 });
   }
   if (digest(await regularFile(plan.helperBuild.source)) !== plan.helperSourceHash) throw new Error('Helper source changed during preparation');
-  await runFile('/usr/bin/swiftc', ['-O', plan.helperBuild.source, '-o', helper], { timeout: 30000, maxBuffer: 16384 });
+  if (plan.helperBuild.kind === 'copy-bundled') {
+    const bytes = await regularFile(plan.helperBuild.bundledProbePath, 4 * 1024 * 1024);
+    if (digest(bytes) !== plan.helperBuild.bundledProbeHash) throw new Error('Bundled probe changed during preparation');
+    await writeFile(helper, bytes, { flag: 'wx', mode: 0o700 });
+    if (digest(await regularFile(plan.helperBuild.bundledProbePath, 4 * 1024 * 1024)) !== plan.helperBuild.bundledProbeHash) throw new Error('Bundled probe changed during copy');
+  } else {
+    await runFile('/usr/bin/swiftc', ['-O', plan.helperBuild.source, '-o', helper], { timeout: 30000, maxBuffer: 16384 });
+  }
   if (digest(await regularFile(plan.helperBuild.source)) !== plan.helperSourceHash) throw new Error('Helper source changed during compilation');
   await chmod(helper, 0o700);
   await preflight(helper, plan);

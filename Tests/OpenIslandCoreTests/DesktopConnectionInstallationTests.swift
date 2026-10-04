@@ -86,6 +86,42 @@ struct DesktopConnectionInstallationTests {
         try Data("foreign change".utf8).write(to: root.appendingPathComponent("support/deepseek-passive/package/core.mjs"))
         #expect(throws: DesktopConnectionInstallationManager.Failure.unownedInstallation) { try manager.configureDeepSeek(evidence: evidence, sourceRunning: false) }
     }
+    @Test func nativeMiniMaxRequiresBundledProbeAndUsesOfficialRuntimeWhenExternalNodeIsAbsent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("aisland-native-probe-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("MiniMax Code.app")
+        let executable = source.appendingPathComponent("Contents/MacOS/MiniMax Code")
+        let probe = root.appendingPathComponent("MiniMaxCodeSourceProbe")
+        let installer = root.appendingPathComponent("packages/MiniMaxCode/scripts/install.mjs")
+        let dataDir = root.appendingPathComponent("active")
+        for directory in [executable.deletingLastPathComponent(), installer.deletingLastPathComponent(), dataDir] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        for file in [executable, probe] {
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        try Data("fixture installer".utf8).write(to: installer)
+        let evidence = AgentInstallationDetector.Evidence(executableURL: executable, bundleURL: source, version: "3.1.0")
+        let missing = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil)
+        #expect(throws: DesktopConnectionInstallationManager.Failure.missingRuntime) { try missing.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) }
+        let box = Calls()
+        let manager = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil, bundledProbeURL: probe) { url, args, env in
+            box.record(url: url, arguments: args)
+            #expect(url == executable)
+            #expect(env["ELECTRON_RUN_AS_NODE"] == "1")
+            #expect(args[0] == installer.path)
+            let request = try #require(JSONSerialization.jsonObject(with: Data(args[1].utf8)) as? [String: Any])
+            #expect(request["hookRuntimeKind"] as? String == "minimaxDesktopElectron")
+            #expect(request["bundledProbePath"] as? String == probe.path)
+            #expect((request["bundledProbeHash"] as? String)?.count == 64)
+            #expect(request["enableCLI"] as? Bool == false)
+            if request["apply"] as? Bool == true { return Data("{\"mode\":\"applied\",\"result\":\"installed\"}".utf8) }
+            return Data("{\"action\":\"install-new\"}".utf8)
+        }
+        #expect(try manager.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) == .waitingForActivation)
+        #expect(box.count == 2)
+    }
     @Test func unsupportedVersionAndUnknownActiveDirectoryNeverInvokeInstaller() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("unused-\(UUID())")
         let box = Calls()

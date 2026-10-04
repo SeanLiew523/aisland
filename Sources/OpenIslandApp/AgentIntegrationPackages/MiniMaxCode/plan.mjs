@@ -69,34 +69,56 @@ export async function buildPlan(request = {}) {
   const nodePath = await realpath(request.nodePath);
   if (!(await lstat(nodePath)).isFile()) throw new Error('Node must be a regular executable');
   await access(nodePath, constants.X_OK);
-  if (basename(nodePath) !== 'node') throw new Error('Node executable identity must be explicit');
+  const hookRuntimeKind = request.hookRuntimeKind ?? 'node';
+  if (!['node', 'minimaxDesktopElectron'].includes(hookRuntimeKind)) throw new Error('Unsupported hook runtime kind');
+  if (hookRuntimeKind === 'node' && basename(nodePath) !== 'node') throw new Error('Node executable identity must be explicit');
   const desktopAppPath = await canonicalDirectory(request.desktopAppPath);
   if (!desktopAppPath.endsWith('.app')) throw new Error('Desktop app bundle required');
   const infoPath = join(desktopAppPath, 'Contents/Info.plist'); await regularFile(infoPath, 65536);
   const { stdout } = await runFile('/usr/bin/plutil', ['-convert', 'json', '-o', '-', infoPath], { timeout: 1000, maxBuffer: 65536 });
   const desktop = JSON.parse(stdout);
   if (desktop.CFBundleIdentifier !== 'com.minimax.agent' || desktop.CFBundleShortVersionString !== '3.1.0') throw new Error('Unsupported Desktop bundle identity/version');
+  if (hookRuntimeKind === 'minimaxDesktopElectron') {
+    if (enableCLI || typeof desktop.CFBundleExecutable !== 'string' || !desktop.CFBundleExecutable || desktop.CFBundleExecutable.includes('/')) throw new Error('Desktop runtime requires the reviewed Desktop-only executable');
+    const executable = join(desktopAppPath, 'Contents/MacOS', desktop.CFBundleExecutable);
+    if (!(await lstat(executable)).isFile()) throw new Error('Desktop runtime must be a regular executable');
+    await access(executable, constants.X_OK);
+    if (await realpath(executable) !== nodePath) throw new Error('Desktop runtime executable identity mismatch');
+    // 3.1.0's unchanged RunAsNode fuse is independently verified. No GUI/task entry point.
+    const { stdout: versions } = await runFile(nodePath, ['-p', 'JSON.stringify({node:process.versions.node,electron:process.versions.electron})'],
+      { env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', ELECTRON_RUN_AS_NODE: '1' }, timeout: 1000, maxBuffer: 4096 });
+    const runtime = JSON.parse(versions);
+    if (runtime.node !== '24.18.0' || runtime.electron !== '42.8.0') throw new Error('Unsupported Desktop embedded runtime version');
+  }
   const cliPrefix = enableCLI ? await canonicalDirectory(request.cliPrefix) : request.cliPrefix;
   const cli = enableCLI ? JSON.parse(await regularFile(join(cliPrefix, 'lib/node_modules/@minimax-ai/code/package.json'), 65536)) : null;
   if (enableCLI && (cli.name !== '@minimax-ai/code' || cli.version !== '0.5.3')) throw new Error('Unsupported CLI package identity/version');
   const profileID = request.profileID ?? 'desktop'; const cliProfileID = request.cliProfileID ?? 'cli';
   const config = { schemaVersion: 1, source, sourceRuntimeVersion: source === 'minimaxCodeDesktop' ? desktop.CFBundleShortVersionString : cli.version,
     profileID, bridgeSocketPath: request.bridgeSocketPath, metadataDatabasePath: join(dataDir, 'v2/sqlite/runtime-state.sqlite'), bridgeTimeoutMs: 150,
-    sourceDiscovery: { probePath: helperPath, desktopAppPath, cliPrefix, allowedSources: enableCLI ? ['minimaxCodeDesktop', 'minimaxCodeCLI'] : ['minimaxCodeDesktop'],
+    sourceDiscovery: { probePath: helperPath, desktopAppPath, cliPrefix, hookRuntimeKind, allowedSources: enableCLI ? ['minimaxCodeDesktop', 'minimaxCodeCLI'] : ['minimaxCodeDesktop'],
       profileIDs: { minimaxCodeDesktop: source === 'minimaxCodeDesktop' ? profileID : 'desktop', minimaxCodeCLI: source === 'minimaxCodeCLI' ? profileID : cliProfileID } } };
   if (!validConfig(config) || !validDiscovery(config)) throw new Error('Invalid source configuration');
   const manifest = JSON.parse(await regularFile(join(packageRoot, '.minimax-plugin/plugin.json')));
   if (manifest.name !== pluginName) throw new Error('Unexpected plugin identity');
   const hooks = JSON.parse(await regularFile(join(packageRoot, 'hooks/hooks.json')));
   const quotedNode = '"' + nodePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('$', '\\$').replaceAll('`', '\\`') + '"';
-  for (const groups of Object.values(hooks.hooks)) for (const group of groups) for (const handler of group.hooks) handler.command = `${quotedNode} "\${PLUGIN_ROOT}/scripts/hook.mjs"`;
+  for (const groups of Object.values(hooks.hooks)) for (const group of groups) for (const handler of group.hooks) handler.command = `${hookRuntimeKind === 'minimaxDesktopElectron' ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}${quotedNode} "\${PLUGIN_ROOT}/scripts/hook.mjs"`;
   const plan = { ...common, source, nodePath, config, manifest, hooks, copyFiles,
     verifiedVersions: { desktop: desktop.CFBundleShortVersionString, cli: cli?.version ?? null },
-    helperBuild: { source: join(packageRoot, 'scripts/source-probe.swift'), output: helperPath, compiler: '/usr/bin/swiftc', preflight: 'Own installer PID only; no source application launch.' },
+    helperBuild: { kind: 'compile-source', source: join(packageRoot, 'scripts/source-probe.swift'), output: helperPath, compiler: '/usr/bin/swiftc', preflight: 'Own installer PID only; no source application launch.' },
     beforeInstall: ['Use apply:true only after reviewing this plan.', 'Refuse unknown destination/helper or changed owned hashes.', 'Enable only this plugin in source UI after installation.'],
     uninstall: ['Disable this plugin in source UI.', 'Validate receipt and every owned path/hash before removing.', 'Preserve source sessions, DB, plugin data and every unrelated file.'] };
   plan.fileHashes = Object.fromEntries(Object.entries(await renderedFiles(plan)).map(([path, bytes]) => [path, digest(bytes)]));
   plan.helperSourceHash = digest(await regularFile(plan.helperBuild.source));
+  if (request.bundledProbePath !== undefined) {
+    if (!cleanPath(request.bundledProbePath) || !/^[a-f0-9]{64}$/.test(request.bundledProbeHash ?? '')) throw new Error('Explicit bundled probe path/hash required');
+    const bytes = await regularFile(request.bundledProbePath, 4 * 1024 * 1024);
+    await access(request.bundledProbePath, constants.X_OK);
+    if (digest(bytes) !== request.bundledProbeHash) throw new Error('Bundled probe hash mismatch');
+    plan.helperBuild = { kind: 'copy-bundled', source: plan.helperBuild.source, bundledProbePath: request.bundledProbePath,
+      bundledProbeHash: request.bundledProbeHash, output: helperPath, preflight: 'Own installer PID only; no source application launch.' };
+  }
   return plan;
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

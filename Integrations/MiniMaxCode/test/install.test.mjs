@@ -5,7 +5,8 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { executeRequest, inspectOwnership } from '../scripts/install.mjs';
-import { buildPlan, installedFiles } from '../plan.mjs';
+import { buildPlan, installedFiles, digest } from '../plan.mjs';
+import { validDiscovery } from '../scripts/source.mjs';
 const platform = { skip: process.platform !== 'darwin' };
 async function fixture() {
   const directory = realpathSync(await mkdtemp(join(tmpdir(), 'aisland-minimax-install-test-')));
@@ -96,5 +97,55 @@ test('Applied install, owned replacement and receipt-verified remove preserve al
     assert.equal(await readFile(join(f.request.dataDir, 'v2/sqlite/runtime-state.sqlite'), 'utf8'), 'DO_NOT_OPEN_OR_CHANGE');
     assert.deepEqual(await readdir(f.request.supportDir), []);
     assert.equal((await executeRequest({ ...removal, apply: true })).result, 'already-absent');
+  } finally { await f.remove(); }
+});
+
+test('Bundled probe is hash-bound, copied exactly and migrates an owned compiled helper without a compiler plan', platform, async () => {
+  assert.ok(process.env.AISLAND_TEST_BUNDLED_PROBE_PATH, 'Build MiniMaxCodeSourceProbe and provide its path');
+  const f = await fixture();
+  try {
+    const bundledProbePath = join(f.directory, 'bundled-probe');
+    const bytes = await readFile(process.env.AISLAND_TEST_BUNDLED_PROBE_PATH);
+    await writeFile(bundledProbePath, bytes, { mode: 0o755 });
+    const request = { ...f.request, bundledProbePath, bundledProbeHash: digest(bytes) };
+    const plan = await buildPlan(request);
+    assert.equal(plan.helperBuild.kind, 'copy-bundled'); assert.equal(plan.helperBuild.compiler, undefined);
+    await assert.rejects(buildPlan({ ...request, bundledProbeHash: '0'.repeat(64) }), /hash mismatch/);
+    await symlink(bundledProbePath, join(f.directory, 'symlink-probe'));
+    await assert.rejects(buildPlan({ ...request, bundledProbePath: join(f.directory, 'symlink-probe') }));
+    // Legacy standalone installer remains a fixture-only migration source.
+    const old = await executeRequest({ ...f.request, apply: true });
+    assert.notEqual(JSON.parse(await readFile(old.receiptPath)).helperHash, digest(bytes));
+    assert.equal((await executeRequest(request)).action, 'replace-owned');
+    const installed = await executeRequest({ ...request, apply: true });
+    assert.deepEqual(await readFile(installed.helperPath), bytes);
+    assert.equal(JSON.parse(await readFile(installed.receiptPath)).helperHash, digest(bytes));
+    assert.equal((await executeRequest({ ...request, apply: true })).result, 'already-installed');
+    const removal = { operation: 'remove', dataDir: request.dataDir, dataDirConfirmed: true, supportDir: request.supportDir, apply: true };
+    assert.equal((await executeRequest(removal)).result, 'removed');
+  } finally { await f.remove(); }
+});
+
+test('Desktop embedded runtime is limited to the exact reviewed executable/version and persists the Node-mode prefix', platform, async () => {
+  assert.ok(process.env.AISLAND_TEST_BUNDLED_PROBE_PATH);
+  const f = await fixture();
+  try {
+    const executable = join(f.request.desktopAppPath, 'Contents/MacOS/Fixture');
+    // Synthetic public version probe; real official Electron verification belongs to the main flow.
+    await writeFile(executable, '#!/bin/sh\nprintf \'%s\' \'{"node":"24.18.0","electron":"42.8.0"}\'\n', { mode: 0o755 });
+    const bundledProbePath = process.env.AISLAND_TEST_BUNDLED_PROBE_PATH;
+    const request = { ...f.request, nodePath: executable, hookRuntimeKind: 'minimaxDesktopElectron', bundledProbePath,
+      bundledProbeHash: digest(await readFile(bundledProbePath)) };
+    const plan = await buildPlan(request);
+    assert.equal(plan.config.sourceDiscovery.hookRuntimeKind, 'minimaxDesktopElectron');
+    assert.ok(validDiscovery(plan.config));
+    for (const groups of Object.values(plan.hooks.hooks)) for (const group of groups) for (const hook of group.hooks) assert.ok(hook.command.startsWith('ELECTRON_RUN_AS_NODE=1 "' + executable + '" '));
+    assert.equal(validDiscovery({ ...plan.config, sourceDiscovery: { ...plan.config.sourceDiscovery, hookRuntimeKind: 'other' } }), false);
+    assert.equal(validDiscovery({ ...plan.config, sourceRuntimeVersion: '3.2.0' }), false);
+    await assert.rejects(buildPlan({ ...request, enableCLI: true, desktopVerified: true }), /Desktop-only/);
+    await assert.rejects(buildPlan({ ...request, nodePath: process.execPath }), /identity mismatch/);
+    await writeFile(executable, '#!/bin/sh\nprintf \'%s\' \'{"node":"24.19.0","electron":"42.8.0"}\'\n', { mode: 0o755 });
+    await assert.rejects(buildPlan(request), /embedded runtime version/);
+    assert.equal(existsSync(plan.destination), false);
   } finally { await f.remove(); }
 });

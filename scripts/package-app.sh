@@ -39,7 +39,7 @@ if [[ "${OPEN_ISLAND_UNIVERSAL:-false}" == "true" ]]; then
     # Separate SwiftPM builds work with both full Xcode and Command Line Tools.
     # A multi-architecture SwiftPM invocation requires Xcode's xcbuild.
     for arch in arm64 x86_64; do
-        for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+        for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
             swift build -c release --arch "$arch" --product "$product"
         done
     done
@@ -47,20 +47,22 @@ if [[ "${OPEN_ISLAND_UNIVERSAL:-false}" == "true" ]]; then
     intel_bin_dir="$(swift build -c release --arch x86_64 --show-bin-path)"
     universal_bin_dir="$package_root/universal-binaries"
     mkdir -p "$universal_bin_dir"
-    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
         lipo -create "$build_bin_dir/$product" "$intel_bin_dir/$product" -output "$universal_bin_dir/$product"
     done
     app_binary="$universal_bin_dir/OpenIslandApp"
     hooks_binary="$universal_bin_dir/OpenIslandHooks"
     setup_binary="$universal_bin_dir/OpenIslandSetup"
+    probe_binary="$universal_bin_dir/MiniMaxCodeSourceProbe"
 else
-    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
         swift build -c release --product "$product"
     done
     build_bin_dir="$(swift build -c release --show-bin-path)"
     app_binary="$build_bin_dir/OpenIslandApp"
     hooks_binary="$build_bin_dir/OpenIslandHooks"
     setup_binary="$build_bin_dir/OpenIslandSetup"
+    probe_binary="$build_bin_dir/MiniMaxCodeSourceProbe"
 fi
 brand_icon="$repo_root/Assets/Brand/AIsland/AIsland.icns"
 
@@ -88,6 +90,7 @@ mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Helpers" "$bundle_di
 cp "$app_binary" "$bundle_dir/Contents/MacOS/OpenIslandApp"
 cp "$hooks_binary" "$bundle_dir/Contents/Helpers/OpenIslandHooks"
 cp "$setup_binary" "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+cp "$probe_binary" "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 cp "$brand_icon" "$bundle_dir/Contents/Resources/AIsland.icns"
 cp "$repo_root/LICENSE" "$bundle_dir/Contents/Resources/LICENSE"
 cp "$repo_root/docs/licenses/bloub-MIT.txt" "$bundle_dir/Contents/Resources/bloub-MIT.txt"
@@ -113,7 +116,8 @@ fi
 chmod +x \
     "$bundle_dir/Contents/MacOS/OpenIslandApp" \
     "$bundle_dir/Contents/Helpers/OpenIslandHooks" \
-    "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+    "$bundle_dir/Contents/Helpers/OpenIslandSetup" \
+    "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 
 # Add rpath so the binary can find Sparkle.framework in Contents/Frameworks/.
 install_name_tool -add_rpath @loader_path/../Frameworks "$bundle_dir/Contents/MacOS/OpenIslandApp" 2>/dev/null || true
@@ -184,6 +188,7 @@ for required in \
     "Contents/MacOS/OpenIslandApp" \
     "Contents/Helpers/OpenIslandHooks" \
     "Contents/Helpers/OpenIslandSetup" \
+    "Contents/Helpers/MiniMaxCodeSourceProbe" \
     "Contents/Resources/AIsland.icns" \
     "Contents/Resources/LICENSE" \
     "Contents/Resources/bloub-MIT.txt" \
@@ -254,6 +259,8 @@ if [[ -n "$signing_identity" ]]; then
         "$bundle_dir/Contents/Helpers/OpenIslandHooks"
     codesign --force "${signing_runtime_args[@]}" --sign "$signing_identity" \
         "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+    codesign --force "${signing_runtime_args[@]}" --sign "$signing_identity" \
+        "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 
     codesign \
         --force \
@@ -273,6 +280,7 @@ else
     fi
     codesign --force --sign - "$bundle_dir/Contents/Helpers/OpenIslandHooks" 2>/dev/null || true
     codesign --force --sign - "$bundle_dir/Contents/Helpers/OpenIslandSetup" 2>/dev/null || true
+    codesign --force --sign - "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe" 2>/dev/null || true
     codesign --force --sign - "$bundle_dir" 2>/dev/null || true
 fi
 

@@ -2,6 +2,11 @@
 
 状态：`IN_PROGRESS`。用户认可第六版 `32c94f2fb0282242d17ef4db63f6c169a874e25f` 并定版，标签 `review/v0.1.1-intro-r6` 固定该原型；第五版 `86f2865` 回退点保留。v0.1.0 公证仍由原窗口负责。
 
+**2026-10-04 当前结论以 [构建前验证回执](v0.1.1-prebuild-verification.md) 为准。**
+以下保留历次诊断经过，不把旧的待验证项或早期失败作为当前结论。
+本轮普通 Hermes 任务及三类 MP3 已补验，自动接入代码/真实安装检测/临时安装器验证
+已完成；Ghostty GUI 仍受工具拒绝，R9 效果及新完整包构建等待用户确认。
+
 ## 完整验收包首次启动诊断
 
 `d6c5937` 的独立 `runtime-live` 构建 6 包已构建并通过深度严格签名校验，但两次 CUA 原生启动均退出，尚无引导展示回执。这不是首启验收通过。2026-10-04 01:18:58 的实际进程 `90562` 日志明确记录 Foundation 拒绝用自己的 bundle identifier 再创建 UserDefaults suite，随后 `exit(1), ran for 82ms`。对外部 Bundle(path:) 的配置探针原先通过，遗漏了真实主 bundle 的 Foundation 语义。

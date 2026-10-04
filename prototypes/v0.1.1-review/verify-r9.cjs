@@ -21,35 +21,32 @@ for(const name of ['intro-bloub-source.json','intro-audio-source.json']) {
 for (const [start, end] of [['function gatherScene(', 'function mediaScene('], ['function island(', 'function draw(']]) {
   assert.equal(source.slice(source.indexOf(start), source.indexOf(end)), oldSource.slice(oldSource.indexOf(start), oldSource.indexOf(end)));
 }
-// R9 changes only the post-dock sound and the adapter call. Every original cue
-// before dock remains structurally equal, including its arguments and stopAt.
+// Approved hybrid: exact R9 geometry and complete R8 score, including docking.
 const audioContext = {window:{}}; vm.createContext(audioContext);
 vm.runInContext(read('intro-audio.js'),audioContext);
+const r8Audio=execFileSync('git',['show','11037b9:prototypes/v0.1.1-review/intro-audio.js'],{cwd:root,encoding:'utf8'});
+assert.equal(read('intro-audio.js'),r8Audio);
 const originalAudioContext = {window:{}}; vm.createContext(originalAudioContext);
-vm.runInContext(baseline('intro-audio.js'),originalAudioContext);
+vm.runInContext(r8Audio,originalAudioContext);
 const audio = audioContext.window.AIslandIntroAudio;
 const timeline = JSON.parse(vm.runInNewContext(`${source.match(/const timeline = .*;/)[0]} JSON.stringify(timeline)`));
-const originalScore = originalAudioContext.window.AIslandIntroAudio.cueSheet(timeline);
-const score = audio.cueSheet(timeline);
+const score = audio.cueSheet(timeline), originalScore=originalAudioContext.window.AIslandIntroAudio.cueSheet(timeline);
 const json = value => JSON.stringify(value);
-assert.equal(json(score.filter(c=>c.at<timeline.dock)), json(originalScore.filter(c=>c.at<timeline.dock)));
-assert.equal(score.filter(c=>c.at>=timeline.dock).length,1);
-const dockCue=score.find(c=>c.kind==='dock');
-assert.equal(dockCue.at,timeline.dock); assert.equal(dockCue.stopAt,21.5);
+assert.equal(json(score),json(originalScore));
+assert.equal(json(score.filter(c=>c.at>=timeline.dock).map(c=>c.label)),json(['dock-low','dock-breath','dock-mid','settled','settled-breath']));
+assert(!score.some(c=>c.kind==='dock'));
 assert(score.every(c=>c.stopAt<=22));
 const calls=[];
-audio.schedule(100,timeline,Object.fromEntries(['tone','air','swell','dock'].map(kind=>[kind,(...args)=>calls.push({kind,args})])));
+audio.schedule(100,timeline,Object.fromEntries(['tone','air','swell'].map(kind=>[kind,(...args)=>calls.push({kind,args})])));
 assert.equal(calls.length,score.length);
 score.forEach((cue,index)=>{
-  const expected=cue.args.slice();expected[['air','dock'].includes(cue.kind)?0:1]+=100;
+  const expected=cue.args.slice();expected[cue.kind==='air'?0:1]+=100;
   assert.equal(json(calls[index]),json({kind:cue.kind,args:expected}));
 });
-assert.throws(()=>audio.schedule(0,timeline,{tone(){},air(){},swell(){}}),/dock primitives/);
+assert.throws(()=>audio.schedule(0,timeline,{tone(){},swell(){}}),/tone, air and swell primitives/);
 const review=read('review.js');
-const hostStart=review.indexOf('  function dock('),hostEnd=review.indexOf('  function eventSound(',hostStart);
-// Comparing to the immediate R8 parent guards setup/install and review behavior.
 const r8Review=execFileSync('git',['show','11037b9:prototypes/v0.1.1-review/review.js'],{cwd:root,encoding:'utf8'});
-assert.equal(review.slice(0,hostStart)+review.slice(hostEnd).replace('{tone,air,swell,dock}','{tone,air,swell}'),r8Review);
+assert.equal(review,r8Review);
 assert(!read('review.js').includes('$("stage-copy")'));
 assert(!read('index.html').includes('id="stage-copy"'));
 assert(!read('intro-bloub.ts').includes('<span>AGENT'));
@@ -131,61 +128,7 @@ async function capture(width,height,time,language,reduceMotion=false) {
 }
 (async()=>{
   await scene.ready; fs.mkdirSync(output,{recursive:true});
-  const audioChecks=[];
-  for (const rate of [32000,44100,48000,96000,192000]) {
-    const channels=audio.dockPCM(rate,dockCue.length,dockCue.volume,dockCue.args[3]);
-    const repeat=audio.dockPCM(rate,dockCue.length,dockCue.volume,dockCue.args[3]);
-    let peak=0,sum=0,maxStep=0;
-    for(let channel=0;channel<2;channel++) {
-      assert.equal(channels[channel].length,Math.ceil(rate*dockCue.length));
-      assert.equal(Buffer.compare(Buffer.from(channels[channel].buffer),Buffer.from(repeat[channel].buffer)),0);
-      assert.equal(channels[channel][0],0);assert.equal(channels[channel].at(-1),0);
-      for(let i=0;i<channels[channel].length;i++) {
-        const value=channels[channel][i]; assert(Number.isFinite(value));
-        peak=Math.max(peak,Math.abs(value));sum+=value*value;
-        if(i)maxStep=Math.max(maxStep,Math.abs(value-channels[channel][i-1]));
-      }
-    }
-    assert(peak>.05&&peak<.25);assert(maxStep<.025);
-    // Slowing contact spacing is actually audible energy separated by decays;
-    // the final centered contact starts exactly at the settled visual marker.
-    const windows=[.03,.15,.32,.56,.9,1.36,1.95,2.63];
-    for(const at of windows) {
-      let energy=0;for(let i=Math.floor((at-.01)*rate);i<Math.floor((at+.02)*rate);i++) energy+=channels[0][i]**2+channels[1][i]**2;
-      assert(energy>rate*.000005);
-    }
-    const lastStart=Math.ceil(dockCue.args[3]*rate);
-    for(let i=lastStart;i<channels[0].length;i++)assert.equal(channels[0][i],channels[1][i]);
-    audioChecks.push({rate,frames:channels[0].length,peak,rms:Math.sqrt(sum/(channels[0].length*2)),maxStep,
-      finalContactAt:timeline.settled,stopAt:dockCue.stopAt,deterministic:true,clippedSamples:0});
-    if(rate===48000) {
-      // Shared original PCM, scaled by review's master gain. Compressor is not
-      // applied in this isolated excerpt; this is not a native/full-score WAV.
-      const frames=channels[0].length, wav=Buffer.alloc(44+frames*4);
-      wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);
-      wav.writeUInt16LE(1,20);wav.writeUInt16LE(2,22);wav.writeUInt32LE(rate,24);wav.writeUInt32LE(rate*4,28);
-      wav.writeUInt16LE(4,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(frames*4,40);
-      for(let i=0;i<frames;i++)for(let channel=0;channel<2;channel++)wav.writeInt16LE(Math.round(channels[channel][i]*.7*32767),44+i*4+channel*2);
-      fs.writeFileSync(path.join(output,'dock-r9-48000-stereo-excerpt.wav'),wav);
-    }
-  }
-  // Execute the actual browser host primitive without opening a browser. It
-  // owns the buffer source in the existing tracking/cancellation lifetime.
-  const nodes=[],active=new Set();const host={AIslandIntroAudio:audio,master:{},activeSources:active,soundGeneration:0,canvas:{dataset:{}},
-    audioContext:{sampleRate:48000,
-      createBufferSource(){const node={connect(target){this.target=target;},disconnect(){this.disconnected=true;},start(at){this.startAt=at;},stop(at){this.stopAt=at;}};nodes.push(node);return node;},
-      createBuffer(channels,length,rate){return {channels:Array.from({length:channels},()=>new Float32Array(length)),length,rate,
-        copyToChannel(pcm,index){this.channels[index].set(pcm);}};}}};
-  const lifetime=review.slice(review.indexOf('  function track('),review.indexOf('  function tone('));
-  vm.createContext(host);vm.runInContext(lifetime+review.slice(hostStart,hostEnd)+'\ndock(118.1,3.4,.25,2.6);',host);
-  assert.equal(nodes.length,1);assert(active.has(nodes[0]));assert.equal(nodes[0].startAt,118.1);assert.equal(nodes[0].stopAt,121.5);
-  assert.equal(nodes[0].target,host.master);assert.equal(nodes[0].buffer.channels.length,2);
-  const shared=audio.dockPCM(48000,3.4,.25,2.6);
-  for(let channel=0;channel<2;channel++)assert.equal(Buffer.compare(Buffer.from(nodes[0].buffer.channels[channel].buffer),Buffer.from(shared[channel].buffer)),0);
-  const pcmStarted=nodes[0].startAt;vm.runInContext('stopSounds();',host);
-  assert.equal(active.size,0);assert.equal(nodes[0].stopAt,undefined);assert.equal(nodes[0].startAt,pcmStarted);
-  assert.equal(host.canvas.dataset.activeAudioSources,'0');assert.equal(host.soundGeneration,1);
-  nodes[0].onended();assert.equal(nodes[0].disconnected,true);
+  const audioChecks=[{completeScoreEqualToR8:true,nativeWAVUnchanged:true,cueCount:score.length,homeCues:score.filter(c=>c.at>=timeline.dock)}];
   const renders=[];
   for (const language of ['zh','en']) {
     for (const time of [1.3,6.6,8.1,19.3,19.8,20.5,21.1,21.8]) renders.push(await capture(1702,1016,time,language));
@@ -193,7 +136,7 @@ async function capture(width,height,time,language,reduceMotion=false) {
     renders.push(await capture(970,606,21.1,language,true));
   }
   fs.writeFileSync(path.join(output,'offline-checks.json'),JSON.stringify({result:'passed',resizeChecks,morphChecks,audioChecks,
-    unchanged:['V6 island drawing','V6 four-card paths','all pre-dock audio cues','22-second timeline','R8 setup/install and review behavior'],
+    unchanged:['V6 island drawing','V6 four-card paths','complete R8 audio score','22-second timeline','R8 setup/install and review behavior'],
     states:['idle','thinking','orbit'],renders,limitations:'Offline source/CSS model and static canvas/SVG rendering only. Browser fullscreen, timing, output audio and user visual acceptance pending.'},null,2)+'\n');
-  console.log(`PASS: ${resizeChecks.length} same-time resize checks at .7 diameter; ${morphChecks.length} original-engine morph samples; reduced motion frozen; ${audioChecks.length} deterministic PCM rates without clipping; actual host buffer/schedule/cancel; pre-dock cues and setup unchanged; ${renders.length} offline renders.`);
+  console.log(`PASS: ${resizeChecks.length} same-time resize checks at .7 diameter; ${morphChecks.length} original-engine morph samples; reduced motion frozen; complete R8 score/source/schedule restored; native WAV preserved; setup unchanged; ${renders.length} offline renders.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

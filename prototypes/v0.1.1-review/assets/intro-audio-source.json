@@ -1,39 +1,17 @@
 {
   "revision": 9,
-  "origin": "Original deterministic damped-contact synthesis written for the R9 prototype; no external sample recording.",
-  "base_commit": "11037b9",
+  "audio_revision": 8,
+  "approval": "2026-10-04 user: retain R9 design, restore R8 home sound, build new application and finish tests.",
+  "origin": "Exact R8 original cue source restored, byte-identical to approved V6 score; no new audio sample.",
+  "audio_base_commit": "11037b9",
+  "visual_source_commit": "810e9115978cf8e8aa496ee724fdd28a8ca998a5",
   "duration_seconds": 22,
-  "unchanged": "All cues before dock at 18.1 seconds, browser tone/air/swell implementations, master and compressor settings.",
-  "dock": {
-    "kind": "dock",
-    "at_seconds": 18.1,
-    "length_seconds": 3.4,
-    "final_contact_seconds": 20.7,
-    "stop_seconds": 21.5,
-    "gain": 0.25,
-    "contacts_relative_seconds": [
-      0,
-      0.12,
-      0.29,
-      0.53,
-      0.87,
-      1.33,
-      1.92,
-      2.6
-    ],
-    "mode_ratios": [
-      1,
-      1.47,
-      2.63,
-      4.11
-    ],
-    "pcm": "Two Float32 channels from AIslandIntroAudio.dockPCM(sampleRate,length,volume,settleOffset). No randomness or platform oscillator implementation."
-  },
   "source_files_sha256": {
-    "prototypes/v0.1.1-review/intro-audio.js": "3dacf700e09dcde544a73855c4302fa79848928874a1c2a71510296ed5317089",
-    "prototypes/v0.1.1-review/review.js": "cba2bab0b4f95dbfbc3442ee82be55966aa09f53c36a3f0e0cc60ae13ec6cb9e",
+    "prototypes/v0.1.1-review/intro-audio.js": "aba59137ec55be5afa3de3e16b34890b2691c1f8776a93eb429fbe52272865d7",
+    "prototypes/v0.1.1-review/review.js": "3503e2c448a2b010457bc6f36cb3748f7fe8f309963206681619870af5243886",
     "prototypes/v0.1.1-review/intro-scene.js": "4c266d89af7e781d4731124c9145e03b026cc3efcc400907a48ab82a99f12b07"
   },
-  "native_status": "Not rendered or copied to production. Root must render complete 22-second OfflineAudioContext using the new dock primitive plus the unchanged master gain 0.7 and compressor; then verify and update native media provenance only after user approval.",
-  "offline_excerpt": "verify-r9.cjs emits a 48 kHz stereo PCM16 dock excerpt scaled by master 0.7, without compressor. It is a local audition aid, not a full/native score."
+  "native_audio": "Sources/OpenIslandApp/Resources/Onboarding/intro-v6.wav",
+  "native_audio_sha256": "49c4c3b6d6742d1ed948b60dd61ff78170d1089c2f81fa24ad87c2ab32041cc0",
+  "native_status": "Existing native WAV implements the identical R8/V6 score; preserved byte-for-byte. Native R9 visual synchronization is a separate current implementation."
 }

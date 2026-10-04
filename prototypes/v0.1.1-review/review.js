@@ -80,20 +80,13 @@
   function signature(at, volume=1) {
     [261.63,392,523.25].forEach((f,i)=>tone(f,at+i*.12,.95-i*.1,.12*volume));
   }
-  function dock(at, length, volume, settleOffset) {
-    const source=track(audioContext.createBufferSource());
-    const channels=AIslandIntroAudio.dockPCM(audioContext.sampleRate,length,volume,settleOffset);
-    const buffer=audioContext.createBuffer(2,channels[0].length,audioContext.sampleRate);
-    channels.forEach((pcm,index)=>buffer.copyToChannel(pcm,index));
-    source.buffer=buffer;source.connect(master);source.start(at);source.stop(at+length);
-  }
   function eventSound(key,at) {
     if(key==="completion") { tone(392,at,.65,.14); tone(587.33,at+.14,.65,.1); }
     if(key==="approval") { tone(246.94,at,.31,.12,"sine",220); }
     if(key==="answer") { tone(329.63,at,.72,.1,"sine",392); tone(659.25,at,.48,.035); }
   }
   function scheduleIntro(base) {
-    const score=AIslandIntroAudio.schedule(base,timeline,{tone,air,swell,dock});
+    const score=AIslandIntroAudio.schedule(base,timeline,{tone,air,swell});
     canvas.dataset.introAudioScore=JSON.stringify(score.map(({label,at,stopAt})=>({label,at,stopAt})));
   }
   const clamp=(x)=>Math.max(0,Math.min(1,x));

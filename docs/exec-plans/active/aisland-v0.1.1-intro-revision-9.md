@@ -2,6 +2,12 @@
 
 Date: 2026-10-04. Status: `READY_FOR_VISUAL_AND_AUDIO_REVIEW`.
 
+**Superseded review gate:** the user approved R9 visuals on 2026-10-04 and
+requested R8 home audio, then authorized native synchronization, a new full App
+build and remaining tests. See `v0.1.1-approved-r9-r8-native.md` for the current
+contract. The rejected R9 contact sound and its historical measurements below
+remain evidence of that earlier review, not the final audio acceptance target.
+
 This prototype starts from `feat/v0.1.1` at `11037b9`. R8 and R9 remain
 unapproved. The approved V6 tag and production onboarding media are untouched.
 No formal app build, native synchronization, source configuration changes or

@@ -61,6 +61,13 @@ export async function buildPlan(request = {}) {
   const common = { schemaVersion: 1, mode: 'dry-run-only', operation, owner, dataDir, supportDir,
     packageRoot, destination, helperDirectory, helperPath, receiptPath,
     runtimeGate: 'UI enablement, actual session results and exact original navigation remain live acceptance checks.' };
+  if (request.previousHelperDirectory !== undefined) {
+    if (operation !== 'install') throw new Error('Previous helper is only admitted for owned installation relocation');
+    const previous = await canonicalDirectory(request.previousHelperDirectory);
+    if (basename(previous) !== 'minimaxcode-passive' || previous === helperDirectory || previous.startsWith(dataDir + '/') || dataDir.startsWith(previous + '/')
+        || previous.startsWith(helperDirectory + '/') || helperDirectory.startsWith(previous + '/')) throw new Error('Invalid previous helper boundary');
+    common.previousHelperDirectory = previous;
+  }
   if (operation === 'remove') return common;
   const source = request.source ?? 'minimaxCodeDesktop';
   const enableCLI = request.enableCLI === true || source === 'minimaxCodeCLI';

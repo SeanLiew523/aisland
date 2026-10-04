@@ -827,11 +827,15 @@ struct SetupSettingsPane: View {
                 desktopConnectionRow(agent: .deepSeekDesktop, name: "DeepSeek Harness Desktop")
                 desktopConnectionRow(agent: .miniMaxCodeDesktop, name: "MiniMaxCode Desktop")
 
-                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus) { status, intent in
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, setupDisabledExplanationKey: model.hooks.sourceSetupAcceptance == nil ? "setup.connection.isolated" : "setup.connection.sourceSetupScope", sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus) { status, intent in
                     model.hooks.hermesHookStatus = status
                     model.hooks.intentStore.setIntent(intent, for: .hermes)
                 }
                 .disabled(model.hooks.isAutomaticConnectionBusy)
+                if model.hooks.sourceSetupAcceptance?.agents.contains(.hermes) == true {
+                    Button(lang.t("setup.desktop.stopAutomatic")) { model.hooks.cancelSourceSetupHermes() }
+                        .disabled(model.hooks.isAutomaticConnectionBusy || model.hooks.intentStore.intent(for: .hermes) == .uninstalled)
+                }
 
                 hookRow(
                     name: "Pi",
@@ -1250,7 +1254,7 @@ struct SetupSettingsPane: View {
                 }
             }
         }
-        .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy || evidence == nil)
+        .disabled(model.hooks.sourceSetupDisabled || model.hooks.isAutomaticConnectionBusy || evidence == nil)
     }
 
     private func revealInFinder(_ url: URL) {

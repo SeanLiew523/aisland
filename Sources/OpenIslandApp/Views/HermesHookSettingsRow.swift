@@ -7,6 +7,7 @@ struct HermesHookSettingsRow: View {
     let hooksBinaryURL: URL?
     let lang: LanguageManager
     var setupDisabled = false
+    var setupDisabledExplanationKey = "setup.connection.isolated"
     var sourceDetected = true
     var automaticStatus: HermesHookInstallationStatus? = nil
     var onConfigurationChanged: ((HermesHookInstallationStatus, AgentHookIntent) -> Void)? = nil
@@ -45,12 +46,12 @@ struct HermesHookSettingsRow: View {
                 Text(lang.t("setup.connection.sourceMissing")).font(.caption).foregroundStyle(.secondary)
             }
             if setupDisabled || hooksBinaryURL == nil {
-                Text(lang.t(setupDisabled ? "setup.connection.isolated" : "setup.connection.missingHelper"))
+                Text(lang.t(setupDisabled ? setupDisabledExplanationKey : "setup.connection.missingHelper"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         }
-        .task { refresh() }
+        .task { if setupDisabled { status = automaticStatus } else { refresh() } }
         .onChange(of: automaticStatus) { _, value in
             if profileDirectory == HermesHookInstallationManager.defaultProfileDirectory { status = value }
         }

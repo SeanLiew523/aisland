@@ -667,12 +667,13 @@ final class AppModel {
             socketURL: socketURL,
             runtimeLifecycleRegistryURL: acceptanceConfiguration?.runtimeLifecycleRegistryURL
                 ?? socketURL.deletingLastPathComponent().appendingPathComponent("runtime-lifecycle.json"),
-            monitorMiniMaxCode: acceptanceConfiguration == nil || acceptanceConfiguration?.caseName == "runtime-live"
+            monitorMiniMaxCode: acceptanceConfiguration == nil || acceptanceConfiguration?.caseName == "runtime-live" || acceptanceConfiguration?.sourceSetup != nil
         )
         self.bridgeClient = LocalBridgeClient(socketURL: socketURL)
         self.hooks = HookInstallationCoordinator(
             intentStore: AgentIntentStore(defaults: intentDefaults),
-            isRuntimeAcceptance: acceptanceConfiguration != nil
+            isRuntimeAcceptance: acceptanceConfiguration != nil,
+            sourceSetupAcceptance: acceptanceConfiguration?.sourceSetup
         )
         self.terminalJumpAction = terminalJumpAction
         self.isNotificationSessionAlreadyFrontmost = isNotificationSessionAlreadyFrontmost
@@ -1201,12 +1202,19 @@ final class AppModel {
             performBootAnimation()
         }
 
-        if acceptanceConfiguration != nil {
-            hooks.migrateIntentStoreIfNeeded()
-            lastActionMessage = "Isolated runtime acceptance: source discovery and installation disabled."
-            // The delegate hides ordinary launch windows before this runs.
-            // Use the same welcome claim only after the isolated migration.
-            DispatchQueue.main.async { [weak self] in self?.onStartupSetupReady?() }
+        if let acceptanceConfiguration {
+            if acceptanceConfiguration.sourceSetup != nil {
+                lastActionMessage = "Isolated source setup: detecting installed sources; historical session discovery is disabled."
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.hooks.runStartupSetup { self.onStartupSetupReady?() }
+                }
+            } else {
+                hooks.migrateIntentStoreIfNeeded()
+                lastActionMessage = "Isolated runtime acceptance: source discovery and installation disabled."
+                // The delegate hides ordinary launch windows before this runs.
+                DispatchQueue.main.async { [weak self] in self?.onStartupSetupReady?() }
+            }
         }
 
         guard startBridge else {
@@ -1670,8 +1678,10 @@ final class AppModel {
 
         state.apply(event)
         reconcileIslandSurfaceAfterStateChange()
-        if ingress == .bridge && acceptanceConfiguration == nil {
+        if ingress == .bridge && (acceptanceConfiguration == nil || acceptanceConfiguration?.sourceSetup != nil) {
             hooks.observeDesktopConnectionEvent(event)
+        }
+        if ingress == .bridge && acceptanceConfiguration == nil {
             monitoring.markSessionAttached(for: event)
             monitoring.markSessionProcessAlive(for: event)
         }
@@ -1801,19 +1811,7 @@ final class AppModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            // Wait for all status reads to complete before checking install state.
-            await self.hooks.detectInstalledSources()
-            await self.hooks.refreshAllHookStatusAndWait()
-
-            // Reconcile persisted intent with what is actually on disk. For
-            // legacy users this records existing hooks as `.installed` and
-            // marks first-launch as complete so onboarding does not appear
-            // on upgrade. Must run after status reads and before any
-            // install decision.
-            self.hooks.migrateIntentStoreIfNeeded()
-            self.onStartupSetupReady?()
-
-            await self.hooks.configureDetectedSources()
+            await self.hooks.runStartupSetup { self.onStartupSetupReady?() }
         }
 
         // Reconcile attachments and start monitoring (requires sessions to be loaded).

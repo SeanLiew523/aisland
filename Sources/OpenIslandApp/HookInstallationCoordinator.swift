@@ -9,10 +9,13 @@ final class HookInstallationCoordinator {
     @ObservationIgnored
     let intentStore: AgentIntentStore
     nonisolated let isRuntimeAcceptance: Bool
+    nonisolated let sourceSetupAcceptance: RuntimeAcceptanceConfiguration.SourceSetup?
+    var sourceSetupDisabled: Bool { isRuntimeAcceptance && sourceSetupAcceptance == nil }
 
     init(
         intentStore: AgentIntentStore = AgentIntentStore(),
         isRuntimeAcceptance: Bool = false,
+        sourceSetupAcceptance: RuntimeAcceptanceConfiguration.SourceSetup? = nil,
         piExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .pi),
         ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi),
         installationDetector: AgentInstallationDetector = AgentInstallationDetector(),
@@ -21,7 +24,8 @@ final class HookInstallationCoordinator {
         self.installationDetector = installationDetector
         self.hermesInstallationManager = hermesInstallationManager
         self.intentStore = intentStore
-        self.isRuntimeAcceptance = isRuntimeAcceptance
+        self.isRuntimeAcceptance = isRuntimeAcceptance || sourceSetupAcceptance != nil
+        self.sourceSetupAcceptance = sourceSetupAcceptance
         self.piExtensionInstallationManager = piExtensionInstallationManager
         self.ohMyPiExtensionInstallationManager = ohMyPiExtensionInstallationManager
     }
@@ -34,6 +38,7 @@ final class HookInstallationCoordinator {
     var desktopConnectionStates: [AgentIdentifier: DesktopConnectionInstallationManager.State] = [:]
     @ObservationIgnored private var confirmedMiniMaxDataDirectory: URL?
     @ObservationIgnored private let connectionObservationStarted = Date()
+    @ObservationIgnored private var receivedSourceSetupAgents: Set<AgentIdentifier> = []
     var hermesHookStatus: HermesHookInstallationStatus?
 
     var codexHookStatus: CodexHookInstallationStatus?
@@ -164,19 +169,24 @@ final class HookInstallationCoordinator {
         LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "独立验收 · 未安装" : "Isolated acceptance · not installed"
     }
     private var isolatedStatusSummary: String {
-        LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "来源读取与安装已停用。" : "Source reads and installation are disabled."
+        if sourceSetupAcceptance != nil {
+            return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "此独立验收仅配置清单中的 Hermes、DeepSeek 与 MiniMaxCode 桌面；其它来源配置保持原样。" : "This isolated case configures only its listed Hermes, DeepSeek and MiniMaxCode Desktop sources; other source configurations are preserved."
+        }
+        return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "来源读取与安装已停用。" : "Source reads and installation are disabled."
     }
 
     // MARK: - Computed display properties
 
     enum SetupBlockReason: String {
         case isolatedAcceptance = "setup.connection.isolated"
+        case sourceSetupScope = "setup.connection.sourceSetupScope"
         case missingHooksBinary = "setup.connection.missingHelper"
     }
 
     /// This describes AIsland's configuration prerequisites, not whether the
     /// source agent is installed or its runtime connection has been verified.
     func setupBlockReason(requiresBinary: Bool) -> SetupBlockReason? {
+        if sourceSetupAcceptance != nil { return .sourceSetupScope }
         if isRuntimeAcceptance { return .isolatedAcceptance }
         if requiresBinary && hooksBinaryURL == nil { return .missingHooksBinary }
         return nil
@@ -766,12 +776,15 @@ final class HookInstallationCoordinator {
 
     /// Awaitable versions of refresh for use in startup flow to avoid race conditions.
     func refreshAllHookStatusAndWait() async {
-        guard !isRuntimeAcceptance else { return }
+        guard !sourceSetupDisabled else { return }
         if detectedInstallations[.hermes] != nil {
             do { hermesHookStatus = try await Task.detached { [hermesInstallationManager, hooksBinaryURL] in
                 try hermesInstallationManager.status(hooksBinaryURL: hooksBinaryURL)
             }.value } catch { automaticConnectionErrors[.hermes] = error.localizedDescription }
         }
+        // The dedicated source-setup case never reads unrelated hook configs,
+        // usage caches or repairs the optional usage bridge.
+        if sourceSetupAcceptance != nil { return }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
@@ -1022,18 +1035,35 @@ final class HookInstallationCoordinator {
 
     // MARK: - Intent-aware helpers
 
+    func runStartupSetup(onReady: () -> Void) async {
+        var wrapperFailed = false
+        if let sourceSetupAcceptance {
+            do { hooksBinaryURL = try sourceSetupAcceptance.prepareHooksWrapper() }
+            catch {
+                wrapperFailed = true
+                for agent in sourceSetupAcceptance.agents { automaticConnectionErrors[agent] = "The isolated callback helper could not be prepared. No source configuration was changed." }
+            }
+        }
+        await detectInstalledSources()
+        await refreshAllHookStatusAndWait()
+        recordSourceSetupStates()
+        migrateIntentStoreIfNeeded()
+        onReady()
+        if !wrapperFailed { await configureDetectedSources() }
+    }
+
     /// Only detected sources are admitted. Explicit removal survives both
     /// first launch and future source installations. Untouched detected sources
     /// are configured on each startup/re-scan, independently of onboarding.
     func detectInstalledSources() async {
-        guard !isRuntimeAcceptance else { return }
+        guard !sourceSetupDisabled else { return }
         detectedInstallations = await Task.detached { [installationDetector] in installationDetector.detect() }.value
     }
 
     /// Sequential configuration: completion reflects the installer result,
     /// rather than an unawaited UI action or a fixed delay.
     func configureDetectedSources() async {
-        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy else { return }
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy else { return }
         isAutomaticConnectionBusy = true
         defer { isAutomaticConnectionBusy = false }
         await detectInstalledSources()
@@ -1052,9 +1082,34 @@ final class HookInstallationCoordinator {
             }
         }
         await refreshAllHookStatusAndWait()
+        recordSourceSetupStates()
+    }
+
+    private func recordSourceSetupStates() {
+        guard let sourceSetupAcceptance else { return }
+        for agent in sourceSetupAcceptance.agents {
+            let state: RuntimeAcceptanceConfiguration.SourceSetup.ConnectionState
+            if intentStore.intent(for: agent) == .uninstalled { state = .cancelled }
+            else if automaticConnectionErrors[agent] != nil { state = .error }
+            else if detectedInstallations[agent] == nil { state = .absent }
+            else if let desktop = desktopConnectionStates[agent] {
+                switch desktop {
+                case .waitingForProfile: state = .waitingForProfile
+                case .waitingForSourceExit: state = .waitingForSourceExit
+                case .waitingForActivation: state = .waitingForActivation
+                case .configuredFiles: state = .configured
+                case .eventReceived: state = .eventReceived
+                }
+            } else if receivedSourceSetupAgents.contains(agent) { state = .eventReceived }
+            else if agent == .hermes && hermesHookStatus?.isCurrent == true { state = hermesHookStatus?.hasConsent == true ? .configured : .waitingForConsent }
+            else { state = .installed }
+            do { try sourceSetupAcceptance.record(agent: agent, state: state) }
+            catch { onStatusMessage?("Isolated source-setup receipt could not be written.") }
+        }
     }
 
     private func configureDetectedSource(_ agent: AgentIdentifier) async throws {
+        if let sourceSetupAcceptance, !sourceSetupAcceptance.agents.contains(agent) { return }
         if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop {
             try await configureDesktopSource(agent)
             return
@@ -1088,40 +1143,55 @@ final class HookInstallationCoordinator {
         case .kimi: let manager = kimiHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
         case .grok: let manager = grokHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
         case .openCode: return
-        case .hermes: let manager = hermesInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .hermes:
+            let manager = hermesInstallationManager
+            if let sourceSetupAcceptance { try sourceSetupAcceptance.backupHermesConfiguration(profileURL: manager.profileDirectory) }
+            action = { _ = try manager.install(hooksBinaryURL: binary) }
         case .pi, .ohMyPi, .claudeUsageBridge, .deepSeekDesktop, .miniMaxCodeDesktop: return
         }
         try await Task.detached(priority: .utility) { try action() }.value
     }
 
     func observeDesktopConnectionEvent(_ event: AgentEvent) {
-        guard !isRuntimeAcceptance, case let .sessionStarted(start) = event,
+        guard !sourceSetupDisabled, case let .sessionStarted(start) = event,
               start.timestamp >= connectionObservationStarted, start.origin == .live else { return }
         let agent: AgentIdentifier?
         switch start.tool {
         case .deepseekHarness: agent = .deepSeekDesktop
         case .minimaxCodeDesktop: agent = .miniMaxCodeDesktop
+        case .hermesCLI: agent = .hermes
         default: agent = nil
         }
-        if let agent { desktopConnectionStates[agent] = .eventReceived }
+        if let agent {
+            if agent != .hermes { desktopConnectionStates[agent] = .eventReceived }
+            receivedSourceSetupAgents.insert(agent)
+            recordSourceSetupStates()
+        }
+    }
+
+    func cancelSourceSetupHermes() {
+        guard sourceSetupAcceptance?.agents.contains(.hermes) == true, !isAutomaticConnectionBusy else { return }
+        intentStore.setIntent(.uninstalled, for: .hermes)
+        recordSourceSetupStates()
     }
 
     func confirmMiniMaxDataDirectory(_ directory: URL) {
-        guard !isRuntimeAcceptance else { return }
+        guard !sourceSetupDisabled else { return }
         confirmedMiniMaxDataDirectory = directory.standardizedFileURL
         Task { await configureDetectedSources() }
     }
 
     func removeDesktopConnectionIntent(_ agent: AgentIdentifier) {
-        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy,
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy,
               agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
         // A source-side disable/removal still belongs to the source plugin UI.
         // Preserve a durable opt-out so startup/re-scan cannot re-enable it.
         intentStore.setIntent(.uninstalled, for: agent)
+        recordSourceSetupStates()
     }
 
     func reconnectDesktopSource(_ agent: AgentIdentifier) {
-        guard !isRuntimeAcceptance, !isAutomaticConnectionBusy,
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy,
               agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
         intentStore.setIntent(.untouched, for: agent)
         Task { await configureDetectedSources() }
@@ -1133,7 +1203,10 @@ final class HookInstallationCoordinator {
         let node = installationDetector.executableDirectories.map { $0.appendingPathComponent("node") }
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
         let probe = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MiniMaxCodeSourceProbe")
-        let manager = DesktopConnectionInstallationManager(packagesDirectory: packages, nodeURL: node, bundledProbeURL: probe)
+        let manager = DesktopConnectionInstallationManager(supportDirectory: sourceSetupAcceptance?.supportURL,
+            packagesDirectory: packages, nodeURL: node, bundledProbeURL: probe,
+            bridgeSocketURL: sourceSetupAcceptance?.socketURL ?? BridgeSocketLocation.defaultURL,
+            preservesPreviousHelper: sourceSetupAcceptance != nil)
         if agent == .miniMaxCodeDesktop {
             let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
                 .filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }
@@ -1157,7 +1230,8 @@ final class HookInstallationCoordinator {
     }
 
     func shouldAutoInstall(_ agent: AgentIdentifier) -> Bool {
-        guard !isRuntimeAcceptance else { return false }
+        guard !sourceSetupDisabled else { return false }
+        if let sourceSetupAcceptance, !sourceSetupAcceptance.agents.contains(agent) { return false }
         guard intentStore.shouldAutomaticallyConfigure(agent, installationDetected: detectedInstallations[agent] != nil, configurationCurrent: false) else {
             return false
         }

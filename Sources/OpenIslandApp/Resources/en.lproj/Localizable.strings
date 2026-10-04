@@ -295,3 +295,5 @@
 "setup.desktop.chooseDataDirectory" = "Choose active data directory…";
 
 "setup.desktop.openSource" = "Open source app";
+
+"setup.connection.sourceSetupScope" = "This isolated case automatically configures only its listed Hermes, DeepSeek and MiniMaxCode Desktop sources. Other source configurations are preserved; manual installation and profile changes are disabled.";

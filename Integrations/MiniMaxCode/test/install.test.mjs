@@ -149,3 +149,53 @@ test('Desktop embedded runtime is limited to the exact reviewed executable/versi
     assert.equal(existsSync(plan.destination), false);
   } finally { await f.remove(); }
 });
+
+test('Owned helper relocation isolates a new case and preserves the complete previous helper tree', platform, async () => {
+  assert.ok(process.env.AISLAND_TEST_BUNDLED_PROBE_PATH);
+  const f = await fixture();
+  try {
+    const bundledProbePath = process.env.AISLAND_TEST_BUNDLED_PROBE_PATH;
+    const base = { ...f.request, bundledProbePath, bundledProbeHash: digest(await readFile(bundledProbePath)) };
+    const old = await executeRequest({ ...base, apply: true });
+    const oldReceipt = await readFile(old.receiptPath), oldHelper = await readFile(old.helperPath);
+    const request = { ...base, supportDir: join(f.directory, 'isolated-support'),
+      previousHelperDirectory: old.helperDirectory, bridgeSocketPath: join(f.directory, 'isolated.sock') };
+    const plan = await executeRequest(request);
+    assert.equal(plan.action, 'replace-owned'); assert.equal(plan.existingReceipt.helperDirectory, old.helperDirectory);
+    const installed = await executeRequest({ ...request, apply: true });
+    assert.notEqual(installed.helperDirectory, old.helperDirectory);
+    assert.deepEqual(await readFile(old.receiptPath), oldReceipt);
+    assert.deepEqual(await readFile(old.helperPath), oldHelper);
+    const config = JSON.parse(await readFile(join(installed.destination, 'config.json')));
+    assert.equal(config.bridgeSocketPath, request.bridgeSocketPath);
+    assert.equal(config.sourceDiscovery.probePath, installed.helperPath);
+    assert.equal((await executeRequest({ ...request, apply: true })).result, 'already-installed');
+    assert.equal((await executeRequest({ ...request, operation: 'remove', previousHelperDirectory: undefined, apply: true })).result, 'removed');
+    assert.deepEqual(await readFile(old.receiptPath), oldReceipt);
+    assert.deepEqual(await readFile(old.helperPath), oldHelper);
+    // A plugin whose own config points elsewhere cannot borrow a valid receipt.
+    const oldConfig = JSON.parse(await readFile(join(f.directory, 'support/minimaxcode-passive/receipt.json')));
+    assert.equal(oldConfig.helperDirectory, old.helperDirectory);
+  } finally { await f.remove(); }
+});
+
+test('Relocation requires the exact owned plugin-to-helper binding and rejects changed or foreign helper content', platform, async () => {
+  assert.ok(process.env.AISLAND_TEST_BUNDLED_PROBE_PATH);
+  const f = await fixture();
+  try {
+    const bundledProbePath = process.env.AISLAND_TEST_BUNDLED_PROBE_PATH;
+    const base = { ...f.request, bundledProbePath, bundledProbeHash: digest(await readFile(bundledProbePath)) };
+    const old = await executeRequest({ ...base, apply: true });
+    const relocation = { ...base, supportDir: join(f.directory, 'isolated-support'), previousHelperDirectory: old.helperDirectory };
+    const bytes = await readFile(old.helperPath);
+    await writeFile(old.helperPath, 'CHANGED');
+    await assert.rejects(executeRequest({ ...relocation, apply: true }), /Owned helper changed/);
+    assert.equal(existsSync(join(relocation.supportDir, 'minimaxcode-passive')), false);
+    await writeFile(old.helperPath, bytes, { mode: 0o700 });
+    await writeFile(join(old.helperDirectory, 'foreign'), 'KEEP');
+    await assert.rejects(executeRequest({ ...relocation, apply: true }), /Unexpected files/);
+    assert.equal(await readFile(join(old.helperDirectory, 'foreign'), 'utf8'), 'KEEP');
+    await assert.rejects(executeRequest({ ...relocation, previousHelperDirectory: f.request.dataDir }), /Invalid previous helper/);
+    await assert.rejects(executeRequest({ ...relocation, operation: 'remove' }), /only admitted/);
+  } finally { await f.remove(); }
+});

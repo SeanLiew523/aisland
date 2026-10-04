@@ -25,12 +25,16 @@ public struct DesktopConnectionInstallationManager: Sendable {
     public let packagesDirectory: URL
     public let nodeURL: URL?
     public let bundledProbeURL: URL?
+    public let bridgeSocketURL: URL
+    public let preservesPreviousHelper: Bool
     private let runner: Runner
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                supportDirectory: URL? = nil, packagesDirectory: URL, nodeURL: URL?, bundledProbeURL: URL? = nil,
+                supportDirectory: URL? = nil, packagesDirectory: URL, nodeURL: URL?, bundledProbeURL: URL? = nil, bridgeSocketURL: URL = BridgeSocketLocation.defaultURL,
+                preservesPreviousHelper: Bool = false,
                 runner: @escaping Runner = { try ConnectionProcessRunner.run($0, arguments: $1, environment: $2, timeout: 45) }) {
         self.home = home; self.supportDirectory = supportDirectory ?? home.appendingPathComponent("Library/Application Support/AIsland")
-        self.packagesDirectory = packagesDirectory; self.nodeURL = nodeURL; self.bundledProbeURL = bundledProbeURL; self.runner = runner
+        self.packagesDirectory = packagesDirectory; self.nodeURL = nodeURL; self.bundledProbeURL = bundledProbeURL; self.bridgeSocketURL = bridgeSocketURL
+        self.preservesPreviousHelper = preservesPreviousHelper; self.runner = runner
     }
     private var environment: [String: String] {
         ["HOME": home.path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "LC_ALL": "C", "DSH_HOME": home.appendingPathComponent(".dsh").path]
@@ -57,6 +61,7 @@ public struct DesktopConnectionInstallationManager: Sendable {
         _ = try regular(installer)
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         var support = supportDirectory
+        var previousHelperDirectory: String?
         let configURL = dataDir.appendingPathComponent("plugins/aisland-minimaxcode-passive/config.json")
         if FileManager.default.fileExists(atPath: configURL.path) {
             // Read only this exact plugin's ownership metadata; installer performs
@@ -70,20 +75,27 @@ public struct DesktopConnectionInstallationManager: Sendable {
             guard receipt["owner"] as? String == "aisland.minimaxcode-passive.installer",
                   receipt["dataDir"] as? String == dataDir.resolvingSymlinksInPath().path,
                   receipt["helperDirectory"] as? String == helper.path else { throw Failure.unownedInstallation }
-            support = helper.deletingLastPathComponent()
+            if preservesPreviousHelper && helper.path != supportDirectory.appendingPathComponent("minimaxcode-passive").path {
+                previousHelperDirectory = helper.path
+            } else { support = helper.deletingLastPathComponent() }
         }
         var request: [String: Any] = ["operation": "install", "dataDirConfirmed": true,
             "dataDir": dataDir.resolvingSymlinksInPath().path, "supportDir": support.path,
-            "bridgeSocketPath": BridgeSocketLocation.defaultURL.path, "nodePath": runtime.path,
+            "bridgeSocketPath": bridgeSocketURL.path, "nodePath": runtime.path,
             "hookRuntimeKind": kind, "bundledProbePath": bundledProbeURL.path, "bundledProbeHash": probeHash,
             "desktopAppPath": app.path, "cliPrefix": home.appendingPathComponent(".minimax-code").path,
             "profileID": "desktop", "enableCLI": false]
+        if let previousHelperDirectory { request["previousHelperDirectory"] = previousHelperDirectory }
         let plan = try jsonData(runner(runtime, [installer.path, try jsonString(request)], runtimeEnvironment))
         guard let action = plan["action"] as? String else { throw Failure.invalidMetadata }
         if action == "already-installed" { return .waitingForActivation }
         if action == "replace-owned" {
-            guard let destination = plan["destination"] as? String, let receiptPath = plan["receiptPath"] as? String,
+            guard let destination = plan["destination"] as? String,
+                  let existingReceipt = plan["existingReceipt"] as? [String: Any],
+                  let previousHelper = existingReceipt["helperDirectory"] as? String,
+                  let helperPath = existingReceipt["helperPath"] as? String,
                   let files = plan["copyFiles"] as? [String] else { throw Failure.invalidMetadata }
+            let receiptPath = URL(fileURLWithPath: previousHelper).appendingPathComponent("receipt.json").path
             let backup = try backupDirectory("minimax")
             for relative in files + ["config.json"] {
                 guard !relative.hasPrefix("/"), !relative.split(separator: "/").contains("..") else { throw Failure.invalidMetadata }
@@ -95,7 +107,6 @@ public struct DesktopConnectionInstallationManager: Sendable {
             }
             _ = try regular(URL(fileURLWithPath: receiptPath))
             try FileManager.default.copyItem(at: URL(fileURLWithPath: receiptPath), to: backup.appendingPathComponent("receipt.json"))
-            guard let helperPath = plan["helperPath"] as? String else { throw Failure.invalidMetadata }
             _ = try regular(URL(fileURLWithPath: helperPath), maximum: 4 * 1024 * 1024)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: helperPath), to: backup.appendingPathComponent("source-probe"))
         }
@@ -173,9 +184,9 @@ public struct DesktopConnectionInstallationManager: Sendable {
         _ = try regular(helper)
         let anchor = app.appendingPathComponent("Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-plugin-manager/package.json")
         var env = environment; env["ELECTRON_RUN_AS_NODE"] = "1"
-        let navigation = BridgeSocketLocation.defaultURL.deletingLastPathComponent().appendingPathComponent("deepseek-navigation.sock")
+        let navigation = bridgeSocketURL.deletingLastPathComponent().appendingPathComponent("deepseek-navigation.sock")
         return try jsonData(runner(evidence.executableURL, ["--expose-internals", helper.path, anchor.path,
-            profile.appendingPathComponent("cordis.patch.yml").path, BridgeSocketLocation.defaultURL.path, navigation.path, mode], env))
+            profile.appendingPathComponent("cordis.patch.yml").path, bridgeSocketURL.path, navigation.path, mode], env))
     }
     private func backupDirectory(_ name: String) throws -> URL {
         let value = supportDirectory.appendingPathComponent("connection-backups/\(name)-\(UUID())")

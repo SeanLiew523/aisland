@@ -32,16 +32,25 @@ async function validateContent(plan, receipt, pluginRoot = plan.destination, hel
   await access(join(helperRoot, 'source-probe'), constants.X_OK);
 }
 export async function inspectOwnership(plan) {
-  const destination = await maybeStat(plan.destination); const helper = await maybeStat(plan.helperDirectory);
+  const destination = await maybeStat(plan.destination);
+  const newHelper = await maybeStat(plan.helperDirectory);
+  const helperDirectory = !newHelper && destination && plan.previousHelperDirectory ? plan.previousHelperDirectory : plan.helperDirectory;
+  const helper = await maybeStat(helperDirectory);
   if (!destination && !helper) return null;
   if (!destination?.isDirectory() || !helper?.isDirectory()) throw new Error('Refusing unrecorded or partial existing installation');
-  const receipt = JSON.parse(await regularFile(plan.receiptPath, 65536));
+  const receipt = JSON.parse(await regularFile(join(helperDirectory, 'receipt.json'), 65536));
   if (receipt.schemaVersion !== 1 || receipt.owner !== owner || receipt.dataDir !== plan.dataDir
-      || receipt.destination !== plan.destination || receipt.helperDirectory !== plan.helperDirectory || receipt.helperPath !== plan.helperPath
+      || receipt.destination !== plan.destination || receipt.helperDirectory !== helperDirectory || receipt.helperPath !== join(helperDirectory, 'source-probe')
       || !receipt.files || Array.isArray(receipt.files) || typeof receipt.files !== 'object'
       || Object.keys(receipt.files).sort().join('\n') !== [...installedFiles].sort().join('\n')
       || !Object.values(receipt.files).every(hashValue) || !hashValue(receipt.helperHash) || !hashValue(receipt.helperSourceHash)) throw new Error('Invalid owned receipt or path boundary');
-  await validateContent(plan, receipt);
+  await validateContent(plan, receipt, plan.destination, helperDirectory);
+  // A caller-provided previous path alone proves nothing. The current owned
+  // plugin must itself point to exactly this receipt-validated helper.
+  if (helperDirectory !== plan.helperDirectory) {
+    const config = JSON.parse(await regularFile(join(plan.destination, 'config.json')));
+    if (config.sourceDiscovery?.probePath !== receipt.helperPath) throw new Error('Previous helper does not match the owned plugin');
+  }
   return receipt;
 }
 async function preflight(helperPath, plan) {
@@ -53,7 +62,7 @@ async function preflight(helperPath, plan) {
   await runFile(helperPath, [String(process.pid), plan.config.sourceDiscovery.desktopAppPath], { timeout: 200, maxBuffer: 16384 });
 }
 function sameInstallation(plan, receipt) {
-  return receipt && receipt.helperSourceHash === plan.helperSourceHash
+  return receipt && receipt.helperDirectory === plan.helperDirectory && receipt.helperSourceHash === plan.helperSourceHash
     && (plan.helperBuild.kind !== 'copy-bundled' || receipt.helperHash === plan.helperBuild.bundledProbeHash)
     && installedFiles.every(path => receipt.files[path] === plan.fileHashes[path]);
 }
@@ -93,7 +102,9 @@ async function publish(plan, staged, stage, previous) {
     const plugins = join(plan.dataDir, 'plugins'); await mkdir(plugins, { recursive: true }); await regularDirectory(plugins);
     if (previous) {
       await rename(plan.destination, join(stage, 'previous-plugin')); moved.push([join(stage, 'previous-plugin'), plan.destination]);
-      await rename(plan.helperDirectory, join(stage, 'previous-helper')); moved.push([join(stage, 'previous-helper'), plan.helperDirectory]);
+      if (previous.helperDirectory === plan.helperDirectory) {
+        await rename(plan.helperDirectory, join(stage, 'previous-helper')); moved.push([join(stage, 'previous-helper'), plan.helperDirectory]);
+      } // Relocation preserves the complete previous helper tree unchanged.
     }
     await rename(staged.plugin, plan.destination); moved.push([plan.destination, staged.plugin]);
     await rename(staged.helperDirectory, plan.helperDirectory); moved.push([plan.helperDirectory, staged.helperDirectory]);

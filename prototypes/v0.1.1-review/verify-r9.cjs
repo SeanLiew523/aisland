@@ -70,7 +70,7 @@ const resizeChecks=[];
 for (const reduceMotion of [false,true]) {
   for (const [w,h] of [[380,500],[1702,1016],[380,500]]) {
     const input={w,h,t:21.1,x:w/2,y:h*.43,iw:100,ih:30,gather:5.3,arrived:7.95,
-      approval:8.2,dock:18.1,motion:!reduceMotion,setup:false};
+      approval:8.2,dock:18.1,settled:20.7,motion:!reduceMotion,setup:false};
     bloub.render(input);
     const geometry=bloub.layout(input).orbit, actual=surfaces['home-orbit'];
     assert.equal(geometry.size,Math.min(w*.68,h*.66)*.7);
@@ -87,19 +87,20 @@ for (const time of [.4,.9,1.6,2,2.5,3.3]) {
   const frame=bloub.sample('orbit',time), svg=bloub.svg(frame,'intro-orbit');
   assert(frame.arcs.length > 0 && frame.arcs.length <= 6); assert(svg.includes(frame.bodyPath));
   assert(svg.includes('<mask')); assert(!svg.includes('NaN')); assert(!svg.includes('<text'));
-  bloub.render({w:1702,h:1016,t:18.9+time/1.1,x:851,y:400,iw:100,ih:30,
-    gather:5.3,arrived:7.95,approval:8.2,dock:18.1,motion:true,setup:false});
+  bloub.render({w:1702,h:1016,t:18.1+time*(20.7-18.1)/3.3,x:851,y:400,iw:100,ih:30,
+    gather:5.3,arrived:7.95,approval:8.2,dock:18.1,settled:20.7,motion:true,setup:false});
   // The actual adapter must paint this exact original-engine frame, not a
   // substitute/crossfaded body. Replay and backward static inspection are pure.
   const actualTime=+surfaces['home-orbit'].dataset.time;
-  assert.equal(surfaces['home-orbit'].innerHTML,bloub.svg(bloub.sample('orbit',actualTime),'intro-orbit'));
+  assert.equal(surfaces['home-orbit'].innerHTML,bloub.svg(bloub.sample('orbit',actualTime),'intro-orbit','#09090b','#f4f4f0',Math.ceil(bloub.layout({w:1702,h:1016,t:21.1,dock:18.1,settled:20.7,motion:true,setup:false}).orbit.size)));
   morphChecks.push({time,arcs:frame.arcs.length});
 }
+assert.equal(bloub.layout({w:1702,h:1016,t:20.7,dock:18.1,settled:20.7,motion:true,setup:false}).orbit.time,3.3);
 assert.notEqual(bloub.sample('orbit',.9).bodyPath,bloub.sample('orbit',2.5).bodyPath);
 let reducedFrame;
 for (const t of [19.3,21.8,19.5]) {
   bloub.render({w:1702,h:1016,t,x:851,y:400,iw:100,ih:30,gather:5.3,
-    arrived:7.95,approval:8.2,dock:18.1,motion:false,setup:false});
+    arrived:7.95,approval:8.2,dock:18.1,settled:20.7,motion:false,setup:false});
   const current=surfaces['home-orbit'].innerHTML;
   if(reducedFrame)assert.equal(current,reducedFrame); reducedFrame=current;
 }
@@ -108,7 +109,7 @@ async function capture(width,height,time,language,reduceMotion=false) {
   scene.draw(ctx,width,height,time,{playing:true,language,reduceMotion});
   const size = Math.min(width/(width<640?780:1040),height/720);
   const geometry = bloub.layout({w:width,h:height,t:time,x:width/2,y:height*.43,
-    iw:282*size*.77,ih:83*size*.84,gather:5.3,arrived:7.95,approval:8.2,dock:18.1,motion:!reduceMotion,setup:false});
+    iw:282*size*.77,ih:83*size*.84,gather:5.3,arrived:7.95,approval:8.2,dock:18.1,settled:20.7,motion:!reduceMotion,setup:false});
   if (geometry.glyph.visible) {
     const g=geometry.glyph; assert(g.x-g.size/2 > width/2-282*size*.77/2);
     assert.equal(surfaces['gather-bloub'].dataset.state,time>=7.95?'thinking':'idle');

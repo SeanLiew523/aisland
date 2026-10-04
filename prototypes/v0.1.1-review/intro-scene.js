@@ -266,7 +266,7 @@ window.AIslandIntroScene = (() => {
       c.save();c.translate(x,y);island(c,iw,ih,t,s,0,host);c.restore();
     }
     window.AIslandIntroBloub.render({w,h,t,x,y,iw,ih,gather:timeline.gather,arrived:tasksArrived,
-      approval:timeline.approval,dock:timeline.dock,motion,setup});
+      approval:timeline.approval,dock:timeline.dock,settled:timeline.settled,motion,setup});
     // Native clips provide their own production animation; only the opening gets an extra pulse.
     if(t>=1.35&&t<2.45&&motion){
       const elapsed=(t-1.35)/1.1;c.save();c.translate(x,y);c.globalAlpha=(1-elapsed)*.32;

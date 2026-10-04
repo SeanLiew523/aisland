@@ -36,7 +36,8 @@ enum OnboardingTimeline {
     static let agents = 3.0, gather = 5.3, approval = 8.2, answer = 10.7
     static let back = 13.2, completed = 15.7, dock = 18.1, settled = 20.7
     static let tasksArrived = 7.95
-    static let orbitStart = dock + 0.8, orbitSpeed = 1.1, orbitSourceDuration = 3.3
+    static let orbitStart = dock, orbitSourceDuration = 3.3
+    static let orbitSpeed = orbitSourceDuration / (settled - dock)
     static func frameIndex(time: Double, start: Double, fps: Double, frames: Int, looping: Bool = false) -> Int {
         let index = Int(max(0, time - start) * fps)
         return looping ? index % max(1, frames) : min(max(0, frames - 1), index)

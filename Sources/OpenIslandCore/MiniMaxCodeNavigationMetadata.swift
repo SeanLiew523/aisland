@@ -7,12 +7,13 @@ public struct MiniMaxCodeConversationMetadata: Equatable, Sendable {
     public let workspacePath: String
     public let projectWorkspacePath: String
     public let projectID: Int64
+    public var isDefaultWorkspace: Bool = false
 }
 
 /// Only an already-observed session ID is admitted. Never reads record_json,
 /// error/input fields, session bodies, auth, or project alias JSON.
 public struct MiniMaxCodeNavigationMetadata: Sendable {
-    public enum ReadError: Error, Equatable, Sendable {
+    public enum ReadError: String, Error, Equatable, Sendable {
         case invalidRequest, unsupportedVersion, databaseUnavailable, incompatibleSchema
         case queryUnavailable, invalidMetadata, unsupportedProject, ambiguousTitle
     }
@@ -64,10 +65,12 @@ public struct MiniMaxCodeNavigationMetadata: Sendable {
         guard visibility == "visible", sqlite3_column_int64(statement, 6) == 0,
               sqlite3_column_int64(statement, 7) == 3,
               ["task", "conversation", "unknown"].contains(kind) else { return nil }
-        guard sqlite3_column_int64(statement, 8) == 0 else { throw ReadError.unsupportedProject }
+        let projectFlag = sqlite3_column_int64(statement, 8)
+        guard projectFlag == 0 || projectFlag == 1 else { throw ReadError.unsupportedProject }
         let record = MiniMaxCodeConversationMetadata(sessionID: id, title: title, workspacePath: workspace,
                                                      projectWorkspacePath: projectPath,
-                                                     projectID: sqlite3_column_int64(statement, 4))
+                                                     projectID: sqlite3_column_int64(statement, 4),
+                                                     isDefaultWorkspace: projectFlag == 1)
         guard sqlite3_step(statement) == SQLITE_DONE else { throw ReadError.incompatibleSchema }
         // Aggregate only: no other session's identity, title, or path leaves
         // SQLite. Conservative global uniqueness avoids project/pinned aliases.

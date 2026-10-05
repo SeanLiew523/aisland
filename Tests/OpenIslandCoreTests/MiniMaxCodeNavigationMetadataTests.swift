@@ -40,12 +40,20 @@ struct MiniMaxCodeNavigationMetadataTests {
         }
     }
 
-    @Test func versionSchemaViewsAndDefaultProjectFailClosed() throws {
+    @Test func ordinaryDefaultWorkspaceConversationIsAdmitted() throws {
+        let fixture = try NavigationFixture(); defer { fixture.dispose() }; try fixture.insert()
+        try fixture.exec("UPDATE local_runtime_sessions SET is_default_workspace=1, session_kind='conversation', project_id=5")
+        let record = try #require(try fixture.reader.conversation(sessionID: "observed", sourceVersion: "3.1.0"))
+        #expect(record.sessionID == "observed")
+        #expect(record.isDefaultWorkspace)
+    }
+
+    @Test func versionSchemaViewsAndInvalidProjectFlagFailClosed() throws {
         let fixture = try NavigationFixture(); defer { fixture.dispose() }; try fixture.insert()
         #expect(throws: MiniMaxCodeNavigationMetadata.ReadError.unsupportedVersion) {
             try fixture.reader.conversation(sessionID: "observed", sourceVersion: "3.1.1")
         }
-        try fixture.exec("UPDATE local_runtime_sessions SET is_default_workspace=1")
+        try fixture.exec("UPDATE local_runtime_sessions SET is_default_workspace=2")
         #expect(throws: MiniMaxCodeNavigationMetadata.ReadError.unsupportedProject) {
             try fixture.reader.conversation(sessionID: "observed", sourceVersion: "3.1.0")
         }

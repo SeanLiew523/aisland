@@ -14,4 +14,14 @@ enum MiniMaxCodeTopbarSelection {
               branches.filter({ $0 == .menu }).count == 1 else { return nil }
         return index - 1
     }
+    /// Default-workspace conversations have a direct text/menu/terminal prefix.
+    /// The remaining siblings may contain the chat, and are never inspected.
+    static func defaultWorkspaceMenuIndex(in branches: [Branch]) -> Int? {
+        guard branches.count <= 8, branches.count >= 3,
+              Array(branches.prefix(3)) == [.title, .menu, .controls],
+              branches.filter({ $0 == .title }).count == 1,
+              branches.filter({ $0 == .menu }).count == 1,
+              branches.filter({ $0 == .controls }).count == 1 else { return nil }
+        return 1
+    }
 }

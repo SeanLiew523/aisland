@@ -52,6 +52,9 @@ struct MiniMaxCodeConversationController: Sendable {
             }
             record = value
         } catch MiniMaxCodeNavigationMetadata.ReadError.ambiguousTitle { return .unavailable("ambiguous-session-title") }
+        catch let error as MiniMaxCodeNavigationMetadata.ReadError {
+            return .unavailable("session-metadata-" + error.rawValue)
+        }
         catch { return .unavailable("session-metadata-unavailable") }
         guard clock() < deadline else { return .unavailable("focus-timeout") }
         guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
@@ -480,6 +483,9 @@ private enum MiniMaxCodeAXNavigation {
         MiniMaxCodeCopyDiagnosticRecorder.record(windowDiagnostic)
         if acceptanceDiagnosticsEnabled { NSLog("aisland_minimax_window %@", windowDiagnostic.line) }
         guard windowAdmission.focused else { return false }
+        if record.isDefaultWorkspace {
+            return selectFromSearch(record, source: source, window: admittedWindow, deadline: deadline)
+        }
         var expandedOnce = false
         while remaining(deadline) {
             guard AXIsProcessTrusted(), self.source() == source, frontmost(source),
@@ -525,6 +531,78 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.selectionTimeout)
         return false
     }
+    /// Default-workspace tasks have no path-labelled project header. Use the
+    /// public local search, then retain the same copied native-ID verification.
+    /// Never overwrite an already-open user search or select a command result.
+    static func selectFromSearch(_ record: MiniMaxCodeConversationMetadata,
+                                 source: MiniMaxCodeConversationUI.Source,
+                                 window admittedWindow: AXUIElement, deadline: TimeInterval) -> Bool {
+        func current() -> AXUIElement? {
+            guard remaining(deadline), AXIsProcessTrusted(), self.source() == source,
+                  frontmost(source), let root = window(source), CFEqual(root, admittedWindow) else { return nil }
+            return root
+        }
+        func searchGroups(_ root: AXUIElement) -> [AXUIElement] {
+            nodes(root, deadline).filter {
+                role($0) == "AXGroup" && ["全局搜索", "Global search"].contains(exactLabel($0) ?? "")
+            }
+        }
+        guard let root = current(), searchGroups(root).isEmpty else { return false }
+        let buttons = nodes(root, deadline).filter {
+            role($0) == "AXButton" && ["搜索", "Search"].contains(exactLabel($0) ?? "") && action($0, kAXPressAction)
+        }
+        guard buttons.count == 1, current() != nil, press(buttons[0], deadline) else { return false }
+        defer {
+            // Close only our own search, in the same source/window and budget.
+            if let root = current() {
+                let groups = searchGroups(root)
+                if groups.count == 1 {
+                    let close = nodes(groups[0], deadline, maximum: 256, depth: 8).filter {
+                        role($0) == "AXButton" && ["关闭", "Close"].contains(exactLabel($0) ?? "") && action($0, kAXPressAction)
+                    }
+                    if close.count == 1, current() != nil { _ = press(close[0], deadline) }
+                }
+            }
+        }
+        var searched = false
+        while let root = current() {
+            let groups = searchGroups(root)
+            if groups.isEmpty { pause(deadline); continue }
+            guard groups.count == 1 else { return false }
+            let members = nodes(groups[0], deadline, maximum: 256, depth: 8)
+            if !searched {
+                let fields = members.filter {
+                    role($0) == "AXTextField" && ["搜索任务或运行命令", "Search tasks or run commands"].contains(exactLabel($0) ?? "")
+                }
+                guard fields.count == 1, current() != nil,
+                      AXUIElementSetAttributeValue(fields[0], kAXValueAttribute as CFString, record.title as CFString) == .success else { return false }
+                searched = true
+                pause(deadline); continue
+            }
+            let fields = members.filter { role($0) == "AXTextField" }
+            guard fields.count == 1, value(fields[0], kAXValueAttribute) as? String == record.title else { return false }
+            let results = members.filter { item in
+                guard role(item) == "AXButton", exactLabel(item) == record.title, action(item, kAXPressAction),
+                      let section = parent(item), members.contains(where: { CFEqual($0, section) }) else { return false }
+                // Commands/settings use separate renderer sections. Read only
+                // the direct section header, never another task or chat body.
+                return elements(section, kAXChildrenAttribute).prefix(1).contains { header in
+                    (role(header) == "AXStaticText" && ["搜索结果", "Search results"].contains(text(header) ?? "")) ||
+                    (role(header) == "AXGroup" && elements(header, kAXChildrenAttribute).contains {
+                        role($0) == "AXStaticText" && ["搜索结果", "Search results"].contains(text($0) ?? "")
+                    })
+                }
+            }
+            if results.isEmpty { pause(deadline); continue }
+            guard results.count == 1, current() != nil, press(results[0], deadline) else { return false }
+            while let root = current() {
+                if titleMenuButton(root, title: record.title, deadline: deadline, defaultWorkspace: true) != nil { return true }
+                pause(deadline)
+            }
+            return false
+        }
+        return false
+    }
     static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> String? {
         let started = ProcessInfo.processInfo.systemUptime
@@ -562,7 +640,7 @@ private enum MiniMaxCodeAXNavigation {
         diagnostic.stage = .title; diagnostic.reason = .titleUnavailable
         var menuAlreadyOpen = false
         let more = titleMenuButton(root, title: record.title, deadline: deadline, rejectOpenMenu: true,
-                                   menuAlreadyOpen: &menuAlreadyOpen)
+                                   menuAlreadyOpen: &menuAlreadyOpen, defaultWorkspace: record.isDefaultWorkspace)
         if menuAlreadyOpen { diagnostic.reason = .menuAlreadyOpen }
         acceptanceLog(.copyTitleButton, flag: more != nil)
         guard let more else { return nil }
@@ -819,12 +897,15 @@ private enum MiniMaxCodeAXNavigation {
     /// Live 3.1.0 flattens title/menu/controls into adjacent direct children.
     /// Only the ten-node controls branch and one-text title branch are read;
     /// the shared panel's chat descendants cannot affect this lookup.
-    static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval) -> AXUIElement? {
+    static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval,
+                                defaultWorkspace: Bool = false) -> AXUIElement? {
         var unused = false
-        return titleMenuButton(root, title: title, deadline: deadline, rejectOpenMenu: false, menuAlreadyOpen: &unused)
+        return titleMenuButton(root, title: title, deadline: deadline, rejectOpenMenu: false,
+                               menuAlreadyOpen: &unused, defaultWorkspace: defaultWorkspace)
     }
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval,
-                                rejectOpenMenu: Bool, menuAlreadyOpen: inout Bool) -> AXUIElement? {
+                                rejectOpenMenu: Bool, menuAlreadyOpen: inout Bool,
+                                defaultWorkspace: Bool = false) -> AXUIElement? {
         let visited = nodes(root, deadline)
         if rejectOpenMenu {
             menuAlreadyOpen = visited.contains { role($0) == "AXMenu" || classes($0).contains("ant-dropdown-menu") }
@@ -832,6 +913,19 @@ private enum MiniMaxCodeAXNavigation {
         }
         let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
         let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
+        if defaultWorkspace {
+            guard terminals.count == 1, let panel = parent(terminals[0]), role(panel) == "AXGroup" else { return nil }
+            let children = elements(panel, kAXChildrenAttribute)
+            guard children.count >= 3, children.count <= 8, remaining(deadline) else { return nil }
+            // Read only the three direct topbar siblings, never body text.
+            let prefix = Array(children.prefix(3))
+            guard role(prefix[0]) == "AXStaticText", text(prefix[0]) == title,
+                  role(prefix[1]) == "AXButton", (exactLabel(prefix[1]) ?? "").isEmpty,
+                  action(prefix[1], kAXPressAction), CFEqual(prefix[2], terminals[0]),
+                  MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in:
+                    [.title, .menu, .controls] + Array(repeating: .other, count: children.count - 3)) == 1 else { return nil }
+            return prefix[1]
+        }
         guard choosers.count == 1, terminals.count == 1,
               let controls = parent(choosers[0]), role(controls) == "AXGroup",
               let panel = parent(controls), role(panel) == "AXGroup", remaining(deadline) else { return nil }

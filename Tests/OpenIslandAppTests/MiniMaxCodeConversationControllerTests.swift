@@ -6,6 +6,16 @@ import Testing
 @testable import OpenIslandCore
 
 struct MiniMaxCodeConversationControllerTests {
+    @Test func defaultWorkspaceStillRequiresExactNativeIDAndForeground() throws {
+        let fixture = try ControllerFixture(); defer { fixture.dispose() }
+        try fixture.exec("UPDATE local_runtime_sessions SET is_default_workspace=1, session_kind='conversation', project_id=5")
+        #expect(fixture.controller.focus(target: fixture.target) == .focused)
+        fixture.copiedID = "different-native-id"
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-id-unverified"))
+        fixture.copiedID = "observed"; fixture.frontmost = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("app-not-frontmost"))
+    }
+
     @Test func initialActivationWaitsForForegroundWithinOriginalBudget() {
         var time: TimeInterval = 0
         var pauses = 0

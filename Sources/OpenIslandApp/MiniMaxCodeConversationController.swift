@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import Darwin
 import OpenIslandCore
 
 enum MiniMaxCodeConversationFocusResult: Equatable, Sendable {
@@ -87,6 +88,127 @@ enum MiniMaxCodeActivationAdmission {
             pause(deadline)
         }
         return false
+    }
+}
+
+/// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
+/// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
+struct MiniMaxCodeCopyDiagnostic: Sendable {
+    enum Stage: String, Sendable { case entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Reason: String, Sendable {
+        case deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
+        case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
+        case inputUnavailable, focusChanged, arrowDispatched, itemUnavailable, clipboardUnavailable, clipboardChanged
+        case labelActivationFailed, copyUnobserved, copyMismatch, lateCopy, verified
+    }
+    enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
+    var stage: Stage = .entry
+    var reason: Reason = .deadline
+    var cleanup: Cleanup = .unnecessary
+    var focusPolls = 0
+    var focusQueryError = 0
+    var focusedRole = "unavailable"
+    var focusEqual = false
+    var frontmost = false
+    var inputAvailable = false
+    var copied = false
+    var restored = false
+    var deadlineExpired = false
+    var entryBudgetMilliseconds = 0
+    var elapsedMilliseconds = 0
+    var line: String {
+        let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
+        let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
+        func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+    }
+}
+
+/// A failed navigation may dismiss only its own menu while the exact menu
+/// focus, source and window are still current. Never activate another app.
+enum MiniMaxCodeCopyCleanupAdmission {
+    static func permits(openedByNavigation: Bool, sameSource: Bool, sameWindow: Bool,
+                        frontmost: Bool, focusBelongsToMenu: Bool, hasTime: Bool) -> Bool {
+        openedByNavigation && sameSource && sameWindow && frontmost && focusBelongsToMenu && hasTime
+    }
+    static func cancelIfCurrent(isCurrent: () -> Bool, supportsCancel: () -> Bool,
+                                cancel: () -> Bool) -> MiniMaxCodeCopyDiagnostic.Cleanup {
+        guard isCurrent() else { return .focusChanged }
+        guard supportsCancel() else { return .unsupported }
+        // An action query can outlive a user's focus change. Re-admit immediately
+        // before invoking the element-targeted cancel action.
+        guard isCurrent() else { return .focusChanged }
+        return cancel() ? .dispatched : .attempted
+    }
+}
+
+enum MiniMaxCodeCopyDiagnosticRecorder {
+    static let directory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/OpenIsland")
+    static let markerName = ".minimax-copy-diagnostics-enabled"
+    static let logName = "minimax-copy-diagnostics.log"
+    static func isEnabled(directory: URL = directory, ownerUID: uid_t = getuid()) -> Bool {
+        let directoryFD = openDirectory(directory, ownerUID: ownerUID)
+        guard directoryFD >= 0 else { return false }
+        defer { close(directoryFD) }
+        let marker = openat(directoryFD, markerName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard marker >= 0 else { return false }
+        defer { close(marker) }
+        return validFile(marker, ownerUID: ownerUID, empty: true)
+    }
+    static func record(_ diagnostic: MiniMaxCodeCopyDiagnostic, directory: URL = directory, ownerUID: uid_t = getuid()) {
+        // Optional recorder never creates its directory or marker; no preference,
+        // environment override or special acceptance bundle is required.
+        let directoryFD = openDirectory(directory, ownerUID: ownerUID)
+        guard directoryFD >= 0 else { return }
+        defer { close(directoryFD) }
+        let marker = openat(directoryFD, markerName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard marker >= 0 else { return }
+        defer { close(marker) }
+        guard validFile(marker, ownerUID: ownerUID, empty: true) else { return }
+        var log = openat(directoryFD, logName, O_WRONLY | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        if log < 0 && errno == ENOENT {
+            log = openat(directoryFD, logName, O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0o600)
+        }
+        guard log >= 0 else { return }
+        defer { close(log) }
+        guard flock(log, LOCK_EX | LOCK_NB) == 0 else { return }
+        defer { flock(log, LOCK_UN) }
+        let data = Data(("timestamp=\(Int(Date().timeIntervalSince1970)) " + diagnostic.line + "\n").utf8)
+        var info = stat()
+        guard validFile(log, ownerUID: ownerUID), validFile(marker, ownerUID: ownerUID, empty: true),
+              fstat(log, &info) == 0, info.st_size >= 0, info.st_size <= 65_536 - data.count else { return }
+        data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let count = Darwin.write(log, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else { return }
+                offset += count
+            }
+        }
+    }
+    private static func validFile(_ fd: Int32, ownerUID: uid_t, empty: Bool = false) -> Bool {
+        var info = stat()
+        return fstat(fd, &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG && info.st_uid == ownerUID
+            && info.st_nlink == 1 && (info.st_mode & 0o7777) == 0o600 && (!empty || info.st_size == 0)
+    }
+    private static func openDirectory(_ url: URL, ownerUID: uid_t) -> Int32 {
+        guard url.isFileURL, let resolved = realpath(url.path, nil) else { return -1 }
+        defer { free(resolved) }
+        guard String(cString: resolved) == url.path else { return -1 }
+        var fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return -1 }
+        for component in url.path.split(separator: "/") {
+            let next = openat(fd, String(component), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            close(fd)
+            guard next >= 0 else { return -1 }
+            fd = next
+            var info = stat()
+            guard fstat(fd, &info) == 0, info.st_uid == 0 || info.st_uid == ownerUID else { close(fd); return -1 }
+        }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == ownerUID else { close(fd); return -1 }
+        return fd
     }
 }
 
@@ -300,53 +422,90 @@ private enum MiniMaxCodeAXNavigation {
     }
     static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> String? {
+        let started = ProcessInfo.processInfo.systemUptime
+        var diagnostic = MiniMaxCodeCopyDiagnostic()
+        let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
+        diagnostic.entryBudgetMilliseconds = Int(max(0, deadline - started) * 1000)
+        var ownedMenu: AXUIElement?
+        var navigationWindow: AXUIElement?
+        var dispatched = false
+        defer {
+            if !dispatched, let menu = ownedMenu, let root = navigationWindow {
+                diagnostic.cleanup = cleanupOwnMenu(menu, window: root, source: source)
+            } else if !dispatched { diagnostic.cleanup = .unowned }
+            diagnostic.deadlineExpired = !remaining(deadline)
+            diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            if acceptanceDiagnosticsEnabled { NSLog("aisland_minimax_copy %@", diagnostic.line) }
+        }
         let inTime = remaining(deadline)
         acceptanceLog(.copyEntryDeadline, flag: inTime)
         guard inTime else { return nil }
+        diagnostic.reason = .sourceNotFrontmost
         let inFront = frontmost(source)
+        diagnostic.frontmost = inFront
         acceptanceLog(.copyEntryFrontmost, flag: inFront)
         guard inFront else { return nil }
+        diagnostic.reason = .windowUnavailable
         let root = window(source)
         acceptanceLog(.copyEntryWindow, flag: root != nil)
         guard let root else { return nil }
-        let more = titleMenuButton(root, title: record.title, deadline: deadline)
+        navigationWindow = root
+        diagnostic.stage = .title; diagnostic.reason = .titleUnavailable
+        var menuAlreadyOpen = false
+        let more = titleMenuButton(root, title: record.title, deadline: deadline, rejectOpenMenu: true,
+                                   menuAlreadyOpen: &menuAlreadyOpen)
+        if menuAlreadyOpen { diagnostic.reason = .menuAlreadyOpen }
         acceptanceLog(.copyTitleButton, flag: more != nil)
         guard let more else { return nil }
+        diagnostic.reason = .titlePressFailed
         let titlePressed = press(more, deadline)
         acceptanceLog(.copyTitlePress, flag: titlePressed)
         guard titlePressed else { return nil }
+        diagnostic.stage = .menu; diagnostic.reason = .copyUnavailable
         let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline)
         acceptanceLog(.copyMenuItem, flag: copy != nil)
         guard let copy else { return nil }
+        ownedMenu = menuAncestor(copy, deadline: deadline)
+        diagnostic.reason = .copyPressFailed
         let copyPressed = press(copy, deadline)
         acceptanceLog(.copyMenuPress, flag: copyPressed)
         guard copyPressed else { return nil }
-        let opened = openCopySubmenu(copy, source: source, deadline: deadline)
+        let opened = openCopySubmenu(copy, source: source, deadline: deadline, diagnostic: &diagnostic, diagnosticEnabled: diagnosticEnabled)
         acceptanceLog(.copySubmenu, flag: opened)
         guard opened else { return nil }
+        diagnostic.stage = .item; diagnostic.reason = .itemUnavailable
         let item = waitForMenuLabel(["复制会话 ID", "Copy session ID"], source: source, deadline: deadline)
         acceptanceLog(.copyIDItem, flag: item != nil)
         guard let copyID = item, frontmost(source), remaining(deadline) else { return nil }
+        diagnostic.stage = .clipboard; diagnostic.reason = .clipboardUnavailable
         let pasteboard = NSPasteboard.general
         let captured = MiniMaxCodePasteboardSnapshot.capture(pasteboard)
         acceptanceLog(.pasteboardCapture, flag: captured != nil)
-        guard let snapshot = captured, remaining(deadline),
-              pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
+        guard let snapshot = captured, remaining(deadline) else { return nil }
+        diagnostic.reason = .clipboardChanged
+        guard pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
+        diagnostic.stage = .label; diagnostic.reason = .labelActivationFailed
         let activated = activateCopyLabel(copyID, source: source, deadline: deadline,
                                           isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
         acceptanceLog(.copyIDPress, flag: activated)
         guard activated else { return nil }
-        // Success retains the navigation deadline. A dispatched asynchronous
-        // copy gets at least 300 ms of bounded cleanup observation; a late
-        // matching result is restored but never reported as navigation success.
+        dispatched = true
+        diagnostic.stage = .clipboard; diagnostic.reason = .copyUnobserved
+        // A dispatched asynchronous copy gets at least 300 ms of bounded cleanup
+        // observation. A late exact result is restored but never reports success.
         let cleanupDeadline = max(deadline, ProcessInfo.processInfo.systemUptime + 0.3)
         repeat {
             if pasteboard.changeCount != snapshot.originalChangeCount {
+                diagnostic.reason = .copyMismatch
                 let result = snapshot.consumeMatchingCopy(pasteboard, expectedID: record.sessionID)
                 acceptanceLog(.pasteboardIdentity, flag: result != nil)
                 guard let result else { return nil }
+                diagnostic.copied = true; diagnostic.restored = result.restored
                 acceptanceLog(.pasteboardRestore, flag: result.restored)
+                diagnostic.reason = .lateCopy
                 guard remaining(deadline) else { return nil }
+                diagnostic.stage = .complete; diagnostic.reason = .verified
                 return result.sessionID
             }
             guard remaining(cleanupDeadline) else { break }
@@ -354,11 +513,53 @@ private enum MiniMaxCodeAXNavigation {
         } while remaining(cleanupDeadline)
         return nil
     }
+    static func menuAncestor(_ element: AXUIElement, deadline: TimeInterval) -> AXUIElement? {
+        var current = element
+        for _ in 0..<8 where remaining(deadline) {
+            if role(current) == "AXMenu" || classes(current).contains("ant-dropdown-menu") { return current }
+            guard let next = parent(current) else { return nil }
+            current = next
+        }
+        return nil
+    }
+    static func cleanupOwnMenu(_ menu: AXUIElement, window original: AXUIElement,
+                               source: MiniMaxCodeConversationUI.Source) -> MiniMaxCodeCopyDiagnostic.Cleanup {
+        // Cleanup has a separate fixed 120 ms budget; it cannot report navigation
+        // success or reclaim focus. AXCancel is targeted to the admitted element.
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.12
+        guard AXIsProcessTrusted(), self.source() == source, frontmost(source),
+              let current = window(source), CFEqual(current, original),
+              let focused = value(AXUIElementCreateApplication(source.processID), kAXFocusedUIElementAttribute),
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return .focusChanged }
+        let element = unsafeDowncast(focused, to: AXUIElement.self)
+        var ancestor = element
+        var belongs = false
+        for _ in 0..<8 where remaining(deadline) {
+            if CFEqual(ancestor, menu) { belongs = true; break }
+            guard let next = parent(ancestor) else { break }
+            ancestor = next
+        }
+        guard belongs,
+              MiniMaxCodeCopyCleanupAdmission.permits(openedByNavigation: true, sameSource: self.source() == source,
+                  sameWindow: true, frontmost: frontmost(source), focusBelongsToMenu: true, hasTime: remaining(deadline)) else {
+            return .focusChanged
+        }
+        return MiniMaxCodeCopyCleanupAdmission.cancelIfCurrent(isCurrent: {
+            guard remaining(deadline), AXIsProcessTrusted(), self.source() == source, frontmost(source),
+                  let currentWindow = window(source), CFEqual(currentWindow, original),
+                  let latest = value(AXUIElementCreateApplication(source.processID), kAXFocusedUIElementAttribute),
+                  CFGetTypeID(latest) == AXUIElementGetTypeID(), CFEqual(latest, element) else { return false }
+            return remaining(deadline)
+        }, supportsCancel: { action(menu, kAXCancelAction) }, cancel: {
+            AXUIElementPerformAction(menu, kAXCancelAction as CFString) == .success
+        })
+    }
     /// Desktop AXPress focuses the Copy item without opening its submenu.
     /// Use the standard right-arrow only for that exact focused menu item, in
     /// the admitted frontmost source process. No global keyboard shortcut.
     static func openCopySubmenu(_ copy: AXUIElement, source: MiniMaxCodeConversationUI.Source,
-                                deadline: TimeInterval) -> Bool {
+                                deadline: TimeInterval, diagnostic: inout MiniMaxCodeCopyDiagnostic, diagnosticEnabled: Bool) -> Bool {
+        diagnostic.stage = .focus; diagnostic.reason = .copyFocusUnobserved
         if acceptanceDiagnosticsEnabled {
             NSLog("aisland_minimax_navigation stage=copy-guard role=%@ frontmost=%d trusted=%d remaining=%d",
                   DiagnosticRole(role(copy)).rawValue, frontmost(source) ? 1 : 0,
@@ -373,27 +574,38 @@ private enum MiniMaxCodeAXNavigation {
         var focusedCopy = false
         // AXPress updates the native menu focus asynchronously. Do not send
         // any input until the exact item is observed, within the same deadline.
-        while remaining(deadline), frontmost(source) {
-            if let focused = value(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
-               CFEqual(unsafeDowncast(focused, to: AXUIElement.self), copy) {
-                focusedCopy = true; break
+        while remaining(deadline), AXIsProcessTrusted(), frontmost(source) {
+            var focused: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focused)
+            diagnostic.focusPolls += 1; diagnostic.focusQueryError = Int(error.rawValue)
+            if let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() {
+                let element = unsafeDowncast(focused, to: AXUIElement.self)
+                diagnostic.focusEqual = CFEqual(element, copy)
+                // Ordinary navigation performs no additional AX role query.
+                if diagnosticEnabled { diagnostic.focusedRole = DiagnosticRole(role(element)).rawValue }
+                if diagnostic.focusEqual { focusedCopy = true; break }
             }
             pause(deadline)
         }
         acceptanceLog(.copyFocus, flag: focusedCopy)
-        guard focusedCopy, remaining(deadline), frontmost(source) else { return false }
+        diagnostic.frontmost = frontmost(source)
+        guard focusedCopy, remaining(deadline), diagnostic.frontmost else { return false }
+        diagnostic.stage = .arrow; diagnostic.reason = .inputUnavailable
         // Deliver the ordinary menu arrow through WindowServer. This is one fixed
         // arrow on the exact focused Copy item, with no global shortcut and
         // no permission request. A user focus change cancels delivery.
         let canPost = CGPreflightPostEventAccess()
+        diagnostic.inputAvailable = canPost
         acceptanceLog(.copyKeyDelivery, flag: canPost)
         guard canPost, let keyboard = CGEventSource(stateID: .combinedSessionState),
               let down = CGEvent(keyboardEventSource: keyboard, virtualKey: 124, keyDown: true),
-              let up = CGEvent(keyboardEventSource: keyboard, virtualKey: 124, keyDown: false),
-              frontmost(source), let current = value(app, kAXFocusedUIElementAttribute),
+              let up = CGEvent(keyboardEventSource: keyboard, virtualKey: 124, keyDown: false) else { return false }
+        diagnostic.reason = .focusChanged
+        guard frontmost(source), let current = value(app, kAXFocusedUIElementAttribute),
               CFGetTypeID(current) == AXUIElementGetTypeID(), CFEqual(unsafeDowncast(current, to: AXUIElement.self), copy) else { return false }
         down.flags = []; up.flags = []
         down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
+        diagnostic.reason = .arrowDispatched
         pause(deadline)
         return remaining(deadline)
     }
@@ -451,7 +663,16 @@ private enum MiniMaxCodeAXNavigation {
     /// Only the ten-node controls branch and one-text title branch are read;
     /// the shared panel's chat descendants cannot affect this lookup.
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval) -> AXUIElement? {
+        var unused = false
+        return titleMenuButton(root, title: title, deadline: deadline, rejectOpenMenu: false, menuAlreadyOpen: &unused)
+    }
+    static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval,
+                                rejectOpenMenu: Bool, menuAlreadyOpen: inout Bool) -> AXUIElement? {
         let visited = nodes(root, deadline)
+        if rejectOpenMenu {
+            menuAlreadyOpen = visited.contains { role($0) == "AXMenu" || classes($0).contains("ant-dropdown-menu") }
+            guard !menuAlreadyOpen, remaining(deadline) else { return nil }
+        }
         let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
         let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
         guard choosers.count == 1, terminals.count == 1,

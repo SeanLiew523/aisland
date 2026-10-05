@@ -106,6 +106,15 @@ struct ZCodeExactIdentityNavigationTests {
         }
         #expect(!ZCodeSidebarContract.isTaskRow(classes: ["cursor-pointer"]))
     }
+    @Test func nativePopupHeaderMenuIsAdmittedWithoutAdmittingOtherRoles() {
+        // Build 57 selected the correct body but never copied the current ID:
+        // its real More control was AXPopUpButton rather than AXButton.
+        #expect(ZCodeSidebarContract.isHeaderMenuRole("AXPopUpButton"))
+        #expect(ZCodeSidebarContract.isHeaderMenuRole("AXButton"))
+        for role in [nil, "AXMenuItem", "AXStaticText", "AXGroup"] as [String?] {
+            #expect(!ZCodeSidebarContract.isHeaderMenuRole(role))
+        }
+    }
     @Test func duplicateOrUnselectedRowsCannotVerifyExactID() {
         #expect(!ZCodeSidebarContract.verifiesIdentity(rowCount: 2, selectedRowCount: 1, copiedID: "sess_exact", targetID: "sess_exact"))
         #expect(!ZCodeSidebarContract.verifiesIdentity(rowCount: 1, selectedRowCount: 0, copiedID: "sess_exact", targetID: "sess_exact"))

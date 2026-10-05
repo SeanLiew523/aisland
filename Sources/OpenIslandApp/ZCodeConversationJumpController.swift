@@ -192,6 +192,12 @@ struct ZCodeConversationUI: Sendable {
 /// Public renderer row contracts: both variants bind Enter/Space to their own
 /// task ID. A plain list item need not expose AXPress in Chromium.
 enum ZCodeSidebarContract {
+    // Chromium exposes aria-haspopup menu buttons as AXPopUpButton on macOS.
+    // Their header scope and AXPress action are still required by the caller.
+    static func isHeaderMenuRole(_ role: String?) -> Bool {
+        role == "AXButton" || role == "AXPopUpButton"
+    }
+
     static func isTaskRow(classes: [String]) -> Bool {
         classes.contains("group/task-item") || classes.contains("group/task-row")
     }
@@ -449,7 +455,7 @@ struct ZCodeConversationJumpController: Sendable {
               let window = firstWindow(of: application) else { return nil }
         let nodes = descendants(of: window, before: deadline)
         let buttons = nodes.filter { node in
-            guard copyStringValue(of: node, attribute: kAXRoleAttribute as CFString) == "AXButton",
+            guard ZCodeSidebarContract.isHeaderMenuRole(copyStringValue(of: node, attribute: kAXRoleAttribute as CFString)),
                   [displayedText(of: node), copyStringValue(of: node, attribute: kAXDescriptionAttribute as CFString)]
                     .compactMap({ $0 }).contains(where: { ["更多", "More"].contains($0) }),
                   hasAction(kAXPressAction as CFString, on: node) else { return false }

@@ -15,3 +15,13 @@ After selection, success requires an exact native ID copied from the current hea
 The existing bounded clipboard transaction keeps original bytes in memory and restores only a stable, bounded value equal to the admitted ID. A concurrent foreign clipboard producer is preserved. An asynchronously dispatched copy gets at least 300 ms of cleanup observation, but a late result cannot count as successful navigation.
 
 Fake source and private named-pasteboard tests cover identity mismatches, duplicates, selection failure, metadata rename, source PID/version/window/focus changes, and clipboard restoration/concurrent producers. No real ZCode UI or general clipboard was used during implementation. Native acceptance must verify row AX behavior, public menu AXPress dispatch, exact restored ID, and visible target content. The `zcode://workspace/open?path=...` URL only opens a workspace and is not a task-ID navigation contract.
+
+2026-10-05 build 57 native retest: the existing owned task completed its new
+marker, and clicking its island card from an empty draft selected the exact
+body. Current-ID verification returned unavailable. The real header More
+control is an AXPopUpButton; the implementation had admitted only AXButton.
+The role policy now admits these two button roles while retaining one exact
+header ancestor, exact label and AXPress requirements. The public menu was
+observed to contain Copy session ID, then closed without copying. This is a
+specific live compatibility repair; a new complete-bundle return still must
+prove copied-ID and clipboard/foreground validation.

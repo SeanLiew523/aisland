@@ -97,7 +97,8 @@ struct RuntimeTTYProbeTests {
         let raw = #"{"hook_event_name":"pre_llm_call","session_id":"source","cwd":"/tmp","extra":{"turn_id":"turn"}}"#
         let result = try #require(try HermesHookAdapter.decode(Data(raw.utf8), profileID: "fixture",
             environment: ["TERM_PROGRAM": "ghostty", "TTY": "/dev/ttys999", "TERM_SESSION_ID": "foreign"],
-            ttyProvider: { RuntimeTTYProbe.resolve(startPID: 100, query: { _, _ in "100 1 ??" }, now: { 0 }) }))
+            ttyProvider: { RuntimeTTYProbe.resolve(startPID: 100, query: { _, _ in "100 1 ??" }, now: { 0 }) },
+            ghosttyBindingProvider: { _, _, _, _, _ in nil }))
         #expect(result.event == .turnStarted); #expect(result.terminalTTY == nil); #expect(result.terminalSessionID == nil)
     }
 }

@@ -7,10 +7,27 @@ struct HermesHooksTests {
         let raw = #"{"hook_event_name":"pre_llm_call","session_id":"s","cwd":"/tmp/project","extra":{"turn_id":"t"}}"#
         let value = try #require(try HermesHookAdapter.decode(Data(raw.utf8), profileID: "default",
             environment: ["TERM_PROGRAM": "ghostty", "TERM_SESSION_ID": "foreign-shell", "ITERM_SESSION_ID": "inherited-tab"],
-            ttyProvider: { "/dev/ttys002" }))
+            ttyProvider: { "/dev/ttys002" }, ghosttyBindingProvider: { _, _, _, _, _ in nil }))
         #expect(value.terminalApp == "Ghostty")
         #expect(value.terminalSessionID == nil)
         #expect(value.terminalTTY == "/dev/ttys002")
+    }
+    @Test func ghosttyIntakeUsesHermesNamespaceAndNeverCapturesAtCompletionOrFromSubagents() throws {
+        var events: [GhosttySourceEvent] = []
+        let provider: GhosttySourceBindingProvider = { agent, session, tty, cwd, event in
+            #expect(agent == "hermes" && session == "source" && tty == "/dev/ttys002" && cwd == "/tmp")
+            events.append(event)
+            return GhosttySourceBinding(sessionID: "native-surface", workingDirectory: cwd, title: nil, capturedAt: .now)
+        }
+        for (name, platform, parent) in [("pre_llm_call", "cli", ""), ("on_session_end", "cli", ""),
+            ("pre_llm_call", "gateway", ""), ("pre_llm_call", "cli", "parent")] {
+            let raw = "{\"hook_event_name\":\"\(name)\",\"session_id\":\"source\",\"cwd\":\"/tmp\",\"extra\":{\"turn_id\":\"turn\",\"platform\":\"\(platform)\",\"parent_session_id\":\"\(parent)\",\"completed\":true}}"
+            let payload = try #require(try HermesHookAdapter.decode(Data(raw.utf8), profileID: "fixture",
+                environment: ["TERM_PROGRAM": "ghostty", "TERM_SESSION_ID": "foreign"],
+                ttyProvider: { "/dev/ttys002" }, ghosttyBindingProvider: provider))
+            #expect(payload.terminalSessionID == "native-surface")
+        }
+        #expect(events == [.userSubmit, .background, .background, .background])
     }
     @Test func adapterDoesNotForwardContentAndNeverInfersSuccessFromPostLLM() throws {
         let raw = #"{"hook_event_name":"pre_llm_call","session_id":"s","cwd":"/tmp/project","profile":"default","tool_input":{"secret":"private"},"extra":{"turn_id":"t","user_message":"secret","conversation_history":["secret"]}}"#

@@ -5,7 +5,8 @@ import Foundation
 public enum HermesHookAdapter {
     /// Hermes stdin contains user/tool/history content. Decode only identity and result fields.
     public static func decode(_ data: Data, profileID: String?, environment: [String: String] = [:],
-                              timestamp: Date = .now, ttyProvider: () -> String? = runtimeTTY) throws -> RuntimeLifecycleHookPayload? {
+                              timestamp: Date = .now, ttyProvider: () -> String? = runtimeTTY,
+                              ghosttyBindingProvider: GhosttySourceBindingProvider? = nil) throws -> RuntimeLifecycleHookPayload? {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let name = root["hook_event_name"] as? String,
               let session = root["session_id"] as? String, !session.isEmpty else { return nil }
@@ -27,11 +28,19 @@ public enum HermesHookAdapter {
         let cwd = root["cwd"] as? String ?? ""
         // Reuse existing host inference/multiplexer IDs, but never guess the focused window.
         // PID correlation is unambiguous for Warp; cwd-only fallback is deliberately omitted.
-        let runtime = ClaudeHookPayload(cwd: cwd, hookEventName: .userPromptSubmit, sessionID: session)
+        // This hook is emitted once at CLI turn entry; completion, gateways
+        // and subagents may reuse a receipt but must never capture focus.
+        let bindingEvent: GhosttySourceEvent = event == .turnStarted
+            && extra["platform"] as? String == "cli"
+            && ((extra["parent_session_id"] as? String) ?? "").isEmpty ? .userSubmit : .background
+        let bindingProvider = ghosttyBindingProvider ?? GhosttySourceBindingStore.production
+        let runtime = ClaudeHookPayload(cwd: cwd, hookEventName: event == .turnStarted ? .userPromptSubmit : .stop, sessionID: session)
             .withRuntimeContext(environment: environment, currentTTYProvider: ttyProvider,
                 terminalLocatorProvider: { _ in (nil, nil, nil) }, warpPaneResolver: { _ in
                     guard let context = WarpProcessResolver.resolveCurrentPaneContext() else { return nil }
                     return WarpSQLiteReader().lookupPaneUUIDByShellPID(context.shellPID, terminalServerPID: context.terminalServerPID)
+                }, ghosttyBindingProvider: { _, nativeID, tty, directory, _ in
+                    bindingProvider("hermes", nativeID, tty, directory, bindingEvent)
                 })
         // Generic inherited shell IDs are not Ghostty surface identities.
         let inheritedSessionID = runtime.terminalApp?.lowercased() == "ghostty"

@@ -164,7 +164,7 @@ enum MiniMaxCodeFocusedElementAdmission {
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
-    enum Stage: String, Sendable { case window, search, entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Stage: String, Sendable { case window, search, topbar, entry, title, menu, focus, arrow, item, label, clipboard, complete }
     enum Reason: String, Sendable {
         case windowFocused, windowFocusUnobserved, deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
         case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
@@ -173,6 +173,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case searchAlreadyOpen, searchButtonUnavailable, searchPressFailed, searchGroupUnavailable
         case searchFieldUnavailable, searchSetValueFailed, searchValueMismatch, searchResultsAmbiguous
         case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
+        case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -949,16 +950,32 @@ private enum MiniMaxCodeAXNavigation {
         let choosers = visited.filter { role($0) == "AXButton" && ["选择 IDE", "Choose IDE"].contains(exactLabel($0) ?? "") }
         let terminals = visited.filter { role($0) == "AXButton" && ["打开终端", "Open terminal"].contains(exactLabel($0) ?? "") }
         if defaultWorkspace {
-            guard terminals.count == 1, let panel = parent(terminals[0]), role(panel) == "AXGroup" else { return nil }
+            var diagnostic = MiniMaxCodeCopyDiagnostic()
+            diagnostic.stage = .topbar
+            diagnostic.reason = .terminalButtonAmbiguous
+            diagnostic.searchCount = terminals.count
+            defer { MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic) }
+            guard terminals.count == 1 else { return nil }
+            diagnostic.reason = .topbarParentUnavailable
+            guard let panel = parent(terminals[0]), role(panel) == "AXGroup" else { return nil }
             let children = elements(panel, kAXChildrenAttribute)
+            diagnostic.searchNodes = children.count
+            diagnostic.reason = .topbarChildrenInvalid
             guard children.count >= 3, children.count <= 8, remaining(deadline) else { return nil }
             // Read only the three direct topbar siblings, never body text.
             let prefix = Array(children.prefix(3))
-            guard role(prefix[0]) == "AXStaticText", text(prefix[0]) == title,
-                  role(prefix[1]) == "AXButton", (exactLabel(prefix[1]) ?? "").isEmpty,
-                  action(prefix[1], kAXPressAction), CFEqual(prefix[2], terminals[0]),
+            diagnostic.focusedRole = role(prefix[0]) ?? "unavailable"
+            diagnostic.focusEqual = text(prefix[0]) == title
+            diagnostic.windowFocused = (exactLabel(prefix[1]) ?? "").isEmpty
+            diagnostic.inputAvailable = action(prefix[1], kAXPressAction)
+            diagnostic.focusWindowMatches = CFEqual(prefix[2], terminals[0])
+            diagnostic.reason = .topbarPrefixInvalid
+            guard role(prefix[0]) == "AXStaticText", diagnostic.focusEqual,
+                  role(prefix[1]) == "AXButton", diagnostic.windowFocused,
+                  diagnostic.inputAvailable, diagnostic.focusWindowMatches,
                   MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in:
                     [.title, .menu, .controls] + Array(repeating: .other, count: children.count - 3)) == 1 else { return nil }
+            diagnostic.reason = .topbarVerified
             return prefix[1]
         }
         guard choosers.count == 1, terminals.count == 1,

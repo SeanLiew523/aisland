@@ -39,7 +39,15 @@ Bridge 使用 UTF-8 newline JSON，结构为：
 
 ## 导航协议
 
-默认 endpoint 为 bridge 同目录 `deepseek-navigation.sock`，权限 `0600`。已有 endpoint 冲突时不删除他人的 socket，导航不可用不阻止生命周期。每个连接最多 4096 字节、单条 newline JSON；默认 2 秒内必须收到客户端回执。支持测试独立路径。
+首选 endpoint 为 bridge 同目录 `deepseek-navigation.sock`，权限 `0600`。插件在同目录自建随机 `.ds-*` 私有目录（`0700`）绑定 socket，再以独占 hard link 发布首选路径；Node/libuv 退出时只清理私有绑定路径，外层路径仅在 `dev/ino/uid/mode` 仍匹配时清理。因此被外部替换的 endpoint 不会被 `server.close()` 自动删除。配置目录必须属于当前用户且不可由 group/world 写入。
+
+同目录 `endpoint.aisland-owner.json` 与首选路径 `deepseek-navigation.sock.aisland-current.json` 均为独占创建的 `0600` 普通文件。所有权证明/locator 只含 `version/source/path/requested_path/profile_sha256/uid/dev/ino/bind_directory/directory_dev/directory_ino/source_pid/executable_path`，没有会话、任务或用户正文。读取不跟随 symlink，要求同 uid、单 hard link、最多 2048 字节；profile hash、路径与 socket/private-directory 身份必须完整匹配。
+
+重启时仅在无数据连接探测于最多 200ms 内返回 `ECONNREFUSED`、端点与证明身份再次匹配后，回收本插件残留 socket/证明/私有目录。活动实例、未知 socket、普通文件或 symlink 不会被删除。旧版失效 socket 没有证明时保留，改用同目录固定 `ds-nav-<profile-and-path-hash>.sock`；后续 lifecycle 的 `navigation_socket_path` 发布实际端点。异步 `listen()` 返回 readiness promise；加载/导航失败不阻止 lifecycle，卸载等待初始化完成后清理，禁止卸载后发布端点。
+
+AIsland 导航先从已缓存路径的 current locator 或其 owner proof 验证当前 endpoint，然后才发送请求。除文件身份外，native 核对真实进程 `proc_pidpath`、官方 bundle `com.deepseek.dsh`/`0.2.0-rc.2` 与 bundle executable，并在连接后核对 `LOCAL_PEERPID` 和文件身份。旧任务卡即使仍保存迁移前路径也可使用当前 locator；陌生但可连接的旧 endpoint 不接收导航请求。新版 DeepSeek 需重新核对来源契约。
+
+每个导航连接最多 4096 字节、单条 newline JSON；默认 2 秒内必须收到客户端回执。支持测试独立路径。
 
 请求：
 
@@ -83,7 +91,7 @@ DSH_DESKTOP_CLI='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/c
 "$DSH_DESKTOP_CLI" plugin --profile desktop remove '@aisland/deepseek-harness-plugin'
 ```
 
-这仅去掉该依赖和 bundle layer；若曾手动加过下述 AIsland 配置块，只移除属于 `aisland-deepseek` 的块，保留其他配置。CLI 完成后再打开 Desktop。运行中热卸载由 effect 清理监听器、轮询、RPC route、待回执连接与自己创建的 socket；正常退出关闭 socket，异常退出留下的 socket 不自动删除，下一轮需确认无旧实例后再处理。
+这仅去掉该依赖和 bundle layer；若曾手动加过下述 AIsland 配置块，只移除属于 `aisland-deepseek` 的块，保留其他配置。CLI 完成后再打开 Desktop。运行中热卸载由 effect 清理监听器、轮询、RPC route、待回执连接与身份仍匹配的自有 socket/证明。正常退出清理；异常退出的自有残留按上述严格证明与拒绝连接规则自动恢复。升级仍须完全退出 Desktop，再走官方 CLI 安装流程；不在运行中的 source profile 上改插件。
 
 ## 可配置项
 
@@ -110,9 +118,10 @@ node --check Integrations/DeepSeek/index.mjs
 node --check Integrations/DeepSeek/core.mjs
 node --check Integrations/DeepSeek/client.js
 node Integrations/DeepSeek/plan.mjs
+zsh scripts/test-clt.sh --filter DeepSeekNavigationClientTests -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays
 ```
 
-最终 22 项通过；另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
+本轮 29 项隔离 JS 测试通过，新增真实子进程 `SIGKILL` 残留恢复、旧版无证明迁移、活动碰撞、未知文件/符号链接、错误 profile/inode、探测期间替换、卸载竞态及 libuv 清理隔离；native 的 8 项定向测试也通过，覆盖当前 locator、缓存旧卡、陌生可连接端点不发请求、对端 PID 匹配、所有权/来源拒绝和完整请求期限。上述构造数据与临时 socket 不能代替真实 source 冷启动和原卡导航验收。早期版本另在临时目录以本机 ASAR 中 Schemastery 3.18.4/Cosmokit 验证插件 import、默认值和非法 timeout 拒绝，没有调用插件 apply。package dry-run 确认宿主、客户端和 patch 均入包。覆盖显式 reason 分类、隐私、并行归属、去重、旧 turn/replay/重启不重响、断 bridge 的源继续、隔离 socket 顺序、ACK 身份匹配/失败/超时及 fakeCordis/client 卸载清理。测试使用构造 session 与 fake RPC，socket 只在临时目录；不能代替 app 插件加载和真实验收。
 
 已用可丢弃测试目录与专用会话验证成功和取消；后续继续检查成功、失败、取消、两个并行任务、重复标题、源退出/恢复、AIsland 重启与桥断连。分别记录确切会话选中、内容加载、macOS 前台及通知声音；完成后卸载确认原 profile 保留。审批/问答下一切片再核对 `approval/request` waterfall 与 userQuestions 的归属、取消及操作回传，未接通前不可显示可操作审批/回答。
 

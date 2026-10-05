@@ -126,6 +126,38 @@ enum MiniMaxCodeWindowFocusAdmission {
     }
 }
 
+/// A focusable child may have AXFocused=true while its AXWindow does not.
+/// Admit only a stable, actual application-reported focus element belonging to
+/// the exact source PID/window; no main-window or activation-only substitute.
+enum MiniMaxCodeFocusedElementAdmission {
+    static func windowProof<Element>(element: Element, admittedWindow: Element,
+                                     containingWindow: (Element) -> Element?, parent: (Element) -> Element?,
+                                     isWindow: (Element) -> Bool, equal: (Element, Element) -> Bool,
+                                     hasTime: () -> Bool) -> MiniMaxCodeCopyDiagnostic.WindowFocusProof {
+        guard hasTime() else { return .ancestryUnavailable }
+        if equal(element, admittedWindow) { return .windowSelf }
+        if let window = containingWindow(element) { return equal(window, admittedWindow) ? .elementWindow : .differentWindow }
+        var node = element
+        var seen = [element]
+        for _ in 0..<16 where hasTime() {
+            guard let next = parent(node), !seen.contains(where: { equal($0, next) }) else { break }
+            if equal(next, admittedWindow) { return .elementAncestry }
+            if isWindow(next) { return .differentWindow }
+            seen.append(next); node = next
+        }
+        return .ancestryUnavailable
+    }
+    static func verify<Element>(hasTime: () -> Bool, isCurrent: () -> Bool,
+                                readFocus: () -> Element?, belongsToWindow: (Element) -> Bool,
+                                equal: (Element, Element) -> Bool) -> Bool {
+        guard hasTime(), isCurrent(), let focused = readFocus(),
+              belongsToWindow(focused), hasTime(), isCurrent(),
+              let latest = readFocus(), equal(focused, latest), belongsToWindow(latest),
+              hasTime(), isCurrent(), hasTime() else { return false }
+        return true
+    }
+}
+
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
@@ -140,6 +172,12 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var stage: Stage = .entry
     var reason: Reason = .deadline
     var cleanup: Cleanup = .unnecessary
+    enum WindowFocusProof: String, Sendable {
+        case unavailable, windowSelf, elementWindow, elementAncestry, focusChanged, differentProcess, differentWindow, ancestryUnavailable
+    }
+    var windowFocusProof: WindowFocusProof = .unavailable
+    var focusWindowMatches = false
+    var focusAncestorMatches = false
     var windowRaise = false
     var windowRaiseSucceeded = false
     var windowFocused = false
@@ -158,7 +196,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -417,17 +455,19 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.activationAdmission, flag: activated)
         guard activated, let admittedWindow = window(source) else { return false }
         let focusStarted = ProcessInfo.processInfo.systemUptime
+        var windowDiagnostic = MiniMaxCodeCopyDiagnostic()
+        let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
         let windowAdmission = MiniMaxCodeWindowFocusAdmission.wait(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime }, isCurrent: {
                 guard remaining(deadline), AXIsProcessTrusted(), self.source() == source, frontmost(source),
                       let current = window(source) else { return false }
                 return CFEqual(current, admittedWindow)
             }, isFocused: {
-                bool(admittedWindow, kAXMainAttribute) == true && bool(admittedWindow, kAXFocusedAttribute) == true
+                focusedElementBelongsToWindow(admittedWindow, source: source, deadline: deadline,
+                                              diagnostic: &windowDiagnostic, diagnosticEnabled: diagnosticEnabled)
             }, supportsRaise: { action(admittedWindow, kAXRaiseAction) }, raise: {
                 AXUIElementPerformAction(admittedWindow, kAXRaiseAction as CFString) == .success
             }, pause: pause)
-        var windowDiagnostic = MiniMaxCodeCopyDiagnostic()
         windowDiagnostic.stage = .window
         windowDiagnostic.reason = windowAdmission.focused ? .windowFocused : .windowFocusUnobserved
         windowDiagnostic.windowRaise = windowAdmission.raiseAttempted
@@ -515,7 +555,8 @@ private enum MiniMaxCodeAXNavigation {
         let root = window(source)
         acceptanceLog(.copyEntryWindow, flag: root != nil)
         guard let root else { return nil }
-        diagnostic.windowFocused = bool(root, kAXMainAttribute) == true && bool(root, kAXFocusedAttribute) == true
+        diagnostic.windowFocused = focusedElementBelongsToWindow(root, source: source, deadline: deadline,
+                                                                  diagnostic: &diagnostic, diagnosticEnabled: diagnosticEnabled)
         guard diagnostic.windowFocused else { diagnostic.reason = .windowFocusUnobserved; return nil }
         navigationWindow = root
         diagnostic.stage = .title; diagnostic.reason = .titleUnavailable
@@ -579,6 +620,55 @@ private enum MiniMaxCodeAXNavigation {
             pause(cleanupDeadline)
         } while remaining(cleanupDeadline)
         return nil
+    }
+    static func focusedElementBelongsToWindow(_ root: AXUIElement, source: MiniMaxCodeConversationUI.Source,
+                                              deadline: TimeInterval, diagnostic: inout MiniMaxCodeCopyDiagnostic,
+                                              diagnosticEnabled: Bool) -> Bool {
+        let app = AXUIElementCreateApplication(source.processID)
+        func current() -> Bool {
+            guard remaining(deadline), AXIsProcessTrusted(), self.source() == source, frontmost(source),
+                  let window = window(source), CFEqual(window, root) else { return false }
+            return remaining(deadline)
+        }
+        func focus() -> AXUIElement? {
+            var output: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &output)
+            diagnostic.focusPolls += 1
+            diagnostic.focusQueryError = Int(error.rawValue)
+            guard error == .success, let output, CFGetTypeID(output) == AXUIElementGetTypeID() else {
+                diagnostic.windowFocusProof = .unavailable
+                return nil
+            }
+            let element = unsafeDowncast(output, to: AXUIElement.self)
+            if diagnosticEnabled { diagnostic.focusedRole = DiagnosticRole(role(element)).rawValue }
+            return element
+        }
+        let verified = MiniMaxCodeFocusedElementAdmission.verify(hasTime: { remaining(deadline) }, isCurrent: current,
+            readFocus: focus, belongsToWindow: { element in
+                var owner: pid_t = 0
+                guard AXUIElementGetPid(element, &owner) == .success, owner == source.processID else {
+                    diagnostic.windowFocusProof = .differentProcess
+                    return false
+                }
+                // AXWindow is the documented parent shortcut. Bounded parent
+                // metadata is used only when it is unavailable; no body is read.
+                let proof = MiniMaxCodeFocusedElementAdmission.windowProof(element: element, admittedWindow: root,
+                    containingWindow: { focused in
+                        guard let containing = value(focused, kAXWindowAttribute),
+                              CFGetTypeID(containing) == AXUIElementGetTypeID() else { return nil }
+                        return unsafeDowncast(containing, to: AXUIElement.self)
+                    }, parent: parent, isWindow: { role($0) == "AXWindow" },
+                    equal: { CFEqual($0, $1) }, hasTime: { remaining(deadline) })
+                diagnostic.windowFocusProof = proof
+                diagnostic.focusWindowMatches = proof == .elementWindow
+                diagnostic.focusAncestorMatches = proof == .elementAncestry
+                return [.windowSelf, .elementWindow, .elementAncestry].contains(proof)
+            }, equal: { first, latest in
+                let same = CFEqual(first, latest)
+                if !same { diagnostic.windowFocusProof = .focusChanged }
+                return same
+            })
+        return verified
     }
     static func menuAncestor(_ element: AXUIElement, deadline: TimeInterval) -> AXUIElement? {
         var current = element

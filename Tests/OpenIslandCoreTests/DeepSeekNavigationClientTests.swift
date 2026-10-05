@@ -30,27 +30,13 @@ struct DeepSeekNavigationClientTests {
             }
             #expect(listen(fd, 1) == 0)
             try writeProof(socketURL: socketURL)
-            let done = DispatchSemaphore(value: 0)
-            DispatchQueue.global().async {
-                defer { done.signal() }
-                let client = accept(fd, nil, nil)
-                guard client >= 0 else { return }
-                defer { close(client) }
-                var bytes = [UInt8](repeating: 0, count: 4096)
-                let count = read(client, &bytes, bytes.count)
-                guard count > 0 else { return }
-                if reply {
-                    guard var object = try? JSONSerialization.jsonObject(with: Data(bytes.prefix(count))) as? [String: Any] else { return }
-                    object.removeValue(forKey: "action"); object["status"] = "dispatched"
-                    guard var data = try? JSONSerialization.data(withJSONObject: object) else { return }
-                    data.append(10); try? writeAll(data, to: client)
-                } else { Thread.sleep(forTimeInterval: 0.1) }
-            }
+            let server = try SocketFixtureWorker(listener: fd, behavior: reply ? .reply : .silent)
+            defer { server.stop() }
             let target = JumpTarget(terminalApp: "DeepSeek Harness.app", workspaceName: "test", paneTitle: "test",
                 appConversationID: "real-session", runtimeProfileID: "desktop", runtimeNavigationSocketPath: socketURL.path)
-            if reply { try fixtureClient.dispatch(target: target, timeout: 0.5) }
+            if reply { try fixtureClient.dispatch(target: target) }
             else { #expect(throws: DeepSeekNavigationError.timedOut) { try fixtureClient.dispatch(target: target, timeout: 0.02) } }
-            #expect(done.wait(timeout: .now() + 1) == .success)
+            server.waitUntilFinished()
         }
     }
     private var fixtureClient: DeepSeekNavigationClient {
@@ -86,21 +72,12 @@ struct DeepSeekNavigationClientTests {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0); defer { close(fd) }
         try withUnixSocketAddress(path: current.path) { #expect(bind(fd, $0, $1) == 0) }; #expect(listen(fd, 1) == 0)
         try writeProof(socketURL: current, requestedURL: legacy)
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            defer { done.signal() }
-            let client = accept(fd, nil, nil); guard client >= 0 else { return }; defer { close(client) }
-            var bytes = [UInt8](repeating: 0, count: 4096); let count = read(client, &bytes, bytes.count)
-            guard count > 0, var object = try? JSONSerialization.jsonObject(with: Data(bytes.prefix(count))) as? [String: Any] else { return }
-            #expect(object["session_id"] as? String == "cached-exact-session"); #expect(object["profile_id"] as? String == "desktop")
-            object.removeValue(forKey: "action"); object["status"] = "dispatched"
-            guard var data = try? JSONSerialization.data(withJSONObject: object) else { return }
-            data.append(10); try? writeAll(data, to: client)
-        }
+        let server = try SocketFixtureWorker(listener: fd, behavior: .reply, expectedSession: "cached-exact-session")
+        defer { server.stop() }
         let target = JumpTarget(terminalApp: "DeepSeek Harness.app", workspaceName: "test", paneTitle: "test",
             appConversationID: "cached-exact-session", runtimeProfileID: "desktop", runtimeNavigationSocketPath: legacy.path)
-        try fixtureClient.dispatch(target: target, timeout: 0.5)
-        #expect(done.wait(timeout: .now() + 1) == .success)
+        try fixtureClient.dispatch(target: target)
+        server.waitUntilFinished()
         var after = stat(); #expect(lstat(legacy.path, &after) == 0); #expect(oldStat.st_ino == after.st_ino)
     }
 
@@ -124,18 +101,13 @@ struct DeepSeekNavigationClientTests {
         let socketURL = directory.appendingPathComponent("nav.sock"); let fd = socket(AF_UNIX, SOCK_STREAM, 0); defer { close(fd) }
         try withUnixSocketAddress(path: socketURL.path) { #expect(bind(fd, $0, $1) == 0) }; #expect(listen(fd, 1) == 0)
         try writeProof(socketURL: socketURL, peerPID: getpid() + 1)
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            defer { done.signal() }
-            let client = accept(fd, nil, nil); guard client >= 0 else { return }; defer { close(client) }
-            var bytes = [UInt8](repeating: 0, count: 1024)
-            #expect(read(client, &bytes, bytes.count) == 0)
-        }
+        let server = try SocketFixtureWorker(listener: fd, behavior: .noRequest)
+        defer { server.stop() }
         let target = JumpTarget(terminalApp: "DeepSeek Harness.app", workspaceName: "test", paneTitle: "test",
             appConversationID: "exact-session", runtimeProfileID: "desktop", runtimeNavigationSocketPath: socketURL.path)
         let client = DeepSeekNavigationClient(sourceVerifier: { _, _ in true })
         #expect(throws: DeepSeekNavigationError.unavailable) { try client.dispatch(target: target, timeout: 0.1) }
-        #expect(done.wait(timeout: .now() + 1) == .success)
+        server.waitUntilFinished()
     }
 
     @Test func locatorRequiresProfileSourceIdentityAndSafeFiles() throws {
@@ -161,7 +133,8 @@ struct DeepSeekNavigationClientTests {
             if invalid != "symlink" { try JSONSerialization.data(withJSONObject: proof).write(to: locator) }
             let target = JumpTarget(terminalApp: "DeepSeek Harness.app", workspaceName: "test", paneTitle: "test",
                 appConversationID: "exact-session", runtimeProfileID: "desktop", runtimeNavigationSocketPath: socketURL.path)
-            let client = invalid == "host" ? DeepSeekNavigationClient() : fixtureClient
+            // Source rejection is injected; this fixture never probes an installed app.
+            let client = invalid == "host" ? DeepSeekNavigationClient(sourceVerifier: { _, _ in false }) : fixtureClient
             #expect(throws: DeepSeekNavigationError.unavailable) { try client.dispatch(target: target, timeout: 0.1) }
         }
     }
@@ -187,5 +160,97 @@ struct DeepSeekNavigationClientTests {
         let missing = JumpTarget(terminalApp: "DeepSeek Harness.app", workspaceName: "test", paneTitle: "test",
             appConversationID: "s", runtimeProfileID: "desktop", runtimeNavigationSocketPath: BridgeSocketLocation.uniqueTestURL().path)
         #expect(throws: DeepSeekNavigationError.unavailable) { try DeepSeekNavigationClient().dispatch(target: missing) }
+    }
+}
+
+/// A dedicated thread is ready before the client's deadline starts. A global
+/// DispatchQueue worker can be queued behind hundreds of other parallel tests;
+/// its scheduling delay is not a navigation timeout or a source regression.
+private final class SocketFixtureWorker: @unchecked Sendable {
+    enum Behavior: Sendable { case reply, silent, noRequest }
+    private let listener: Int32
+    private let lock = NSLock()
+    private let ready = DispatchSemaphore(value: 0)
+    private let finished = DispatchSemaphore(value: 0)
+    private var accepted: Int32 = -1
+    private var stopping = false
+    private var exited = false
+    private var hasFinished = false
+    private var failures: [String] = []
+
+    init(listener: Int32, behavior: Behavior, expectedSession: String? = nil) throws {
+        // Own the duplicate until the worker exits, even if startup fails and
+        // the caller closes or reuses its original descriptor.
+        self.listener = dup(listener)
+        guard self.listener >= 0 else { throw DeepSeekNavigationError.unavailable }
+        let worker = Thread { [self] in
+            defer {
+                lock.lock(); close(self.listener); exited = true; lock.unlock()
+                finished.signal()
+            }
+            ready.signal()
+            let client = accept(self.listener, nil, nil)
+            guard client >= 0 else { return }
+            lock.lock(); accepted = client; let cancelled = stopping; lock.unlock()
+            defer { lock.lock(); accepted = -1; close(client); lock.unlock() }
+            guard !cancelled else { return }
+            do {
+                // Bound fixture reads as well as startup/cleanup. Read the full
+                // newline frame rather than assuming a single stream read.
+                var frame = Data(); var bytes = [UInt8](repeating: 0, count: 1024)
+                while frame.firstIndex(of: 10) == nil {
+                    let count = Self.read(client, into: &bytes)
+                    if count < 0 && errno == EINTR { continue }
+                    if count == 0 {
+                        guard behavior != .reply, behavior != .noRequest || frame.isEmpty else { throw DeepSeekNavigationError.invalidResponse }
+                        return
+                    }
+                    guard count > 0 else { throw DeepSeekNavigationError.unavailable }
+                    frame.append(contentsOf: bytes.prefix(count))
+                    guard frame.count <= 4096 else { throw DeepSeekNavigationError.invalidResponse }
+                }
+                guard behavior != .noRequest else { throw DeepSeekNavigationError.invalidResponse }
+                guard let newline = frame.firstIndex(of: 10),
+                      var object = try JSONSerialization.jsonObject(with: Data(frame.prefix(upTo: newline))) as? [String: Any]
+                else { throw DeepSeekNavigationError.invalidResponse }
+                guard object["profile_id"] as? String == "desktop", expectedSession == nil || object["session_id"] as? String == expectedSession else { throw DeepSeekNavigationError.invalidResponse }
+                if behavior == .reply {
+                    try disableSocketSigPipe(client)
+                    object.removeValue(forKey: "action"); object["status"] = "dispatched"
+                    var response = try JSONSerialization.data(withJSONObject: object); response.append(10)
+                    try writeAll(response, to: client)
+                } else {
+                    // Remain connected without replying until the client itself
+                    // expires and closes. No sleep controls the negative case.
+                    guard Self.read(client, into: &bytes) == 0 else { throw DeepSeekNavigationError.invalidResponse }
+                }
+            } catch { lock.lock(); failures.append(String(describing: error)); lock.unlock() }
+        }
+        worker.name = "DeepSeek isolated navigation fixture"; worker.start()
+        guard ready.wait(timeout: .now() + 5) == .success else { stop(); throw DeepSeekNavigationError.unavailable }
+    }
+    private static func read(_ fd: Int32, into bytes: inout [UInt8]) -> Int {
+        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        var result: Int32
+        repeat { result = poll(&descriptor, 1, 5000) } while result < 0 && errno == EINTR
+        guard result > 0 else { return -1 }
+        return Darwin.read(fd, &bytes, bytes.count)
+    }
+    func waitUntilFinished() {
+        lock.lock(); let done = hasFinished; lock.unlock()
+        if done { return }
+        let result = finished.wait(timeout: .now() + 5)
+        #expect(result == .success)
+        if result == .success {
+            lock.lock(); hasFinished = true; let errors = failures; lock.unlock()
+            #expect(errors.isEmpty, "Fixture errors: \(errors.joined(separator: "; "))")
+        }
+    }
+    func stop() {
+        lock.lock(); stopping = true
+        if accepted >= 0 { shutdown(accepted, SHUT_RDWR) }
+        if !exited { shutdown(listener, SHUT_RDWR) }
+        lock.unlock()
+        waitUntilFinished()
     }
 }

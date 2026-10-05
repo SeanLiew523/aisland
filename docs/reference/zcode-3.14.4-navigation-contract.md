@@ -25,3 +25,34 @@ header ancestor, exact label and AXPress requirements. The public menu was
 observed to contain Copy session ID, then closed without copying. This is a
 specific live compatibility repair; a new complete-bundle return still must
 prove copied-ID and clipboard/foreground validation.
+
+Build 58's native More button opened its menu, but current-ID verification
+still failed and left the menu visible. That observation does not establish
+whether AX labels, item role/actions/enabled state, or the shared three-second
+deadline caused the miss. The installed renderer hash was rechecked unchanged;
+it proves the intended callback, not Chromium's current AX attribute mapping.
+
+The adapter now matches the exact public copy label independently in AXValue,
+AXTitle and AXDescription, so an empty value cannot mask a title. It admits one
+AXMenu that appears only after its own uniquely scoped header press; the copy
+item must belong to that menu and retain AXMenuItem, AXPress and enabled=true.
+A pre-existing or ambiguous menu fails. A small portion of the original deadline
+is reserved for AXCancel on the same menu if copy was not dispatched; cancellation
+requires the same PID/version/frontmost/window and freshly unique menu. It never
+sends global Escape or extends navigation for menu cleanup. The existing late
+clipboard cleanup allowance and exact-ID restoration remain unchanged.
+
+The existing opt-in regular-file marker also emits one bounded copy-stage line.
+Fields use fixed stage/reason enums, counts, allowed roles, exact-label match
+booleans for each attribute, press/enabled and menu-budget/deadline/cancel booleans, plus the
+target hash. Menu labels, body, clipboard bytes and raw IDs are never logged.
+These fields are intended to distinguish live compatibility failures; successful
+isolated tests are not native acceptance.
+
+Verification: the actual production controller and pasteboard implementation
+compiled in a temporary minimal macOS 14 package using scripts/test-clt.sh,
+with Swift cross-import overlays disabled. All 24 tests in the two committed
+ZCode suites passed. Tests use a fixture SQLite index and a unique named
+pasteboard; no production GUI, source user data, or general clipboard is read.
+The temporary package is removed after verification. A complete bundle and
+native ZCode return-click verification remain the next acceptance step.

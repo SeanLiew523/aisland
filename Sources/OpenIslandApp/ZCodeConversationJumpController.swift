@@ -175,6 +175,58 @@ struct ZCodeNavigationDiagnostic: Equatable, Sendable {
     }
 }
 
+/// Opt-in copy-stage data has a fixed vocabulary; it never retains AX text,
+/// pasteboard values, source paths, or raw session IDs.
+struct ZCodeCopyDiagnostic: Equatable, Sendable {
+    enum Stage: String, Sendable { case header, menu, item, clipboard, identity, complete }
+    enum Reason: String, Sendable {
+        case sourceUnavailable, headerAmbiguous, menuAlreadyOpen, headerPressFailed
+        case menuUnavailable, menuAmbiguous, itemAmbiguous, itemUnavailable
+        case itemNotPressable, itemDisabled, sourceOrWindowChanged, deadlineExpired
+        case clipboardUnavailable, clipboardChanged, itemPressFailed
+        case copyUnobserved, copyMismatchOrRestoreFailed, selectedRowUnverified, verified
+    }
+    var targetHash: String
+    var stage: Stage = .header
+    var reason: Reason = .sourceUnavailable
+    var headerCount = 0
+    var menuCount = 0
+    var itemCount = 0
+    var valueMatches = false
+    var titleMatches = false
+    var descriptionMatches = false
+    var itemRole: String?
+    var hasPressAction = false
+    var enabled: Bool?
+    var deadlineExpired = false
+    var menuBudgetExpired = false
+    var cancelAttempted = false
+    var cancelSucceeded = false
+
+    var line: String {
+        let allowedRoles = ["AXMenuItem", "AXStaticText", "AXButton", "AXPopUpButton", "AXMenu"]
+        let role = itemRole.flatMap { allowedRoles.contains($0) ? $0 : nil } ?? "unavailable"
+        let enabledText = enabled.map { String($0) } ?? "unavailable"
+        return "reason=copy-stage-\(reason.rawValue) targetHash=\(targetHash) stage=\(stage.rawValue) headers=\(min(max(headerCount, 0), 5000)) menus=\(min(max(menuCount, 0), 5000)) items=\(min(max(itemCount, 0), 5000)) valueMatches=\(valueMatches) titleMatches=\(titleMatches) descriptionMatches=\(descriptionMatches) itemRole=\(role) press=\(hasPressAction) enabled=\(enabledText) deadlineExpired=\(deadlineExpired) menuBudgetExpired=\(menuBudgetExpired) cancelAttempted=\(cancelAttempted) cancelSucceeded=\(cancelSucceeded)"
+    }
+}
+
+enum ZCodeCopyMenuContract {
+    static func matchesCopyLabel(_ text: String?) -> Bool {
+        guard let text else { return false }
+        return ["复制会话 ID", "Copy session ID"].contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    static func isCopyItem(value: String?, title: String?, description: String?) -> Bool {
+        [value, title, description].contains(where: matchesCopyLabel)
+    }
+    static func permitsCancel(openedByNavigation: Bool, sameSource: Bool, sameWindow: Bool,
+                              sourceFrontmost: Bool, hasTime: Bool, menuCount: Int,
+                              hasCancelAction: Bool) -> Bool {
+        openedByNavigation && sameSource && sameWindow && sourceFrontmost && hasTime
+            && menuCount == 1 && hasCancelAction
+    }
+}
+
 /// Injected metadata-only UI boundary; fixture tests never launch ZCode.
 struct ZCodeConversationUI: Sendable {
     struct Source: Equatable, Sendable {
@@ -225,6 +277,7 @@ struct ZCodeConversationJumpController: Sendable {
     private let focusTimeout: TimeInterval
     private let metadataDiagnosticsEnabled: @Sendable () -> Bool
     private let metadataDiagnostics: @Sendable (ZCodeNavigationDiagnostic) -> Void
+    private let copyDiagnostics: @Sendable (ZCodeCopyDiagnostic) -> Void
 
     init(
         taskIndex: ZCodeTaskIndex = ZCodeTaskIndex(),
@@ -233,7 +286,8 @@ struct ZCodeConversationJumpController: Sendable {
         clock: @escaping MonotonicClock = { ProcessInfo.processInfo.systemUptime },
         focusTimeout: TimeInterval = 3,
         metadataDiagnosticsEnabled: @escaping @Sendable () -> Bool = Self.defaultMetadataDiagnosticsEnabled,
-        metadataDiagnostics: @escaping @Sendable (ZCodeNavigationDiagnostic) -> Void = Self.writeMetadataDiagnostic
+        metadataDiagnostics: @escaping @Sendable (ZCodeNavigationDiagnostic) -> Void = Self.writeMetadataDiagnostic,
+        copyDiagnostics: @escaping @Sendable (ZCodeCopyDiagnostic) -> Void = Self.writeCopyDiagnostic
     ) {
         self.taskIndex = taskIndex
         self.ui = ui
@@ -242,6 +296,7 @@ struct ZCodeConversationJumpController: Sendable {
         self.focusTimeout = max(0, focusTimeout)
         self.metadataDiagnosticsEnabled = metadataDiagnosticsEnabled
         self.metadataDiagnostics = metadataDiagnostics
+        self.copyDiagnostics = copyDiagnostics
     }
 
     func focus(conversationID: String) -> ZCodeConversationFocusResult {
@@ -450,66 +505,162 @@ struct ZCodeConversationJumpController: Sendable {
     private func copyActiveSessionID(_ conversation: ZCodeConversationRecord,
                                      source: ZCodeConversationUI.Source,
                                      before deadline: TimeInterval) -> String? {
+        var diagnostic = ZCodeCopyDiagnostic(targetHash: ZCodeNavigationDiagnostic.hash(conversation.id))
+        var openedMenu: AXUIElement?
+        var menuWasOpened = false
+        var copyDispatched = false
+        var navigationWindow: AXUIElement?
+        func sourceAndWindowAreCurrent() -> Bool {
+            guard currentSource() == source, isFrontmost(source),
+                  let original = navigationWindow,
+                  let application = NSRunningApplication(processIdentifier: source.processID),
+                  let current = firstWindow(of: application) else { return false }
+            return CFEqual(current, original)
+        }
+        defer {
+            // Cancel only the unique menu observed after our own header press.
+            // Never extend the navigation deadline or send global Escape.
+            if !copyDispatched, let menu = openedMenu {
+                let current = sourceAndWindowAreCurrent()
+                let menus = current && hasTimeRemaining(before: deadline) ? navigationWindow.map {
+                    descendants(of: $0, before: deadline).filter {
+                        copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenu"
+                    }
+                } ?? [] : []
+                let sameMenu = menus.count == 1 && CFEqual(menus[0], menu)
+                let hasCancel = hasAction(kAXCancelAction as CFString, on: menu)
+                if ZCodeCopyMenuContract.permitsCancel(openedByNavigation: menuWasOpened,
+                    sameSource: currentSource() == source, sameWindow: sameMenu && sourceAndWindowAreCurrent(),
+                    sourceFrontmost: isFrontmost(source), hasTime: hasTimeRemaining(before: deadline),
+                    menuCount: sameMenu ? 1 : 0, hasCancelAction: hasCancel) {
+                    diagnostic.cancelAttempted = true
+                    diagnostic.cancelSucceeded = AXUIElementPerformAction(menu, kAXCancelAction as CFString) == .success
+                }
+            }
+            diagnostic.deadlineExpired = !hasTimeRemaining(before: deadline)
+            if diagnostic.deadlineExpired, diagnostic.reason != .verified { diagnostic.reason = .deadlineExpired }
+            if metadataDiagnosticsEnabled() { copyDiagnostics(diagnostic) }
+        }
         guard hasTimeRemaining(before: deadline), currentSource() == source, isFrontmost(source),
               let application = NSRunningApplication(processIdentifier: source.processID),
               let window = firstWindow(of: application) else { return nil }
+        navigationWindow = window
         let nodes = descendants(of: window, before: deadline)
+        // A pre-existing menu is not ours to inspect, copy from, or dismiss.
+        guard !nodes.contains(where: { copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenu" }) else {
+            diagnostic.reason = .menuAlreadyOpen; return nil
+        }
         let buttons = nodes.filter { node in
             guard ZCodeSidebarContract.isHeaderMenuRole(copyStringValue(of: node, attribute: kAXRoleAttribute as CFString)),
                   [displayedText(of: node), copyStringValue(of: node, attribute: kAXDescriptionAttribute as CFString)]
                     .compactMap({ $0 }).contains(where: { ["更多", "More"].contains($0) }),
                   hasAction(kAXPressAction as CFString, on: node) else { return false }
-            // Scope to the current workspace header, never the sidebar row's
-            // context menu (which would merely copy the row's own ID).
             return nearestAncestor(of: node, maximumLevels: 8, before: deadline) {
                 domClasses(of: $0).contains("@container/workspace-header")
             } != nil
         }
-        guard buttons.count == 1, currentSource() == source, isFrontmost(source),
-              hasTimeRemaining(before: deadline),
-              AXUIElementPerformAction(buttons[0], kAXPressAction as CFString) == .success else { return nil }
+        diagnostic.headerCount = buttons.count
+        diagnostic.reason = .headerAmbiguous
+        guard buttons.count == 1 else { return nil }
+        diagnostic.reason = .sourceOrWindowChanged
+        guard sourceAndWindowAreCurrent(), hasTimeRemaining(before: deadline) else { return nil }
+        diagnostic.reason = .headerPressFailed
+        guard AXUIElementPerformAction(buttons[0], kAXPressAction as CFString) == .success else { return nil }
+        menuWasOpened = true
+        diagnostic.stage = .menu
+        diagnostic.reason = .menuUnavailable
         var copyItem: AXUIElement?
-        while hasTimeRemaining(before: deadline), currentSource() == source, isFrontmost(source) {
-            guard let current = firstWindow(of: application), CFEqual(current, window) else { return nil }
-            var matches: [AXUIElement] = []
-            for node in descendants(of: current, before: deadline)
-            where ["复制会话 ID", "Copy session ID"].contains(displayedText(of: node) ?? "") {
-                let item: AXUIElement?
-                if copyStringValue(of: node, attribute: kAXRoleAttribute as CFString) == "AXMenuItem" {
-                    item = node
-                } else {
-                    item = nearestAncestor(of: node, maximumLevels: 4, before: deadline) {
+        // Reserve a small portion of the existing budget to cancel an opened
+        // menu on failure. This does not lengthen the total focus deadline.
+        let menuDeadline = deadline - 0.08
+        while hasTimeRemaining(before: menuDeadline) {
+            diagnostic.reason = .sourceOrWindowChanged
+            guard sourceAndWindowAreCurrent() else { return nil }
+            let menus = descendants(of: window, before: menuDeadline).filter {
+                copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenu"
+            }
+            diagnostic.menuCount = menus.count
+            diagnostic.reason = menus.count > 1 ? .menuAmbiguous : .menuUnavailable
+            guard menus.count <= 1 else { return nil }
+            if let menu = menus.first {
+                openedMenu = menu
+                diagnostic.stage = .item
+                var matches: [AXUIElement] = []
+                for node in descendants(of: menu, before: menuDeadline) {
+                    let value = copyStringValue(of: node, attribute: kAXValueAttribute as CFString)
+                    let title = copyStringValue(of: node, attribute: kAXTitleAttribute as CFString)
+                    let description = copyStringValue(of: node, attribute: kAXDescriptionAttribute as CFString)
+                    guard ZCodeCopyMenuContract.isCopyItem(value: value, title: title, description: description) else { continue }
+                    diagnostic.valueMatches = diagnostic.valueMatches || ZCodeCopyMenuContract.matchesCopyLabel(value)
+                    diagnostic.titleMatches = diagnostic.titleMatches || ZCodeCopyMenuContract.matchesCopyLabel(title)
+                    diagnostic.descriptionMatches = diagnostic.descriptionMatches || ZCodeCopyMenuContract.matchesCopyLabel(description)
+                    diagnostic.itemRole = copyStringValue(of: node, attribute: kAXRoleAttribute as CFString)
+                    let item = diagnostic.itemRole == "AXMenuItem" ? node : nearestAncestor(of: node, maximumLevels: 4, before: menuDeadline) {
                         copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenuItem"
                     }
+                    // The actionable item must belong to the one menu we opened.
+                    if let item, let parentMenu = nearestAncestor(of: item, maximumLevels: 8, before: menuDeadline, matching: {
+                        copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenu"
+                    }), CFEqual(parentMenu, menu), !matches.contains(where: { CFEqual($0, item) }) { matches.append(item) }
                 }
-                if let item, !matches.contains(where: { CFEqual($0, item) }) { matches.append(item) }
+                diagnostic.itemCount = matches.count
+                diagnostic.reason = matches.count > 1 ? .itemAmbiguous : .itemUnavailable
+                guard matches.count <= 1 else { return nil }
+                if let item = matches.first {
+                    diagnostic.itemRole = copyStringValue(of: item, attribute: kAXRoleAttribute as CFString)
+                    diagnostic.hasPressAction = hasAction(kAXPressAction as CFString, on: item)
+                    diagnostic.enabled = copyBoolValue(of: item, attribute: kAXEnabledAttribute as CFString)
+                    diagnostic.reason = .itemNotPressable
+                    guard diagnostic.hasPressAction else { return nil }
+                    diagnostic.reason = .itemDisabled
+                    if diagnostic.enabled == true { copyItem = item; break }
+                }
             }
-            guard matches.count <= 1 else { return nil }
-            if let item = matches.first { copyItem = item; break }
-            sleep(0.02, before: deadline)
+            sleep(0.02, before: menuDeadline)
         }
-        guard let copyItem, hasAction(kAXPressAction as CFString, on: copyItem),
-              copyBoolValue(of: copyItem, attribute: kAXEnabledAttribute as CFString) == true,
-              currentSource() == source, isFrontmost(source), hasTimeRemaining(before: deadline) else { return nil }
+        diagnostic.menuBudgetExpired = !hasTimeRemaining(before: menuDeadline)
+        guard let copyItem else { return nil }
+        diagnostic.reason = .sourceOrWindowChanged
+        guard sourceAndWindowAreCurrent(), hasTimeRemaining(before: deadline) else { return nil }
+        diagnostic.stage = .clipboard
+        diagnostic.reason = .clipboardUnavailable
         let board = NSPasteboard.general
-        guard let snapshot = MiniMaxCodePasteboardSnapshot.capture(board),
-              board.changeCount == snapshot.originalChangeCount,
-              currentSource() == source, isFrontmost(source), hasTimeRemaining(before: deadline),
-              AXUIElementPerformAction(copyItem, kAXPressAction as CFString) == .success else { return nil }
-        // The same bounded transaction as MiniMax protects a concurrent user
-        // copy. Only an exact matching native ID is ours to consume/restore.
+        guard let snapshot = MiniMaxCodePasteboardSnapshot.capture(board) else { return nil }
+        diagnostic.reason = .clipboardChanged
+        guard board.changeCount == snapshot.originalChangeCount else { return nil }
+        diagnostic.reason = .sourceOrWindowChanged
+        guard sourceAndWindowAreCurrent(), hasTimeRemaining(before: deadline) else { return nil }
+        diagnostic.reason = .itemDisabled
+        guard copyBoolValue(of: copyItem, attribute: kAXEnabledAttribute as CFString) == true,
+              hasAction(kAXPressAction as CFString, on: copyItem) else { return nil }
+        diagnostic.reason = .sourceOrWindowChanged
+        guard sourceAndWindowAreCurrent(), hasTimeRemaining(before: deadline) else { return nil }
+        diagnostic.reason = .clipboardChanged
+        guard board.changeCount == snapshot.originalChangeCount else { return nil }
+        diagnostic.reason = .itemPressFailed
+        guard AXUIElementPerformAction(copyItem, kAXPressAction as CFString) == .success else { return nil }
+        copyDispatched = true
+        diagnostic.reason = .copyUnobserved
+        // Keep the existing bounded transaction and exact-ID-only restoration.
         let cleanupDeadline = max(deadline, clock() + 0.3)
         while hasTimeRemaining(before: cleanupDeadline) {
             if board.changeCount != snapshot.originalChangeCount {
-                guard let result = snapshot.consumeMatchingCopy(board, expectedID: conversation.id),
-                      result.restored, hasTimeRemaining(before: deadline), currentSource() == source,
-                      isFrontmost(source), let current = firstWindow(of: application), CFEqual(current, window) else { return nil }
+                diagnostic.reason = .copyMismatchOrRestoreFailed
+                guard let result = snapshot.consumeMatchingCopy(board, expectedID: conversation.id), result.restored else { return nil }
+                diagnostic.reason = .sourceOrWindowChanged
+                guard hasTimeRemaining(before: deadline), sourceAndWindowAreCurrent() else { return nil }
+                diagnostic.stage = .identity
+                diagnostic.reason = .selectedRowUnverified
                 let workspace = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
                 guard let row = conversationItem(titled: conversation.title, workspaceName: workspace,
-                    allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation), in: current, before: deadline),
+                    allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation), in: window, before: deadline),
                       ZCodeSidebarContract.verifiesIdentity(rowCount: 1,
                         selectedRowCount: domClasses(of: row).contains("bg-selected") ? 1 : 0,
                         copiedID: result.sessionID, targetID: conversation.id) else { return nil }
+                diagnostic.reason = .sourceOrWindowChanged
+                guard hasTimeRemaining(before: deadline), sourceAndWindowAreCurrent() else { return nil }
+                diagnostic.stage = .complete
+                diagnostic.reason = .verified
                 return result.sessionID
             }
             sleep(0.02, before: cleanupDeadline)
@@ -555,6 +706,14 @@ struct ZCodeConversationJumpController: Sendable {
     }
 
     private static func writeMetadataDiagnostic(_ diagnostic: ZCodeNavigationDiagnostic) {
+        writeDiagnosticLine(diagnostic.line)
+    }
+
+    private static func writeCopyDiagnostic(_ diagnostic: ZCodeCopyDiagnostic) {
+        writeDiagnosticLine(diagnostic.line)
+    }
+
+    private static func writeDiagnosticLine(_ line: String) {
         guard defaultMetadataDiagnosticsEnabled() else { return }
         let descriptor = open(diagnosticLog, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
@@ -562,7 +721,7 @@ struct ZCodeConversationJumpController: Sendable {
         var info = stat()
         guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
               info.st_uid == getuid(), info.st_size < 65_536 else { return }
-        let data = Data((diagnostic.line + "\n").utf8)
+        let data = Data((line + "\n").utf8)
         guard info.st_size + off_t(data.count) <= 65_536, fchmod(descriptor, 0o600) == 0 else { return }
         _ = data.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
     }

@@ -115,6 +115,59 @@ struct ZCodeExactIdentityNavigationTests {
             #expect(!ZCodeSidebarContract.isHeaderMenuRole(role))
         }
     }
+    @Test func exactCopyLabelUsesAllNativeAttributesWithoutValueMaskingTitle() {
+        #expect(ZCodeCopyMenuContract.isCopyItem(value: "", title: "Copy session ID", description: nil))
+        #expect(ZCodeCopyMenuContract.isCopyItem(value: nil, title: nil, description: "复制会话 ID"))
+        #expect(ZCodeCopyMenuContract.isCopyItem(value: "  复制会话 ID\n", title: nil, description: nil))
+        for label in [nil, "Copy task ID", "Copy session ID…", "Copy session ID sess_fixture", "复制会话 ID 私有内容"] as [String?] {
+            #expect(!ZCodeCopyMenuContract.isCopyItem(value: label, title: label, description: label))
+        }
+    }
+    @Test func cancellationRequiresOurUniqueMenuAndUnchangedAdmittedContext() {
+        #expect(ZCodeCopyMenuContract.permitsCancel(openedByNavigation: true, sameSource: true,
+            sameWindow: true, sourceFrontmost: true, hasTime: true, menuCount: 1, hasCancelAction: true))
+        for missingGuard in 0..<6 {
+            #expect(!ZCodeCopyMenuContract.permitsCancel(openedByNavigation: missingGuard != 0,
+                sameSource: missingGuard != 1, sameWindow: missingGuard != 2,
+                sourceFrontmost: missingGuard != 3, hasTime: missingGuard != 4,
+                menuCount: 1, hasCancelAction: missingGuard != 5))
+        }
+        for count in [0, 2] {
+            #expect(!ZCodeCopyMenuContract.permitsCancel(openedByNavigation: true, sameSource: true,
+                sameWindow: true, sourceFrontmost: true, hasTime: true, menuCount: count, hasCancelAction: true))
+        }
+    }
+    @Test func copyDiagnosticRetainsOnlyFixedMetadataAndHashedTarget() {
+        let target = "sess_private-fixture"
+        var diagnostic = ZCodeCopyDiagnostic(targetHash: ZCodeNavigationDiagnostic.hash(target))
+        diagnostic.stage = .item; diagnostic.reason = .itemDisabled
+        diagnostic.itemRole = "Private menu content\nAXRole"
+        diagnostic.headerCount = -10; diagnostic.menuCount = 99999
+        diagnostic.descriptionMatches = true; diagnostic.enabled = false
+        diagnostic.menuBudgetExpired = true
+        let line = diagnostic.line
+        #expect(line.contains("reason=copy-stage-itemDisabled"))
+        #expect(line.contains("stage=item"))
+        #expect(line.contains("headers=0 menus=5000"))
+        #expect(line.contains("descriptionMatches=true itemRole=unavailable"))
+        #expect(line.contains("enabled=false"))
+        #expect(line.contains("menuBudgetExpired=true"))
+        #expect(!line.contains(target)); #expect(!line.contains("Private menu content"))
+        #expect(!line.contains("\n"))
+    }
+    @Test func exactCopiedIDAfterDeadlineCannotCountAsFocused() throws {
+        final class Clock: @unchecked Sendable {
+            let lock = NSLock()
+            var time: TimeInterval = 0
+            func read() -> TimeInterval { lock.withLock { time } }
+            func expire() { lock.withLock { time = 3 } }
+        }
+        let fixture = try Fixture(); let clock = Clock()
+        fixture.afterCopy = { clock.expire() }
+        let controller = ZCodeConversationJumpController(taskIndex: fixture.index, ui: fixture.ui, clock: { clock.read() })
+        #expect(controller.focus(conversationID: "sess_exact") == .unavailable("focus-timeout"))
+        #expect(fixture.copyCount == 1)
+    }
     @Test func duplicateOrUnselectedRowsCannotVerifyExactID() {
         #expect(!ZCodeSidebarContract.verifiesIdentity(rowCount: 2, selectedRowCount: 1, copiedID: "sess_exact", targetID: "sess_exact"))
         #expect(!ZCodeSidebarContract.verifiesIdentity(rowCount: 1, selectedRowCount: 0, copiedID: "sess_exact", targetID: "sess_exact"))

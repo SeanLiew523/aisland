@@ -91,12 +91,47 @@ enum MiniMaxCodeActivationAdmission {
     }
 }
 
+/// Frontmost application is not proof that its admitted window receives keys.
+/// Raise at most once before sidebar/Copy work; never reacquire focus mid-copy.
+enum MiniMaxCodeWindowFocusAdmission {
+    struct Result: Equatable {
+        var raiseAttempted = false
+        var raiseSucceeded = false
+        var focused = false
+    }
+    static func wait(deadline: TimeInterval, clock: () -> TimeInterval,
+                     isCurrent: () -> Bool, isFocused: () -> Bool,
+                     supportsRaise: () -> Bool, raise: () -> Bool,
+                     pause: (TimeInterval) -> Void) -> Result {
+        var result = Result()
+        guard clock() < deadline, isCurrent() else { return result }
+        if isFocused() {
+            result.focused = clock() < deadline && isCurrent()
+            return result
+        }
+        guard clock() < deadline, isCurrent(), supportsRaise(),
+              clock() < deadline, isCurrent() else { return result }
+        result.raiseAttempted = true
+        result.raiseSucceeded = raise()
+        guard result.raiseSucceeded else { return result }
+        while clock() < deadline {
+            guard isCurrent() else { return result }
+            if isFocused() {
+                result.focused = clock() < deadline && isCurrent()
+                return result
+            }
+            pause(deadline)
+        }
+        return result
+    }
+}
+
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
-    enum Stage: String, Sendable { case entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Stage: String, Sendable { case window, entry, title, menu, focus, arrow, item, label, clipboard, complete }
     enum Reason: String, Sendable {
-        case deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
+        case windowFocused, windowFocusUnobserved, deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
         case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
         case inputUnavailable, focusChanged, arrowDispatched, itemUnavailable, clipboardUnavailable, clipboardChanged
         case labelActivationFailed, copyUnobserved, copyMismatch, lateCopy, verified
@@ -105,6 +140,9 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var stage: Stage = .entry
     var reason: Reason = .deadline
     var cleanup: Cleanup = .unnecessary
+    var windowRaise = false
+    var windowRaiseSucceeded = false
+    var windowFocused = false
     var focusPolls = 0
     var focusQueryError = 0
     var focusedRole = "unavailable"
@@ -120,7 +158,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -377,10 +415,35 @@ private enum MiniMaxCodeAXNavigation {
             available: { AXIsProcessTrusted() && self.app(source) != nil },
             frontmost: { self.frontmost(source) }, pause: pause)
         acceptanceLog(.activationAdmission, flag: activated)
-        guard activated else { return false }
+        guard activated, let admittedWindow = window(source) else { return false }
+        let focusStarted = ProcessInfo.processInfo.systemUptime
+        let windowAdmission = MiniMaxCodeWindowFocusAdmission.wait(deadline: deadline,
+            clock: { ProcessInfo.processInfo.systemUptime }, isCurrent: {
+                guard remaining(deadline), AXIsProcessTrusted(), self.source() == source, frontmost(source),
+                      let current = window(source) else { return false }
+                return CFEqual(current, admittedWindow)
+            }, isFocused: {
+                bool(admittedWindow, kAXMainAttribute) == true && bool(admittedWindow, kAXFocusedAttribute) == true
+            }, supportsRaise: { action(admittedWindow, kAXRaiseAction) }, raise: {
+                AXUIElementPerformAction(admittedWindow, kAXRaiseAction as CFString) == .success
+            }, pause: pause)
+        var windowDiagnostic = MiniMaxCodeCopyDiagnostic()
+        windowDiagnostic.stage = .window
+        windowDiagnostic.reason = windowAdmission.focused ? .windowFocused : .windowFocusUnobserved
+        windowDiagnostic.windowRaise = windowAdmission.raiseAttempted
+        windowDiagnostic.windowRaiseSucceeded = windowAdmission.raiseSucceeded
+        windowDiagnostic.windowFocused = windowAdmission.focused
+        windowDiagnostic.frontmost = frontmost(source)
+        windowDiagnostic.entryBudgetMilliseconds = Int(max(0, deadline - focusStarted) * 1000)
+        windowDiagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - focusStarted) * 1000)
+        windowDiagnostic.deadlineExpired = !remaining(deadline)
+        MiniMaxCodeCopyDiagnosticRecorder.record(windowDiagnostic)
+        if acceptanceDiagnosticsEnabled { NSLog("aisland_minimax_window %@", windowDiagnostic.line) }
+        guard windowAdmission.focused else { return false }
         var expandedOnce = false
         while remaining(deadline) {
-            guard let root = window(source) else { pause(deadline); continue }
+            guard AXIsProcessTrusted(), self.source() == source, frontmost(source),
+                  let root = window(source), CFEqual(root, admittedWindow) else { return false }
             let headers = projectHeaders(root, path: record.projectWorkspacePath, deadline: deadline)
             guard headers.count == 1 else { return false }
             let header = headers[0]
@@ -410,7 +473,9 @@ private enum MiniMaxCodeAXNavigation {
             acceptanceLog(.projectRowPress, flag: pressed)
             guard pressed else { return false }
             while remaining(deadline) {
-                if let current = window(source), titleMenuButton(current, title: record.title, deadline: deadline) != nil {
+                guard AXIsProcessTrusted(), self.source() == source, frontmost(source),
+                      let focusedWindow = window(source), CFEqual(focusedWindow, admittedWindow) else { return false }
+                if titleMenuButton(focusedWindow, title: record.title, deadline: deadline) != nil {
                     return true
                 }
                 pause(deadline)
@@ -450,6 +515,8 @@ private enum MiniMaxCodeAXNavigation {
         let root = window(source)
         acceptanceLog(.copyEntryWindow, flag: root != nil)
         guard let root else { return nil }
+        diagnostic.windowFocused = bool(root, kAXMainAttribute) == true && bool(root, kAXFocusedAttribute) == true
+        guard diagnostic.windowFocused else { diagnostic.reason = .windowFocusUnobserved; return nil }
         navigationWindow = root
         diagnostic.stage = .title; diagnostic.reason = .titleUnavailable
         var menuAlreadyOpen = false

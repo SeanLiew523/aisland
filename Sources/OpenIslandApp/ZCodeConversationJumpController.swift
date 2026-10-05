@@ -184,7 +184,7 @@ struct ZCodeCopyDiagnostic: Equatable, Sendable {
         case menuUnavailable, menuAmbiguous, itemAmbiguous, itemUnavailable
         case itemNotPressable, itemDisabled, sourceOrWindowChanged, deadlineExpired
         case clipboardUnavailable, clipboardChanged, itemPressFailed
-        case copyUnobserved, copyMismatchOrRestoreFailed, selectedRowUnverified, verified
+        case copyUnobserved, copyMismatchOrRestoreFailed, selectedRowUnverified, taskIndexChanged, verified
     }
     var targetHash: String
     var stage: Stage = .header
@@ -224,6 +224,43 @@ enum ZCodeCopyMenuContract {
                               hasCancelAction: Bool) -> Bool {
         openedByNavigation && sameSource && sameWindow && sourceFrontmost && hasTime
             && menuCount == 1 && hasCancelAction
+    }
+}
+
+/// The menu can close before Chromium restores its sidebar AX nodes.
+/// Wait only for observations; never repeat the copy action or touch clipboard.
+enum ZCodePostCopyIdentityGate {
+    struct Sample {
+        var menuClosed: Bool
+        var rowCount: Int
+        var selectedRowCount: Int
+    }
+    enum Result: Equatable { case verified, unverified, sourceOrWindowChanged, taskIndexChanged, deadlineExpired }
+
+    static func wait(copiedID: String?, targetID: String, restored: Bool,
+                     before deadline: TimeInterval, clock: () -> TimeInterval,
+                     sleep: (TimeInterval) -> Void, contextIsCurrent: () -> Bool,
+                     metadataIsCurrent: () -> Bool, sample: () -> Sample) -> Result {
+        guard restored, !targetID.isEmpty, copiedID == targetID else { return .unverified }
+        while clock() < deadline {
+            guard contextIsCurrent() else { return .sourceOrWindowChanged }
+            let state = sample()
+            guard clock() < deadline else { return .deadlineExpired }
+            guard contextIsCurrent() else { return .sourceOrWindowChanged }
+            if state.menuClosed, ZCodeSidebarContract.verifiesIdentity(
+                rowCount: state.rowCount, selectedRowCount: state.selectedRowCount,
+                copiedID: copiedID, targetID: targetID) {
+                guard metadataIsCurrent() else { return .taskIndexChanged }
+                // Metadata and AX queries can consume the remaining budget or
+                // overlap a source/window change; re-admit after both queries.
+                guard clock() < deadline else { return .deadlineExpired }
+                guard contextIsCurrent() else { return .sourceOrWindowChanged }
+                return .verified
+            }
+            let remaining = deadline - clock()
+            if remaining > 0 { sleep(min(0.02, remaining)) }
+        }
+        return .deadlineExpired
     }
 }
 
@@ -652,13 +689,28 @@ struct ZCodeConversationJumpController: Sendable {
                 diagnostic.stage = .identity
                 diagnostic.reason = .selectedRowUnverified
                 let workspace = URL(fileURLWithPath: conversation.workspacePath).lastPathComponent
-                guard let row = conversationItem(titled: conversation.title, workspaceName: workspace,
-                    allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation), in: window, before: deadline),
-                      ZCodeSidebarContract.verifiesIdentity(rowCount: 1,
-                        selectedRowCount: domClasses(of: row).contains("bg-selected") ? 1 : 0,
-                        copiedID: result.sessionID, targetID: conversation.id) else { return nil }
-                diagnostic.reason = .sourceOrWindowChanged
-                guard hasTimeRemaining(before: deadline), sourceAndWindowAreCurrent() else { return nil }
+                let verification = ZCodePostCopyIdentityGate.wait(copiedID: result.sessionID,
+                    targetID: conversation.id, restored: result.restored, before: deadline,
+                    clock: clock, sleep: sleeper, contextIsCurrent: sourceAndWindowAreCurrent,
+                    metadataIsCurrent: { taskIndex.conversation(id: conversation.id) == conversation }, sample: {
+                        // Reacquire live AX nodes on every poll in the same
+                        // admitted window. A menu obscures the body briefly.
+                        let menuClosed = !descendants(of: window, before: deadline).contains {
+                            copyStringValue(of: $0, attribute: kAXRoleAttribute as CFString) == "AXMenu"
+                        }
+                        guard menuClosed else { return .init(menuClosed: false, rowCount: 0, selectedRowCount: 0) }
+                        let row = conversationItem(titled: conversation.title, workspaceName: workspace,
+                            allowsStandaloneLookup: taskIndex.hasUniqueTitle(for: conversation), in: window, before: deadline)
+                        return .init(menuClosed: true, rowCount: row == nil ? 0 : 1,
+                            selectedRowCount: row.map { domClasses(of: $0).contains("bg-selected") ? 1 : 0 } ?? 0)
+                    })
+                switch verification {
+                case .verified: break
+                case .sourceOrWindowChanged: diagnostic.reason = .sourceOrWindowChanged; return nil
+                case .taskIndexChanged: diagnostic.reason = .taskIndexChanged; return nil
+                case .deadlineExpired: diagnostic.reason = .deadlineExpired; return nil
+                case .unverified: return nil
+                }
                 diagnostic.stage = .complete
                 diagnostic.reason = .verified
                 return result.sessionID

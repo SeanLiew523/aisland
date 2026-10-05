@@ -56,3 +56,24 @@ ZCode suites passed. Tests use a fixture SQLite index and a unique named
 pasteboard; no production GUI, source user data, or general clipboard is read.
 The temporary package is removed after verification. A complete bundle and
 native ZCode return-click verification remain the next acceptance step.
+
+Build 59 native retest established the copy path: the unique menu's exact item
+label came from AXTitle, AXMenuItem/AXPress/enabled admission succeeded, the
+native session ID matched, and the original clipboard was restored. The
+remaining failure was selectedRowUnverified while the menu had not yet finished
+closing; a subsequent native observation showed the owned target body and no
+menu. The adapter therefore waits after its one restored exact copy for the
+menu to disappear and the unique exact row to be selected, using the original
+total focus deadline. Every poll keeps the same PID/version/frontmost/window;
+ready state rechecks indexed metadata and the context after the AX queries.
+The wait neither copies again nor reads/writes the clipboard. Timeout, duplicate
+or wrong/unselected rows, or changed source/window/index still reject success.
+
+Follow-up verification: the same temporary CLT package compiled the actual
+controller, pasteboard implementation and both ZCode suites; all 29 tests
+passed. New gate fixtures cover delayed menu/body recovery, open-menu/wrong/
+duplicate/unselected rows, original-deadline expiry, context/index changes,
+sampling that exhausts the deadline, and mismatched ID/unrestored clipboard.
+A focus fixture dispatched exactly one copy and confirmed the private named
+pasteboard remained restored throughout identity waiting. The temporary package
+was removed. Native acceptance remains pending the next complete-bundle click.

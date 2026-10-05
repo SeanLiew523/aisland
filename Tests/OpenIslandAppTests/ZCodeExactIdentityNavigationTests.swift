@@ -16,6 +16,7 @@ struct ZCodeExactIdentityNavigationTests {
         private var sameWindow = true
         private var copies = 0
         var afterCopy: (@Sendable () -> Void)?
+        var verifyAfterCopy: (@Sendable (String?) -> String?)?
         init() throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent("zcode-exact-fixture-\(UUID())")
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -46,7 +47,9 @@ struct ZCodeExactIdentityNavigationTests {
                 select: { record, _, _ in record.id == "sess_exact" && self.lock.withLock { self.selected } },
                 copyActiveSessionID: { _, _, _ in
                     let result = self.lock.withLock { self.copies += 1; return self.copied }
-                    self.afterCopy?(); return result
+                    self.afterCopy?()
+                    if let verifier = self.verifyAfterCopy { return verifier(result) }
+                    return result
                 }, isFrontmost: { _ in self.lock.withLock { self.frontmost } },
                 isCurrentWindow: { self.lock.withLock { self.sameWindow } })
         }
@@ -167,6 +170,91 @@ struct ZCodeExactIdentityNavigationTests {
         let controller = ZCodeConversationJumpController(taskIndex: fixture.index, ui: fixture.ui, clock: { clock.read() })
         #expect(controller.focus(conversationID: "sess_exact") == .unavailable("focus-timeout"))
         #expect(fixture.copyCount == 1)
+    }
+    final class PostCopyFixture: @unchecked Sendable {
+        var time: TimeInterval = 0
+        var samples = 0
+        var contextCurrent = true
+        var metadataCurrent = true
+        var states: [ZCodePostCopyIdentityGate.Sample] = [
+            .init(menuClosed: false, rowCount: 0, selectedRowCount: 0),
+            .init(menuClosed: true, rowCount: 0, selectedRowCount: 0),
+            .init(menuClosed: true, rowCount: 1, selectedRowCount: 1)
+        ]
+        var duringSample: (() -> Void)?
+        func wait(copiedID: String? = "sess_exact", restored: Bool = true, deadline: TimeInterval = 0.1) -> ZCodePostCopyIdentityGate.Result {
+            ZCodePostCopyIdentityGate.wait(copiedID: copiedID, targetID: "sess_exact", restored: restored,
+                before: deadline, clock: { self.time }, sleep: { self.time += $0 },
+                contextIsCurrent: { self.contextCurrent }, metadataIsCurrent: { self.metadataCurrent },
+                sample: {
+                    let state = self.states[min(self.samples, self.states.count - 1)]
+                    self.samples += 1; self.duringSample?(); return state
+                })
+        }
+    }
+    @Test func restoredExactCopyWaitsForClosedMenuAndRecoveredBodyWithoutRecopying() throws {
+        let fixture = try Fixture(); let gate = PostCopyFixture()
+        let board = NSPasteboard(name: .init("aisland-zcode-postcopy-fixture-\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.clearContents(); board.setString("fixture-original", forType: .string)
+        let snapshot = try #require(MiniMaxCodePasteboardSnapshot.capture(board))
+        final class ClipboardFixture: @unchecked Sendable {
+            let board: NSPasteboard
+            let snapshot: MiniMaxCodePasteboardSnapshot
+            init(board: NSPasteboard, snapshot: MiniMaxCodePasteboardSnapshot) { self.board = board; self.snapshot = snapshot }
+        }
+        let clipboard = ClipboardFixture(board: board, snapshot: snapshot)
+        fixture.verifyAfterCopy = { copiedID in
+            clipboard.board.clearContents(); clipboard.board.setString(copiedID ?? "", forType: .string)
+            guard let copy = clipboard.snapshot.consumeMatchingCopy(clipboard.board, expectedID: "sess_exact"), copy.restored else { return nil }
+            return gate.wait(copiedID: copy.sessionID, restored: copy.restored) == .verified ? copy.sessionID : nil
+        }
+        #expect(fixture.focus() == .focused)
+        #expect(fixture.copyCount == 1)
+        #expect(gate.samples == 3)
+        #expect(gate.time == 0.04)
+        #expect(board.string(forType: .string) == "fixture-original")
+        let restoredCount = board.changeCount
+        // The wait itself does not read/write clipboard or send another copy.
+        #expect(gate.wait() == .verified)
+        #expect(board.changeCount == restoredCount)
+        #expect(board.string(forType: .string) == "fixture-original")
+    }
+    @Test func postCopyGateNeverAcceptsOpenMenuWrongRowDuplicatesOrTimeout() {
+        for state in [ZCodePostCopyIdentityGate.Sample(menuClosed: false, rowCount: 1, selectedRowCount: 1),
+                      .init(menuClosed: true, rowCount: 0, selectedRowCount: 0),
+                      .init(menuClosed: true, rowCount: 1, selectedRowCount: 0),
+                      .init(menuClosed: true, rowCount: 2, selectedRowCount: 1)] {
+            let gate = PostCopyFixture(); gate.states = [state]
+            #expect(gate.wait() == .deadlineExpired)
+            #expect(gate.time == 0.1)
+        }
+        let gate = PostCopyFixture()
+        #expect(gate.wait(deadline: 0) == .deadlineExpired)
+        #expect(gate.samples == 0)
+    }
+    @Test func postCopyGateRejectsSourceWindowAndMetadataChangesDuringRecovery() {
+        for changeOn in [1, 2, 3] {
+            let gate = PostCopyFixture()
+            gate.duringSample = { if gate.samples == changeOn { gate.contextCurrent = false } }
+            #expect(gate.wait() == .sourceOrWindowChanged)
+            #expect(gate.samples == changeOn)
+        }
+        let gate = PostCopyFixture(); gate.metadataCurrent = false
+        #expect(gate.wait() == .taskIndexChanged)
+    }
+    @Test func postCopyGateCannotWaitWithWrongIDOrUnrestoredClipboard() {
+        for (id, restored) in [(nil, true), ("sess_other", true), ("sess_exact", false)] as [(String?, Bool)] {
+            let gate = PostCopyFixture()
+            #expect(gate.wait(copiedID: id, restored: restored) == .unverified)
+            #expect(gate.samples == 0)
+        }
+    }
+    @Test func postCopySamplingCannotReturnSuccessAfterUsingRemainingDeadline() {
+        let gate = PostCopyFixture(); gate.states = [.init(menuClosed: true, rowCount: 1, selectedRowCount: 1)]
+        gate.duringSample = { gate.time = 0.1 }
+        #expect(gate.wait() == .deadlineExpired)
+        #expect(gate.samples == 1)
     }
     @Test func duplicateOrUnselectedRowsCannotVerifyExactID() {
         #expect(!ZCodeSidebarContract.verifiesIdentity(rowCount: 2, selectedRowCount: 1, copiedID: "sess_exact", targetID: "sess_exact"))

@@ -7,8 +7,11 @@ private actor HistoryPause {
     private var isOpen = false
     private var continuation: CheckedContinuation<Void, Never>?
     private(set) var isWaiting = false
+    private let entered = StartupFixtureSignal()
+    func waitUntilEntered() async throws { try await entered.wait() }
     func wait() async {
         isWaiting = true
+        entered.signal()
         guard !isOpen else { return }
         await withCheckedContinuation { continuation = $0 }
     }
@@ -31,10 +34,13 @@ private final class StartupScanGate: @unchecked Sendable {
     private var open = false
     private var waiting = false
     private var trace: [String] = []
+    private let entered = StartupFixtureSignal()
+    func waitUntilEntered() async throws { try await entered.wait() }
     func record(_ event: String) { condition.lock(); trace.append(event); condition.unlock() }
     func wait() {
         condition.lock()
         waiting = true
+        entered.signal()
         while !open { condition.wait() }
         condition.unlock()
     }
@@ -44,7 +50,19 @@ private final class StartupScanGate: @unchecked Sendable {
 }
 
 @MainActor private final class DiscoveryState {
-    var value = SessionState()
+    var value = SessionState() {
+        didSet {
+            for watcher in watchers.values where watcher.predicate(value) { watcher.signal.signal() }
+        }
+    }
+    private var watchers: [UUID: (predicate: (SessionState) -> Bool, signal: StartupFixtureSignal)] = [:]
+    func waitFor(_ predicate: @escaping (SessionState) -> Bool) async throws {
+        guard !predicate(value) else { return }
+        let id = UUID(), signal = StartupFixtureSignal()
+        watchers[id] = (predicate, signal)
+        defer { watchers.removeValue(forKey: id) }
+        try await signal.wait()
+    }
 }
 
 private struct DiscoveryFixture {
@@ -95,6 +113,7 @@ private struct DiscoveryFixture {
     try #require(try await predicate())
 }
 
+@Suite(.timeLimit(.minutes(1)))
 @MainActor struct StartupSessionDiscoveryTests {
     private func session(_ id: String, tool: AgentTool, at date: Date) -> AgentSession {
         var value = AgentSession(id: id, title: id, tool: tool, origin: .live, attachmentState: .attached,
@@ -127,7 +146,8 @@ private struct DiscoveryFixture {
         let snapshot = payload([stale, history])
         let applyHistory = Task { await pause.wait(); discovery.applyStartupDiscoveryPayload(snapshot) }
         defer { Task { await pause.release() } }
-        try await waitForDiscovery { await pause.isWaiting }
+        try await pause.waitUntilEntered()
+        #expect(await pause.isWaiting)
 
         for (id, tool): (String, AgentTool) in [("hermes-live", .hermesCLI), ("minimax-live", .minimaxCodeDesktop),
             ("deepseek-live", .deepseekHarness), ("codex-live", .codex)] {
@@ -268,7 +288,9 @@ private struct DiscoveryFixture {
                 discovery.applyStartupDiscoveryPayload(batch)
             }
         }
-        try await waitForDiscovery { gate.isWaiting && state.value.session(id: cached.id)?.title == "Source enriched" }
+        try await gate.waitUntilEntered()
+        try await state.waitFor { $0.session(id: cached.id)?.title == "Source enriched" }
+        #expect(gate.isWaiting)
         #expect(gate.events == ["cache-applied", "codex-start"])
         #expect(state.value.session(id: zcode.id)?.tool == .zcode)
         #expect(state.value.session(id: first.id) != nil)
@@ -307,7 +329,9 @@ private struct DiscoveryFixture {
         }, claude: { emit in emit(lateAlias) })
         let discovery = fixture.coordinator(state: state, sources: sources)
         let workflow = Task { await discovery.discoverStartupSessions { discovery.applyStartupDiscoveryPayload($0) } }
-        try await waitForDiscovery { gate.isWaiting && state.value.sessions.count == 2 }
+        try await gate.waitUntilEntered()
+        try await state.waitFor { $0.sessions.count == 2 }
+        #expect(gate.isWaiting)
         let events: [AgentEvent] = [
             .sessionCompleted(.init(sessionID: cachedCodex.id, summary: "Live completed", timestamp: now)),
             .sessionHeartbeat(.init(sessionID: cachedZcode.id, timestamp: now)),
@@ -357,7 +381,8 @@ private struct DiscoveryFixture {
         discovery.rediscoverCodexAppSessionsIfNeeded()
         #expect(manager.scanCount == 0) // Reserved before the history task is scheduled.
         let workflow = Task { await discovery.discoverStartupSessions { discovery.applyStartupDiscoveryPayload($0) } }
-        try await waitForDiscovery { gate.isWaiting }
+        try await gate.waitUntilEntered()
+        #expect(gate.isWaiting)
         discovery.rediscoverCodexAppSessionsIfNeeded()
         #expect(manager.scanCount == 0) // Streaming scan owns first flight; live state still accepts events.
         let live = session("live-native", tool: .zcode, at: .now)

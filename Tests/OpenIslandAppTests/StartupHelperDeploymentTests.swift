@@ -7,9 +7,12 @@ private actor StartupPause {
     private var isOpen = false
     private var continuations: [CheckedContinuation<Void, Never>] = []
     private(set) var entries = 0
+    private let entered = StartupFixtureSignal()
+    func waitUntilEntered() async throws { try await entered.wait() }
 
     func wait() async {
         entries += 1
+        entered.signal()
         guard !isOpen else { return }
         await withCheckedContinuation { continuations.append($0) }
     }
@@ -24,7 +27,20 @@ private actor StartupPause {
 
 @MainActor private final class StartupTrace {
     var events: [String] = []
-    func record(_ event: String) { events.append(event) }
+    private var signals: [String: StartupFixtureSignal] = [:]
+    private func signal(for event: String) -> StartupFixtureSignal {
+        if let signal = signals[event] { return signal }
+        let signal = StartupFixtureSignal()
+        signals[event] = signal
+        return signal
+    }
+    func record(_ event: String) {
+        events.append(event)
+        signal(for: event).signal()
+    }
+    func waitFor(_ event: String) async throws {
+        try await signal(for: event).wait()
+    }
 }
 
 private struct StartupFixture {
@@ -53,14 +69,9 @@ private struct StartupFixture {
     }
 }
 
-@MainActor private func waitForStartup(_ condition: @MainActor () async -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while !(await condition()), ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    try #require(await condition())
-}
-
+// The guard detects missing callbacks, rather than asserting a startup latency
+// contract based on unrelated main-actor work in other parallel suites.
+@Suite(.timeLimit(.minutes(1)))
 @MainActor struct StartupHelperDeploymentTests {
     @Test func pausedHistoryDoesNotDelayDeploymentAndSetupWaitsForNewHelper() async throws {
         let fixture = try StartupFixture(); defer { fixture.cleanup() }
@@ -96,23 +107,23 @@ private struct StartupFixture {
         workflows.start(history: { await trace.record("duplicate-history") },
             connections: { trace.record("duplicate-connections") })
 
-        try await waitForStartup {
-            let deploymentEntries = await deployment.entries
-            let historyEntries = await history.entries
-            return deploymentEntries == 1 && historyEntries == 1
-        }
+        try await deployment.waitUntilEntered()
+        try await history.waitUntilEntered()
+        let deploymentEntries = await deployment.entries
+        let historyEntries = await history.entries
+        #expect(deploymentEntries == 1 && historyEntries == 1)
         #expect(hooks.hooksBinaryURL == nil)
         #expect(trace.events == ["deployment-start"])
         #expect(try Data(contentsOf: managed) == Data("old callback".utf8))
         await deployment.release()
-        try await waitForStartup { trace.events.contains("configure") }
+        try await trace.waitFor("configure")
         #expect(trace.events == ["deployment-start", "deployment-done", "detect", "refresh", "ready", "configure"])
         #expect(hooks.hooksBinaryURL == managed)
         #expect(try Data(contentsOf: managed) == Data("new callback".utf8))
         #expect(!intent.firstLaunchCompleted)
 
         await history.release()
-        try await waitForStartup { trace.events.contains("history-done") }
+        try await trace.waitFor("history-done")
         #expect(hooks.hooksBinaryURL == managed)
         #expect(trace.events.filter { $0 == "ready" }.count == 1)
         #expect(!trace.events.contains(where: { $0.hasPrefix("duplicate") }))

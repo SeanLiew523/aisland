@@ -29,7 +29,7 @@ struct TerminalJumpServiceTests {
 
         let script = TerminalJumpService().ghosttyJumpScript(for: target)
 
-        #expect(script.contains("activate"))
+        #expect(!script.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "activate" })
         #expect(script.contains("activate window targetWindow"))
         #expect(script.contains("select tab targetTab"))
         #expect(script.contains("focus targetTerminal"))

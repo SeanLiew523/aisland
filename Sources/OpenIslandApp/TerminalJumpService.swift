@@ -1275,7 +1275,8 @@ struct TerminalJumpService {
                 end repeat
             end repeat
             if matchCount is not 1 then return ""
-            activate
+            -- Activating the resolved window already foregrounds Ghostty.
+            -- A global activate can raise every open window first.
             repeat \(Self.ghosttyFocusAttempts) times
                 activate window targetWindow
                 delay \(Self.ghosttyWindowActivationDelay)

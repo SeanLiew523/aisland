@@ -4,6 +4,26 @@ import Testing
 @testable import OpenIslandApp
 
 struct ZCodeConversationJumpControllerTests {
+    @Test func asynchronousSourceActivationAndRowFocusWaitWithinOneBudget() {
+        var time = 0.0, polls = 0
+        let admitted = ZCodeSelectionAdmission.wait(before: 0.3, clock: { time }, isCurrent: { true },
+            admitted: { polls >= 2 }, pause: { _ in polls += 1; time += 0.04 })
+        #expect(admitted && polls == 2)
+        time = 0; polls = 0
+        #expect(!ZCodeSelectionAdmission.wait(before: 0.3, clock: { time }, isCurrent: { polls < 1 },
+            admitted: { false }, pause: { _ in polls += 1; time += 0.04 }))
+        #expect(polls == 1)
+        time = 0
+        #expect(!ZCodeSelectionAdmission.wait(before: 0.1, clock: { time }, isCurrent: { true },
+            admitted: { false }, pause: { _ in time += 0.04 }))
+        #expect(time < 0.15)
+        var current = true
+        #expect(!ZCodeSelectionAdmission.wait(before: 1, clock: { 0 }, isCurrent: { current },
+            admitted: { current = false; return true }, pause: { _ in }))
+        time = 0
+        #expect(!ZCodeSelectionAdmission.wait(before: 0.1, clock: { time }, isCurrent: { true },
+            admitted: { time = 0.2; return true }, pause: { _ in }))
+    }
     @Test
     func selectedSidebarWithoutExactCurrentIDCannotVerifyNavigation() {
         #expect(!ZCodeSidebarContract.verifiesIdentity(

@@ -116,6 +116,20 @@ struct ZCodeTaskIndex: Sendable {
     }
 }
 
+/// App activation and Chromium row focus complete asynchronously. Every
+/// poll must remain in the admitted source and original navigation budget.
+enum ZCodeSelectionAdmission {
+    static func wait(before deadline: TimeInterval, clock: () -> TimeInterval,
+        isCurrent: () -> Bool, admitted: () -> Bool, pause: (TimeInterval) -> Void) -> Bool {
+        while clock() < deadline {
+            guard isCurrent() else { return false }
+            if admitted() { return clock() < deadline && isCurrent() }
+            pause(deadline)
+        }
+        return false
+    }
+}
+
 enum ZCodeConversationFocusResult: Equatable, Sendable {
     case focused
     case unavailable(String)
@@ -413,6 +427,9 @@ struct ZCodeConversationJumpController: Sendable {
             return false
         }
         application.activate(options: [.activateAllWindows])
+        guard ZCodeSelectionAdmission.wait(before: deadline, clock: clock,
+            isCurrent: { currentSource() == source && AXIsProcessTrusted() },
+            admitted: { isFrontmost(source) }, pause: { sleep(0.02, before: $0) }) else { return false }
         guard let window = waitForWindow(of: application, before: deadline) else { return false }
 
         guard raise(window: window, before: deadline) else {
@@ -528,10 +545,20 @@ struct ZCodeConversationJumpController: Sendable {
               settable.boolValue,
               AXUIElementSetAttributeValue(taskItem, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else { return false }
         let app = AXUIElementCreateApplication(source.processID)
-        guard let focused = copyElementValue(of: app, attribute: kAXFocusedUIElementAttribute as CFString),
-              ZCodeSidebarContract.permitsEnter(classes: domClasses(of: taskItem), focusSettable: true,
-                exactFocus: CFEqual(focused, taskItem), sourceFrontmost: isFrontmost(source)),
-              hasTimeRemaining(before: deadline), currentSource() == source,
+        func current() -> Bool {
+            guard hasTimeRemaining(before: deadline), AXIsProcessTrusted(), currentSource() == source,
+                  isFrontmost(source), let application = NSRunningApplication(processIdentifier: source.processID),
+                  let window = firstWindow(of: application) else { return false }
+            return CFEqual(window, root)
+        }
+        func exactFocus() -> Bool {
+            guard let focused = copyElementValue(of: app, attribute: kAXFocusedUIElementAttribute as CFString) else { return false }
+            return ZCodeSidebarContract.permitsEnter(classes: domClasses(of: taskItem), focusSettable: true,
+                exactFocus: CFEqual(focused, taskItem), sourceFrontmost: isFrontmost(source))
+        }
+        guard ZCodeSelectionAdmission.wait(before: deadline, clock: clock, isCurrent: current,
+                admitted: exactFocus, pause: { sleep(0.02, before: $0) }),
+              current(), exactFocus(), current(),
               let down = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false) else { return false }
         down.flags = []; up.flags = []

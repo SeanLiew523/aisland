@@ -957,26 +957,39 @@ private enum MiniMaxCodeAXNavigation {
             defer { MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic) }
             guard terminals.count == 1 else { return nil }
             diagnostic.reason = .topbarParentUnavailable
-            guard let panel = parent(terminals[0]), role(panel) == "AXGroup" else { return nil }
+            // Electron inserts unnamed one-child layout groups which the
+            // flattened accessibility view omits. Ascend only this exact
+            // terminal branch; never search a sidebar or body ancestor.
+            guard let panel = MiniMaxCodeTopbarSelection.layoutParent(of: terminals[0], parent: parent,
+                isUnnamedGroup: { role($0) == "AXGroup" && (exactLabel($0) ?? "").isEmpty },
+                children: { elements($0, kAXChildrenAttribute) }, equal: { CFEqual($0, $1) },
+                hasTime: { remaining(deadline) }) else { return nil }
             let children = elements(panel, kAXChildrenAttribute)
             diagnostic.searchNodes = children.count
             diagnostic.reason = .topbarChildrenInvalid
             guard children.count >= 3, children.count <= 8, remaining(deadline) else { return nil }
-            // Read only the three direct topbar siblings, never body text.
-            let prefix = Array(children.prefix(3))
-            diagnostic.focusedRole = role(prefix[0]) ?? "unavailable"
-            diagnostic.focusEqual = text(prefix[0]) == title
-            diagnostic.windowFocused = (exactLabel(prefix[1]) ?? "").isEmpty
-            diagnostic.inputAvailable = action(prefix[1], kAXPressAction)
-            diagnostic.focusWindowMatches = CFEqual(prefix[2], terminals[0])
+            func unwrapped(_ item: AXUIElement) -> AXUIElement? {
+                MiniMaxCodeTopbarSelection.leaf(of: item, isGroup: { role($0) == "AXGroup" },
+                    isUnnamed: { (exactLabel($0) ?? "").isEmpty },
+                    children: { elements($0, kAXChildrenAttribute) }, hasTime: { remaining(deadline) })
+            }
+            // Inspect only the three adjacent topbar branches. Body siblings
+            // remain opaque, and any multi-child wrapper is rejected.
+            guard let heading = unwrapped(children[0]), let menu = unwrapped(children[1]),
+                  let terminal = unwrapped(children[2]) else { return nil }
+            diagnostic.focusedRole = role(heading) ?? "unavailable"
+            diagnostic.focusEqual = text(heading) == title
+            diagnostic.windowFocused = (exactLabel(menu) ?? "").isEmpty
+            diagnostic.inputAvailable = action(menu, kAXPressAction)
+            diagnostic.focusWindowMatches = CFEqual(terminal, terminals[0])
             diagnostic.reason = .topbarPrefixInvalid
-            guard role(prefix[0]) == "AXStaticText", diagnostic.focusEqual,
-                  role(prefix[1]) == "AXButton", diagnostic.windowFocused,
+            guard role(heading) == "AXStaticText", diagnostic.focusEqual,
+                  role(menu) == "AXButton", diagnostic.windowFocused,
                   diagnostic.inputAvailable, diagnostic.focusWindowMatches,
                   MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in:
                     [.title, .menu, .controls] + Array(repeating: .other, count: children.count - 3)) == 1 else { return nil }
             diagnostic.reason = .topbarVerified
-            return prefix[1]
+            return menu
         }
         guard choosers.count == 1, terminals.count == 1,
               let controls = parent(choosers[0]), role(controls) == "AXGroup",

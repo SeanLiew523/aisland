@@ -170,12 +170,18 @@ function normalizedDirectory(cwd: string): string {
 // 1.3.1 exposes ID/name/cwd, but no TTY/PID or documented inheritable surface ID.
 // Do not admit TERM_SESSION_ID or an assumed GHOSTTY_SURFACE_ID as a Ghostty ID.
 export function admitGhosttyBinding(snapshot: GhosttySnapshot | undefined, cwd: string,
-  normalize: (value: string) => string = normalizedDirectory, interactiveInput = false): GhosttyBinding | undefined {
+  normalize: (value: string) => string = normalizedDirectory, interactiveInput = false, realPTYSource = false): GhosttyBinding | undefined {
   if (!snapshot?.frontmost || !snapshot.focusedID || snapshot.surfaces.length > 256) return;
-  if (new Set(snapshot.surfaces.map(surface => surface.id)).size !== snapshot.surfaces.length) return;
-  const matches = snapshot.surfaces.filter(surface => surface.id && normalize(surface.cwd) === normalize(cwd));
-  const focused = matches.filter(surface => surface.id === snapshot.focusedID);
-  if (focused.length !== 1 || (!interactiveInput && matches.length !== 1)) return;
+  if (snapshot.surfaces.some(surface => !surface.id) || new Set(snapshot.surfaces.map(surface => surface.id)).size !== snapshot.surfaces.length) return;
+  const matches = snapshot.surfaces.filter(surface => normalize(surface.cwd) === normalize(cwd));
+  const focused = snapshot.surfaces.filter(surface => surface.id === snapshot.focusedID);
+  if (focused.length !== 1) return;
+  // OSC cwd describes the shell, while OMP can start in /tmp or change cwd.
+  // Only this source's interactive UI input with a real PTY may bind the
+  // stable focused native surface without a shell-cwd match. Startup and
+  // RPC/extension/background events keep the unique matching-cwd gate.
+  if (!(interactiveInput && realPTYSource) && normalize(focused[0].cwd) !== normalize(cwd)) return;
+  if (!interactiveInput && matches.length !== 1) return;
   return { ...focused[0], cwd: normalize(cwd) };
 }
 
@@ -319,12 +325,11 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
     if (!ctx.hasUI) { report("noUI"); return; }
     fields.isGhostty = terminalFields(environment, tty).terminal_app === "Ghostty";
     if (!fields.isGhostty) { report("notGhostty"); return; }
-    if (existing?.cwd === normalize(ctx.cwd || process.cwd())) { report("bindingReused", existing.id); return; }
-    ghosttyBindings.delete(key);
+    if (existing) { report("bindingReused", existing.id); return; }
     const snapshot = locator();
     if (snapshot) { fields.frontmostBefore = snapshot.frontmost; fields.surfaceCount = snapshot.surfaces.length;
       fields.cwdMatchCount = snapshot.surfaces.filter(surface => normalize(surface.cwd) === normalize(ctx.cwd || process.cwd())).length; }
-    const binding = admitGhosttyBinding(snapshot, ctx.cwd || process.cwd(), normalize, interactiveInput);
+    const binding = admitGhosttyBinding(snapshot, ctx.cwd || process.cwd(), normalize, interactiveInput, fields.hasRealTTY === true);
     if (binding) ghosttyBindings.set(key, binding);
     report(binding ? "bindingAdmitted" : !snapshot ? "snapshotUnavailable" : !snapshot.frontmost ? "notFrontmost"
       : new Set(snapshot.surfaces.map(surface => surface.id)).size !== snapshot.surfaces.length ? "invalidInventory"
@@ -346,7 +351,7 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
       model,
       transcript_path: sessionManager?.getSessionFile?.(),
       ...terminalFields(environment, tty,
-        ghosttyBindings.get(rawID)?.cwd === normalize(ctx.cwd || process.cwd()) ? ghosttyBindings.get(rawID) : undefined),
+        ghosttyBindings.get(rawID)),
     };
   }
 

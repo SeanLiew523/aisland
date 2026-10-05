@@ -12,6 +12,8 @@ test("locator rejects unavailable, foreign, duplicate, background, wrong cwd and
   expect(admitGhosttyBinding(snapshot("foreign"), "/tmp/shared", normalize, true)).toBeUndefined();
   expect(admitGhosttyBinding(snapshot("A", false), "/tmp/shared", normalize, true)).toBeUndefined();
   expect(admitGhosttyBinding(snapshot(), "/another", normalize, true)).toBeUndefined();
+  expect(admitGhosttyBinding(snapshot(), "/another", normalize, false, true)).toBeUndefined();
+  expect(admitGhosttyBinding({ ...snapshot(), surfaces: [surfaces[0], { ...surfaces[1], id: "" }] }, "/another", normalize, true, true)).toBeUndefined();
   expect(admitGhosttyBinding({ ...snapshot(), surfaces: [surfaces[0], surfaces[0]] }, "/tmp/shared", normalize, true)).toBeUndefined();
   expect(admitGhosttyBinding(snapshot(), "/tmp/shared", normalize)).toBeUndefined();
   expect(admitGhosttyBinding(snapshot(), "/tmp/shared", normalize, true)?.id).toBe("A");
@@ -99,4 +101,31 @@ test("authoritative non-Ghostty terminal rejects inherited Ghostty markers", () 
   expect(sent.at(-1).piHook.terminal_app).toBe("Terminal");
   expect(sent.at(-1).piHook.terminal_session_id).toBe("terminal-session");
   handlers.get("session_shutdown")!({ reason: "reload" }, ctx);
+});
+
+
+test("interactive real-PTY source binds when its agent cwd differs from shell OSC cwd and stays pinned after cd", () => {
+  const handlers = new Map<string, Function>(), sent: any[] = []; let reads = 0, focusedID = "A";
+  callback({ on: (name, handler) => handlers.set(name, handler) }, {
+    diagnostic: () => {}, environment: { TERM_PROGRAM: "ghostty" }, getTTY: () => "/dev/ttys001",
+    normalizeDirectory: normalize, ghosttySnapshot: () => { reads++; return snapshot(focusedID); },
+    sendCommand: async command => { sent.push(command); },
+  });
+  const ctx = { cwd: "/tmp/agent-cwd", hasUI: true, sessionManager: { getSessionId: () => "ordinary" } };
+  handlers.get("session_start")!({}, ctx);
+  expect(sent.at(-1).piHook.terminal_session_id).toBeUndefined();
+  const startupReads = reads;
+  handlers.get("input")!({ source: "rpc" }, ctx);
+  expect(reads).toBe(startupReads);
+  handlers.get("input")!({ source: "interactive" }, ctx);
+  handlers.get("tool_execution_start")!({}, ctx);
+  expect(sent.at(-1).piHook.terminal_session_id).toBe("A");
+  const pinnedReads = reads; focusedID = "B";
+  const moved = { ...ctx, cwd: "/tmp/changed" };
+  handlers.get("input")!({ source: "interactive" }, moved);
+  handlers.get("tool_execution_start")!({}, moved);
+  expect(sent.at(-1).piHook.terminal_session_id).toBe("A");
+  expect(sent.at(-1).piHook.cwd).toBe("/tmp/changed");
+  expect(reads).toBe(pinnedReads);
+  handlers.get("session_shutdown")!({ reason: "reload" }, moved);
 });

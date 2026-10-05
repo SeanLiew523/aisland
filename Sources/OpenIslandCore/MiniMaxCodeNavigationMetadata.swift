@@ -21,7 +21,7 @@ public struct MiniMaxCodeNavigationMetadata: Sendable {
     public init(databasePath: String) { self.databasePath = databasePath }
 
     public func conversation(sessionID: String, sourceVersion: String) throws -> MiniMaxCodeConversationMetadata? {
-        guard sourceVersion == "3.1.0" else { throw ReadError.unsupportedVersion }
+        guard MiniMaxCodeCompatibility.supportsDesktop(sourceVersion) else { throw ReadError.unsupportedVersion }
         guard databasePath.hasPrefix("/"), databasePath.hasSuffix("/v2/sqlite/runtime-state.sqlite"),
               Self.valid(sessionID, maximum: 512) else { throw ReadError.invalidRequest }
         var handle: OpaquePointer?

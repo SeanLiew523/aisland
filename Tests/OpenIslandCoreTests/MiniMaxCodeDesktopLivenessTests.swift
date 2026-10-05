@@ -22,6 +22,8 @@ struct MiniMaxCodeDesktopLivenessTests {
         var state = fixtureState()
         let originalTargets = Dictionary(uniqueKeysWithValues: state.sessions.map { ($0.id, $0.jumpTarget) })
         #expect(state.sessions.count == 2)
+        #expect(MiniMaxCodeDesktopLiveness.aliveSessionIDs(in: state.sessions, runningSourceVersions: ["3.1.1"])
+                == Set(state.sessions.map(\.id)))
         for _ in 0..<4 {
             let alive = MiniMaxCodeDesktopLiveness.aliveSessionIDs(in: state.sessions, runningSourceVersions: ["3.1.0"])
             #expect(alive == Set(state.sessions.map(\.id)))

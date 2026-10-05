@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { supportsDesktopVersion } from './core.mjs';
 import { mkdir, readdir, lstat, writeFile, rename, rm, mkdtemp, access, chmod, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -58,7 +59,7 @@ async function preflight(helperPath, plan) {
   const result = JSON.parse(stdout);
   if (result.schemaVersion !== 1 || result.ancestors?.[0]?.pid !== process.pid) throw new Error('Helper own-PID preflight failed');
   if (typeof result.desktopApp?.path !== 'string' || await realpath(result.desktopApp.path) !== plan.config.sourceDiscovery.desktopAppPath) throw new Error('Helper app-path preflight failed');
-  if (result.desktopApp?.bundleID !== 'com.minimax.agent' || result.desktopApp?.version !== '3.1.0') throw new Error('Helper bundle-version preflight failed');
+  if (result.desktopApp?.bundleID !== 'com.minimax.agent' || !supportsDesktopVersion(result.desktopApp?.version)) throw new Error('Helper bundle-version preflight failed');
   await runFile(helperPath, [String(process.pid), plan.config.sourceDiscovery.desktopAppPath], { timeout: 200, maxBuffer: 16384 });
 }
 function sameInstallation(plan, receipt) {

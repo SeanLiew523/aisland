@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { dirname, join, isAbsolute, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { validConfig } from './scripts/core.mjs';
+import { validConfig, supportsDesktopVersion } from './scripts/core.mjs';
 import { validDiscovery } from './scripts/source.mjs';
 const runFile = promisify(execFile);
 export const pluginName = 'aisland-minimaxcode-passive';
@@ -84,14 +84,14 @@ export async function buildPlan(request = {}) {
   const infoPath = join(desktopAppPath, 'Contents/Info.plist'); await regularFile(infoPath, 65536);
   const { stdout } = await runFile('/usr/bin/plutil', ['-convert', 'json', '-o', '-', infoPath], { timeout: 1000, maxBuffer: 65536 });
   const desktop = JSON.parse(stdout);
-  if (desktop.CFBundleIdentifier !== 'com.minimax.agent' || desktop.CFBundleShortVersionString !== '3.1.0') throw new Error('Unsupported Desktop bundle identity/version');
+  if (desktop.CFBundleIdentifier !== 'com.minimax.agent' || !supportsDesktopVersion(desktop.CFBundleShortVersionString)) throw new Error('Unsupported Desktop bundle identity/version');
   if (hookRuntimeKind === 'minimaxDesktopElectron') {
     if (enableCLI || typeof desktop.CFBundleExecutable !== 'string' || !desktop.CFBundleExecutable || desktop.CFBundleExecutable.includes('/')) throw new Error('Desktop runtime requires the reviewed Desktop-only executable');
     const executable = join(desktopAppPath, 'Contents/MacOS', desktop.CFBundleExecutable);
     if (!(await lstat(executable)).isFile()) throw new Error('Desktop runtime must be a regular executable');
     await access(executable, constants.X_OK);
     if (await realpath(executable) !== nodePath) throw new Error('Desktop runtime executable identity mismatch');
-    // 3.1.0's unchanged RunAsNode fuse is independently verified. No GUI/task entry point.
+    // Reviewed 3.1.0/3.1.1 RunAsNode fuse is independently verified. No GUI/task entry point.
     const { stdout: versions } = await runFile(nodePath, ['-p', 'JSON.stringify({node:process.versions.node,electron:process.versions.electron})'],
       { env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', ELECTRON_RUN_AS_NODE: '1' }, timeout: 1000, maxBuffer: 4096 });
     const runtime = JSON.parse(versions);

@@ -1,3 +1,4 @@
+import { supportsDesktopVersion } from './core.mjs';
 import { execFile } from 'node:child_process';
 import { constants, openSync, closeSync, fstatSync, readSync, realpathSync } from 'node:fs';
 import { join, isAbsolute, basename } from 'node:path';
@@ -14,7 +15,7 @@ export function validDiscovery(config) {
     && options.allowedSources.length <= 2 && new Set(options.allowedSources).size === options.allowedSources.length
     && options.allowedSources.every(value => ['minimaxCodeDesktop', 'minimaxCodeCLI'].includes(value))
     && (options.hookRuntimeKind === undefined || options.hookRuntimeKind === 'node'
-      || (options.hookRuntimeKind === 'minimaxDesktopElectron' && config.sourceRuntimeVersion === '3.1.0'
+      || (options.hookRuntimeKind === 'minimaxDesktopElectron' && supportsDesktopVersion(config.sourceRuntimeVersion)
         && options.allowedSources.length === 1 && options.allowedSources[0] === 'minimaxCodeDesktop'))
     && (options.profileIDs === undefined || (options.profileIDs && typeof options.profileIDs === 'object'
       && !Array.isArray(options.profileIDs) && Object.keys(options.profileIDs).every(key => ['minimaxCodeDesktop', 'minimaxCodeCLI'].includes(key))
@@ -80,7 +81,7 @@ export function classifySource(probe, config, { hookPID = process.pid, now = Dat
     if (desktopPath && ancestor.executablePath.startsWith(desktopPath + '/Contents/')) {
       // A nearer mcode marker always wins, including mcode in Desktop's terminal.
       if (probe.desktopApp?.path !== desktopPath || probe.desktopApp.bundleID !== 'com.minimax.agent'
-          || probe.desktopApp.version !== '3.1.0' || !config.sourceDiscovery.allowedSources.includes('minimaxCodeDesktop')) return null;
+          || !supportsDesktopVersion(probe.desktopApp.version) || !config.sourceDiscovery.allowedSources.includes('minimaxCodeDesktop')) return null;
       return { source: 'minimaxCodeDesktop', sourceRuntimeVersion: probe.desktopApp.version,
         profileID: config.sourceDiscovery.profileIDs?.minimaxCodeDesktop ?? config.profileID };
     }

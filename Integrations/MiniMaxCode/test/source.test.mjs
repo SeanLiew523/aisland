@@ -30,6 +30,13 @@ test('Shared Desktop config classifies actual runtime and assigns separate profi
   assert.deepEqual(classify(probe([hook, cli, terminal]), { marker: { pid: 200, startedAtMs: 2100 } }),
     { source: 'minimaxCodeCLI', sourceRuntimeVersion: '0.5.3', profileID: 'cli', terminalTTY: '/dev/ttys007', terminalApp: 'iTerm' });
 });
+test('Reviewed Desktop patch upgrade classifies actual version and preserves profile', () => {
+  const value = probe([hook, desktop, terminal]); value.desktopApp.version = '3.1.1';
+  assert.deepEqual(classify(value), { source: 'minimaxCodeDesktop', sourceRuntimeVersion: '3.1.1', profileID: 'desktop' });
+  const options = { ...config, sourceRuntimeVersion: '3.1.1' };
+  assert.equal(validDiscovery(options), true);
+  assert.deepEqual(classify(value, { options }), { source: 'minimaxCodeDesktop', sourceRuntimeVersion: '3.1.1', profileID: 'desktop' });
+});
 test('Original CLI wins inside Desktop terminal; unknown Node never falls back to Desktop', () => {
   const outer = { ...desktop, pid: 100, parentPID: 1, startedAtMs: 1000 };
   assert.equal(classify(probe([hook, cli, outer]), { marker: { pid: 200, startedAtMs: 2100 } }).source, 'minimaxCodeCLI');
@@ -91,7 +98,10 @@ test('Compiled macOS probe returns real own-process metadata and validates insta
     assert.equal(value.ancestors[0].pid, process.pid); assert.equal(value.ancestors[0].executablePath, realpathSync(process.execPath));
     assert.ok(value.ancestors[0].startedAtMs <= Date.now()); assert.ok(value.ancestors.length >= 2);
     for (const ancestor of value.ancestors) assert.ok(Object.keys(ancestor).every(key => ['pid', 'parentPID', 'executablePath', 'startedAtMs', 'tty'].includes(key)));
-    if (existsSync(app)) assert.deepEqual(value.desktopApp, { path: app, bundleID: 'com.minimax.agent', version: '3.1.0' });
+    if (existsSync(app)) {
+      assert.equal(value.desktopApp.path, app); assert.equal(value.desktopApp.bundleID, 'com.minimax.agent');
+      assert.ok(['3.1.0', '3.1.1'].includes(value.desktopApp.version));
+    }
     await runFile(path, [String(process.pid), app], { timeout: 200 });
     assert.deepEqual(JSON.parse((await runFile(path, ['0', app])).stdout).ancestors, []);
   } finally { await rm(dir, { recursive: true, force: true }); }

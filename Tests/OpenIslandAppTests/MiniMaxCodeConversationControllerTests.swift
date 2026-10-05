@@ -15,6 +15,15 @@ struct MiniMaxCodeConversationControllerTests {
         fixture.copiedID = "observed"; fixture.frontmost = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("app-not-frontmost"))
     }
+    @Test func reviewedPatchUpgradeRetainsOldConversationAndExactIDGate() throws {
+        let fixture = try ControllerFixture(); defer { fixture.dispose() }
+        fixture.sourceVersion = "3.1.1"
+        #expect(fixture.controller.focus(target: fixture.target) == .focused)
+        var target = fixture.target; target.runtimeSourceVersion = "3.1.1"
+        #expect(fixture.controller.focus(target: target) == .focused)
+        fixture.copiedID = "other"
+        #expect(fixture.controller.focus(target: target) == .unavailable("active-session-id-unverified"))
+    }
 
     @Test func initialActivationWaitsForForegroundWithinOriginalBudget() {
         var time: TimeInterval = 0
@@ -85,11 +94,11 @@ struct MiniMaxCodeConversationControllerTests {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         var target = fixture.target; target.runtimeMetadataDatabasePath = nil
         #expect(fixture.controller.focus(target: target) == .unavailable("runtime-metadata-unavailable"))
-        target = fixture.target; target.runtimeSourceVersion = "3.1.1"
+        target = fixture.target; target.runtimeSourceVersion = "3.2.0"
         #expect(fixture.controller.focus(target: target) == .unavailable("runtime-metadata-unavailable"))
         target = fixture.target; target.terminalApp = "MiniMax Code CLI"
         #expect(fixture.controller.focus(target: target) == .unavailable("runtime-metadata-unavailable"))
-        fixture.sourceVersion = "3.1.1"
+        fixture.sourceVersion = "3.2.0"
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("source-version-or-process-unavailable"))
         #expect(fixture.selectCount == 0)
     }

@@ -40,7 +40,7 @@ public struct DesktopConnectionInstallationManager: Sendable {
         ["HOME": home.path, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "LC_ALL": "C", "DSH_HOME": home.appendingPathComponent(".dsh").path]
     }
     public func configureMiniMax(evidence: AgentInstallationDetector.Evidence, activeDataDirectory: URL?) throws -> State {
-        guard evidence.version == "3.1.0", let app = evidence.bundleURL else { throw Failure.unsupportedVersion }
+        guard MiniMaxCodeCompatibility.supportsDesktop(evidence.version), let app = evidence.bundleURL else { throw Failure.unsupportedVersion }
         guard let dataDir = activeDataDirectory else { return .waitingForProfile }
         try directory(dataDir)
         // The shipped helper is mandatory for native setup. Never invoke swiftc

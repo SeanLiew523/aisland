@@ -39,9 +39,9 @@ struct MiniMaxCodeConversationController: Sendable {
         guard clock() < deadline else { return .unavailable("focus-timeout") }
         guard target.terminalApp == "MiniMax Code.app", let id = target.appConversationID,
               let path = target.runtimeMetadataDatabasePath,
-              target.runtimeSourceVersion == "3.1.0" else { return .unavailable("runtime-metadata-unavailable") }
+              MiniMaxCodeCompatibility.supportsDesktop(target.runtimeSourceVersion) else { return .unavailable("runtime-metadata-unavailable") }
         guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
-        guard let source = ui.source(), source.bundleIdentifier == "com.minimax.agent", source.version == "3.1.0" else {
+        guard let source = ui.source(), source.bundleIdentifier == "com.minimax.agent", MiniMaxCodeCompatibility.supportsDesktop(source.version) else {
             return .unavailable("source-version-or-process-unavailable")
         }
         let reader = MiniMaxCodeNavigationMetadata(databasePath: path)

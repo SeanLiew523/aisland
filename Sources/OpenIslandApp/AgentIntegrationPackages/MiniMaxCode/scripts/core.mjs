@@ -1,13 +1,15 @@
 import net from 'node:net';
 import { isAbsolute } from 'node:path';
 
+export const supportsDesktopVersion = version => ['3.1.0', '3.1.1'].includes(version);
+
 const cleanText = (value, limit, required = true) => typeof value === 'string' && (!required || value.trim().length > 0)
   && Buffer.byteLength(value) <= limit && !/[\x00-\x1f\x7f-\x9f]/.test(value);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 export function validConfig(config) {
   return record(config) && config.schemaVersion === 1
     && ['minimaxCodeDesktop', 'minimaxCodeCLI'].includes(config.source)
-    && config.sourceRuntimeVersion === (config.source === 'minimaxCodeDesktop' ? '3.1.0' : '0.5.3')
+    && (config.source === 'minimaxCodeDesktop' ? supportsDesktopVersion(config.sourceRuntimeVersion) : config.sourceRuntimeVersion === '0.5.3')
     && cleanText(config.profileID, 1024) && cleanText(config.bridgeSocketPath, 4096) && isAbsolute(config.bridgeSocketPath)
     && cleanText(config.metadataDatabasePath, 4096) && isAbsolute(config.metadataDatabasePath)
     && Number.isInteger(config.bridgeTimeoutMs) && config.bridgeTimeoutMs >= 10 && config.bridgeTimeoutMs <= 300;

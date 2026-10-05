@@ -85,7 +85,7 @@ public struct RuntimeLifecycleHookPayload: Equatable, Codable, Sendable {
         if event == .sessionObserved {
             guard source.isMiniMaxCode,
                   let path = metadataDatabasePath, path.hasPrefix("/"), path.hasSuffix("/v2/sqlite/runtime-state.sqlite"),
-                  sourceRuntimeVersion == (source == .minimaxCodeDesktop ? "3.1.0" : "0.5.3") else { return false }
+                  (source == .minimaxCodeDesktop ? MiniMaxCodeCompatibility.supportsDesktop(sourceRuntimeVersion) : sourceRuntimeVersion == "0.5.3") else { return false }
         }
         var reasons: Set<String> = source.isMiniMaxCode ? ["completed", "failed", "aborted", "unknown"] : source == .hermesCLI ? Self.hermesResultReasons : ["completed", "error", "blocked", "max-tokens", "aborted:user", "aborted:parent", "aborted:hook", "aborted:disposed", "aborted:legacy", "aborted:unknown", "interrupted", "forked", "unknown"]
         if source == .minimaxCodeDesktop {
@@ -188,7 +188,7 @@ public struct RuntimeLifecycleReducer: Sendable {
             // Older SDK-detach records may have incorrectly persisted sessionEnded.
             guard var old = previous, old.sessionEnded,
                   payload.source == .minimaxCodeDesktop, payload.resultReason == "visible",
-                  payload.sourceObservedStart == false, payload.sourceRuntimeVersion == "3.1.0",
+                  payload.sourceObservedStart == false, MiniMaxCodeCompatibility.supportsDesktop(payload.sourceRuntimeVersion),
                   payload.appConversationID == payload.sessionID,
                   payload.sourceRuntimeVersion == old.lastPayload.sourceRuntimeVersion,
                   payload.metadataDatabasePath == old.lastPayload.metadataDatabasePath,
@@ -216,7 +216,7 @@ public struct RuntimeLifecycleReducer: Sendable {
                 && payload.sourceObservedStart == false
                 && [.turnCompleted, .turnFailed, .turnInterrupted].contains(payload.event)
                 && !previous.observedStart
-                && payload.sourceRuntimeVersion == (payload.source == .minimaxCodeDesktop ? "3.1.0" : "0.5.3")
+                && (payload.source == .minimaxCodeDesktop ? MiniMaxCodeCompatibility.supportsDesktop(payload.sourceRuntimeVersion) : payload.sourceRuntimeVersion == "0.5.3")
                 && payload.metadataDatabasePath?.hasPrefix("/") == true
                 && payload.metadataDatabasePath?.hasSuffix("/v2/sqlite/runtime-state.sqlite") == true
                 && payload.turnID.map { $0 != previous.turnID && !previous.seenTurns.contains($0) } == true

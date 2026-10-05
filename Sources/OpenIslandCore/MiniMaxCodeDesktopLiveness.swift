@@ -6,7 +6,7 @@ public enum MiniMaxCodeDesktopLiveness {
     public static func aliveSessionIDs(
         in sessions: [AgentSession], runningSourceVersions: Set<String>
     ) -> Set<String> {
-        guard runningSourceVersions.contains("3.1.0") else { return [] }
+        guard !runningSourceVersions.isDisjoint(with: MiniMaxCodeCompatibility.desktopVersions) else { return [] }
         return Set(sessions.compactMap { session in
             guard session.tool == .minimaxCodeDesktop, session.origin == .live,
                   session.isHookManaged, !session.isSessionEnded,

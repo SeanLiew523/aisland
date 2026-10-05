@@ -7,6 +7,23 @@ struct MiniMaxCodeWindowSelectionTests {
         .init(role: "AXWindow", subrole: "AXStandardWindow", title: "MiniMax Code",
               isMain: true, isMinimized: false)
     }
+    @Test func coldStartWaitsForTheStrictMainWindowWithinTheOriginalBudget() {
+        var time = 0.0, reads = 0
+        let result: String? = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: 0.3,
+            clock: { time }, isCurrent: { true }, readWindow: {
+                reads += 1; return reads >= 3 ? "admitted-window" : nil
+            }, pause: { _ in time += 0.04 })
+        #expect(result == "admitted-window" && reads == 3)
+        time = 0; reads = 0
+        let changed: String? = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: 0.3,
+            clock: { time }, isCurrent: { reads == 0 }, readWindow: { reads += 1; return nil },
+            pause: { _ in time += 0.04 })
+        #expect(changed == nil && reads == 1)
+        time = 0
+        let late: String? = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: 0.1,
+            clock: { time }, isCurrent: { true }, readWindow: { time = 0.2; return "late-window" }, pause: { _ in })
+        #expect(late == nil)
+    }
     @Test func auxiliaryDialogDoesNotBlockUniqueMainWindow() {
         let dialog = MiniMaxCodeWindowSelection.Attributes(role: "AXWindow", subrole: "AXDialog",
             title: "Auxiliary", isMain: false, isMinimized: false)

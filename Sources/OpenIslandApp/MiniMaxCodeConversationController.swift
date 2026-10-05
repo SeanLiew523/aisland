@@ -164,7 +164,7 @@ enum MiniMaxCodeFocusedElementAdmission {
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
-    enum Stage: String, Sendable { case window, search, topbar, entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Stage: String, Sendable { case activation, window, search, topbar, entry, title, menu, focus, arrow, item, label, clipboard, complete }
     enum Reason: String, Sendable {
         case windowFocused, windowFocusUnobserved, deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
         case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
@@ -174,6 +174,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case searchFieldUnavailable, searchSetValueFailed, searchValueMismatch, searchResultsAmbiguous
         case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
+        case activationRequestFailed, activationUnobserved
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -455,14 +456,36 @@ private enum MiniMaxCodeAXNavigation {
         }
         let requested = Thread.isMainThread ? request() : DispatchQueue.main.sync(execute: request)
         acceptanceLog(.activationRequest, flag: requested)
-        guard requested else { return false }
+        guard requested else {
+            var diagnostic = MiniMaxCodeCopyDiagnostic()
+            diagnostic.stage = .activation; diagnostic.reason = .activationRequestFailed
+            diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            return false
+        }
         acceptanceLog(.activationEntry, flag: frontmost(source))
         let activated = MiniMaxCodeActivationAdmission.wait(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime },
             available: { AXIsProcessTrusted() && self.app(source) != nil },
             frontmost: { self.frontmost(source) }, pause: pause)
         acceptanceLog(.activationAdmission, flag: activated)
-        guard activated, let admittedWindow = window(source) else { return false }
+        guard activated else {
+            var diagnostic = MiniMaxCodeCopyDiagnostic()
+            diagnostic.stage = .activation; diagnostic.reason = .activationUnobserved
+            diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            return false
+        }
+        guard let admittedWindow = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: deadline,
+            clock: { ProcessInfo.processInfo.systemUptime },
+            isCurrent: { AXIsProcessTrusted() && self.source() == source && frontmost(source) },
+            readWindow: { window(source) }, pause: pause) else {
+            var diagnostic = MiniMaxCodeCopyDiagnostic()
+            diagnostic.stage = .window; diagnostic.reason = .windowUnavailable
+            diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            return false
+        }
         let focusStarted = ProcessInfo.processInfo.systemUptime
         var windowDiagnostic = MiniMaxCodeCopyDiagnostic()
         let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
@@ -629,8 +652,12 @@ private enum MiniMaxCodeAXNavigation {
             guard results.count == 1 else { diagnostic.reason = .searchResultsAmbiguous; return false }
             guard current() != nil, press(results[0], deadline) else { diagnostic.reason = .searchResultPressFailed; return false }
             diagnostic.reason = .searchTitleUnavailable
+            var sampledTopbar = false
             while let root = current() {
-                if titleMenuButton(root, title: record.title, deadline: deadline, defaultWorkspace: true) != nil {
+                let menu = titleMenuButton(root, title: record.title, deadline: deadline,
+                    defaultWorkspace: true, recordDiagnostic: !sampledTopbar)
+                sampledTopbar = true
+                if menu != nil {
                     diagnostic.reason = .searchSelected; return true
                 }
                 pause(deadline)
@@ -934,14 +961,14 @@ private enum MiniMaxCodeAXNavigation {
     /// Only the ten-node controls branch and one-text title branch are read;
     /// the shared panel's chat descendants cannot affect this lookup.
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval,
-                                defaultWorkspace: Bool = false) -> AXUIElement? {
+                                defaultWorkspace: Bool = false, recordDiagnostic: Bool = true) -> AXUIElement? {
         var unused = false
         return titleMenuButton(root, title: title, deadline: deadline, rejectOpenMenu: false,
-                               menuAlreadyOpen: &unused, defaultWorkspace: defaultWorkspace)
+                               menuAlreadyOpen: &unused, defaultWorkspace: defaultWorkspace, recordDiagnostic: recordDiagnostic)
     }
     static func titleMenuButton(_ root: AXUIElement, title: String, deadline: TimeInterval,
                                 rejectOpenMenu: Bool, menuAlreadyOpen: inout Bool,
-                                defaultWorkspace: Bool = false) -> AXUIElement? {
+                                defaultWorkspace: Bool = false, recordDiagnostic: Bool = true) -> AXUIElement? {
         let visited = nodes(root, deadline)
         if rejectOpenMenu {
             menuAlreadyOpen = visited.contains { role($0) == "AXMenu" || classes($0).contains("ant-dropdown-menu") }
@@ -954,7 +981,7 @@ private enum MiniMaxCodeAXNavigation {
             diagnostic.stage = .topbar
             diagnostic.reason = .terminalButtonAmbiguous
             diagnostic.searchCount = terminals.count
-            defer { MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic) }
+            defer { if recordDiagnostic { MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic) } }
             guard terminals.count == 1 else { return nil }
             diagnostic.reason = .topbarParentUnavailable
             // Electron inserts unnamed one-child layout groups which the

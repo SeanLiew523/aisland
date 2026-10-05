@@ -1,3 +1,5 @@
+import Foundation
+
 /// Desktop 3.1.0 exposes a standard main window and may also expose auxiliary
 /// dialogs. A matching title alone is insufficient; login/onboarding can use
 /// the same public title. Project and native-session checks follow selection.
@@ -8,6 +10,16 @@ enum MiniMaxCodeWindowSelection {
         var title: String?
         var isMain: Bool?
         var isMinimized: Bool?
+    }
+
+    static func waitForMainWindow<Element>(deadline: TimeInterval, clock: () -> TimeInterval,
+        isCurrent: () -> Bool, readWindow: () -> Element?, pause: (TimeInterval) -> Void) -> Element? {
+        while clock() < deadline {
+            guard isCurrent() else { return nil }
+            if let window = readWindow() { return clock() < deadline && isCurrent() ? window : nil }
+            pause(deadline)
+        }
+        return nil
     }
 
     static func mainIndex(in windows: [Attributes]) -> Int? {

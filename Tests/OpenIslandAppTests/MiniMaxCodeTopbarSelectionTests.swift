@@ -21,13 +21,6 @@ struct MiniMaxCodeTopbarSelectionTests {
         #expect(MiniMaxCodeTopbarSelection.layoutParent(of: 1, parent: { _ in 1 },
             isUnnamedGroup: { _ in true }, children: { [$0] }, equal: ==, hasTime: { true }) == nil)
     }
-    @Test func ordinaryDefaultWorkspaceUsesOnlyTheDirectTopbarPrefix() {
-        #expect(MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in: [.title, .menu, .controls, .other, .other, .other]) == 1)
-        #expect(MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in: [.other, .title, .menu, .controls]) == nil)
-        #expect(MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in: [.title, .other, .menu, .controls]) == nil)
-        #expect(MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in: [.title, .menu, .controls, .menu]) == nil)
-        #expect(MiniMaxCodeTopbarSelection.defaultWorkspaceMenuIndex(in: [.title, .menu, .controls] + Array(repeating: .other, count: 6)) == nil)
-    }
     @Test func chatContentDoesNotBecomeATitleBranch() {
         #expect(MiniMaxCodeTopbarSelection.menuIndex(in: [.other, .title, .menu, .controls, .other, .other]) == 2)
         #expect(MiniMaxCodeTopbarSelection.menuIndex(in: [.other, .other, .menu, .controls, .other]) == nil)

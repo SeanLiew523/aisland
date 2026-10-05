@@ -912,6 +912,14 @@ public final class BridgeServer: @unchecked Sendable {
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
 
+            // The connected blocking hook owns an unresolved approval/question.
+            // Informational notifications cannot resolve it, including idle hints
+            // and notifications arriving after a delayed previous-turn snapshot.
+            if pendingClaudeInteractions[payload.sessionID] != nil {
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             let currentPhase = localState.session(id: payload.sessionID)?.phase ?? .completed
             let notificationPhase: SessionPhase
             if payload.isIdleNotification {

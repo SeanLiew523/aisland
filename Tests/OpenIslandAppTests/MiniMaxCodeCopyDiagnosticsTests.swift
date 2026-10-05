@@ -39,13 +39,15 @@ struct MiniMaxCodeCopyDiagnosticsTests {
         diagnostic.stage = .focus; diagnostic.reason = .copyFocusUnobserved
         diagnostic.focusedRole = "synthetic-secret-body-or-ID"
         diagnostic.focusPolls = Int.max; diagnostic.focusQueryError = Int.min
+        diagnostic.searchCount = Int.max; diagnostic.searchNodes = -1
         MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic, directory: f.root)
         let line = try String(contentsOf: f.log, encoding: .utf8)
         #expect(!line.contains("synthetic-secret"))
         #expect(line.contains("focusedRole=unavailable") && line.contains("focusPolls=60000"))
         #expect(line.contains("focusQueryError=-25220") && line.contains("stage=focus"))
+        #expect(line.contains("searchCount=60000") && line.contains("searchNodes=0"))
         let keys = line.split(separator: " ").map { String($0.split(separator: "=", maxSplits: 1)[0]) }
-        #expect(Set(keys) == Set(["timestamp", "stage", "reason", "cleanup", "windowRaise", "windowRaiseSucceeded", "windowFocused", "windowFocusProof", "focusWindowMatches", "focusAncestorMatches", "focusPolls", "focusQueryError", "focusedRole", "focusEqual", "frontmost", "inputAvailable", "copied", "restored", "deadlineExpired", "entryBudgetMs", "elapsedMs"]))
+        #expect(Set(keys) == Set(["timestamp", "stage", "reason", "cleanup", "searchCount", "searchNodes", "windowRaise", "windowRaiseSucceeded", "windowFocused", "windowFocusProof", "focusWindowMatches", "focusAncestorMatches", "focusPolls", "focusQueryError", "focusedRole", "focusEqual", "frontmost", "inputAvailable", "copied", "restored", "deadlineExpired", "entryBudgetMs", "elapsedMs"]))
         var info = stat(); #expect(lstat(f.log.path, &info) == 0)
         #expect(info.st_uid == getuid() && info.st_nlink == 1)
         #expect((info.st_mode & S_IFMT) == S_IFREG && (info.st_mode & 0o7777) == 0o600)

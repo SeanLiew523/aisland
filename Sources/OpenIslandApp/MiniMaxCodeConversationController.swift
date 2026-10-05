@@ -164,12 +164,15 @@ enum MiniMaxCodeFocusedElementAdmission {
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
-    enum Stage: String, Sendable { case window, entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Stage: String, Sendable { case window, search, entry, title, menu, focus, arrow, item, label, clipboard, complete }
     enum Reason: String, Sendable {
         case windowFocused, windowFocusUnobserved, deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
         case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
         case inputUnavailable, focusChanged, arrowDispatched, itemUnavailable, clipboardUnavailable, clipboardChanged
         case labelActivationFailed, copyUnobserved, copyMismatch, lateCopy, verified
+        case searchAlreadyOpen, searchButtonUnavailable, searchPressFailed, searchGroupUnavailable
+        case searchFieldUnavailable, searchSetValueFailed, searchValueMismatch, searchResultsAmbiguous
+        case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -184,6 +187,8 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var windowRaise = false
     var windowRaiseSucceeded = false
     var windowFocused = false
+    var searchCount = 0
+    var searchNodes = 0
     var focusPolls = 0
     var focusQueryError = 0
     var focusedRole = "unavailable"
@@ -199,7 +204,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -537,6 +542,17 @@ private enum MiniMaxCodeAXNavigation {
     static func selectFromSearch(_ record: MiniMaxCodeConversationMetadata,
                                  source: MiniMaxCodeConversationUI.Source,
                                  window admittedWindow: AXUIElement, deadline: TimeInterval) -> Bool {
+        let started = ProcessInfo.processInfo.systemUptime
+        var diagnostic = MiniMaxCodeCopyDiagnostic()
+        diagnostic.stage = .search
+        diagnostic.reason = .searchBudgetExpired
+        defer {
+            diagnostic.frontmost = frontmost(source)
+            diagnostic.deadlineExpired = !remaining(deadline)
+            diagnostic.entryBudgetMilliseconds = Int(max(0, deadline - started) * 1000)
+            diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+        }
         func current() -> AXUIElement? {
             guard remaining(deadline), AXIsProcessTrusted(), self.source() == source,
                   frontmost(source), let root = window(source), CFEqual(root, admittedWindow) else { return nil }
@@ -547,11 +563,16 @@ private enum MiniMaxCodeAXNavigation {
                 role($0) == "AXGroup" && ["全局搜索", "Global search"].contains(exactLabel($0) ?? "")
             }
         }
-        guard let root = current(), searchGroups(root).isEmpty else { return false }
+        guard let root = current() else { return false }
+        let initialGroups = searchGroups(root)
+        diagnostic.searchCount = initialGroups.count
+        guard initialGroups.isEmpty else { diagnostic.reason = .searchAlreadyOpen; return false }
         let buttons = nodes(root, deadline).filter {
             role($0) == "AXButton" && ["搜索", "Search"].contains(exactLabel($0) ?? "") && action($0, kAXPressAction)
         }
-        guard buttons.count == 1, current() != nil, press(buttons[0], deadline) else { return false }
+        diagnostic.searchCount = buttons.count
+        guard buttons.count == 1 else { diagnostic.reason = .searchButtonUnavailable; return false }
+        guard current() != nil, press(buttons[0], deadline) else { diagnostic.reason = .searchPressFailed; return false }
         defer {
             // Close only our own search, in the same source/window and budget.
             if let root = current() {
@@ -568,19 +589,28 @@ private enum MiniMaxCodeAXNavigation {
         while let root = current() {
             let groups = searchGroups(root)
             if groups.isEmpty { pause(deadline); continue }
-            guard groups.count == 1 else { return false }
+            diagnostic.searchCount = groups.count
+            guard groups.count == 1 else { diagnostic.reason = .searchGroupUnavailable; return false }
             let members = nodes(groups[0], deadline, maximum: 256, depth: 8)
+            diagnostic.searchNodes = members.count
             if !searched {
                 let fields = members.filter {
                     role($0) == "AXTextField" && ["搜索任务或运行命令", "Search tasks or run commands"].contains(exactLabel($0) ?? "")
                 }
-                guard fields.count == 1, current() != nil,
-                      AXUIElementSetAttributeValue(fields[0], kAXValueAttribute as CFString, record.title as CFString) == .success else { return false }
+                diagnostic.searchCount = fields.count
+                guard fields.count == 1 else { diagnostic.reason = .searchFieldUnavailable; return false }
+                guard current() != nil,
+                      AXUIElementSetAttributeValue(fields[0], kAXValueAttribute as CFString, record.title as CFString) == .success else {
+                    diagnostic.reason = .searchSetValueFailed; return false
+                }
                 searched = true
                 pause(deadline); continue
             }
             let fields = members.filter { role($0) == "AXTextField" }
-            guard fields.count == 1, value(fields[0], kAXValueAttribute) as? String == record.title else { return false }
+            diagnostic.searchCount = fields.count
+            guard fields.count == 1, value(fields[0], kAXValueAttribute) as? String == record.title else {
+                diagnostic.reason = .searchValueMismatch; return false
+            }
             let results = members.filter { item in
                 guard role(item) == "AXButton", exactLabel(item) == record.title, action(item, kAXPressAction),
                       let section = parent(item), members.contains(where: { CFEqual($0, section) }) else { return false }
@@ -594,9 +624,14 @@ private enum MiniMaxCodeAXNavigation {
                 }
             }
             if results.isEmpty { pause(deadline); continue }
-            guard results.count == 1, current() != nil, press(results[0], deadline) else { return false }
+            diagnostic.searchCount = results.count
+            guard results.count == 1 else { diagnostic.reason = .searchResultsAmbiguous; return false }
+            guard current() != nil, press(results[0], deadline) else { diagnostic.reason = .searchResultPressFailed; return false }
+            diagnostic.reason = .searchTitleUnavailable
             while let root = current() {
-                if titleMenuButton(root, title: record.title, deadline: deadline, defaultWorkspace: true) != nil { return true }
+                if titleMenuButton(root, title: record.title, deadline: deadline, defaultWorkspace: true) != nil {
+                    diagnostic.reason = .searchSelected; return true
+                }
                 pause(deadline)
             }
             return false

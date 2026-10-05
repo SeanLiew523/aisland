@@ -1175,11 +1175,13 @@ final class AppModel {
         shouldRecordJumpDiagnostics = GhosttyJumpDiagnostics.shouldRecord(loadRuntimeState: loadRuntimeState, isAcceptance: acceptanceConfiguration != nil)
         if loadRuntimeState {
             isResolvingInitialLiveSessions = true
+            discovery.beginStartupHistory()
 
             startupWorkflows.start(history: { [weak self] in
                 guard let self else { return }
-                let payload = self.discovery.loadStartupDiscoveryPayload()
-                await self.applyStartupDiscoveryPayload(payload)
+                await self.discovery.discoverStartupSessions { [weak self] payload in
+                    self?.applyStartupDiscoveryPayload(payload)
+                }
             }, connections: { [weak self] in
                 guard let self else { return }
                 await self.hooks.runStartupSetup { self.onStartupSetupReady?() }
@@ -1669,6 +1671,7 @@ final class AppModel {
         ingress: TrackedEventIngress = .bridge
     ) {
         if case .sessionHeartbeat = event {
+            discovery.protectFromStartupHistory(event)
             state.apply(event)
             return
         }
@@ -1693,6 +1696,7 @@ final class AppModel {
             return
         }
 
+        discovery.protectFromStartupHistory(event)
         state.apply(event)
         reconcileIslandSurfaceAfterStateChange()
         if ingress == .bridge && (acceptanceConfiguration == nil || acceptanceConfiguration?.sourceSetup != nil) {
@@ -1815,7 +1819,7 @@ final class AppModel {
         }
     }
 
-    /// Applies startup discovery results on the main thread after background I/O completes.
+    /// Applies each startup batch on the main actor as background discovery proceeds.
     private func applyStartupDiscoveryPayload(_ payload: SessionDiscoveryCoordinator.StartupDiscoveryPayload) {
         guard acceptanceConfiguration == nil else { return }
         discovery.applyStartupDiscoveryPayload(payload)

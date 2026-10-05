@@ -15,6 +15,34 @@ private actor HistoryPause {
     func release() { isOpen = true; continuation?.resume(); continuation = nil }
 }
 
+private final class ScanCountingFileManager: FileManager, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    override func fileExists(atPath path: String) -> Bool {
+        lock.withLock { count += 1 }
+        return super.fileExists(atPath: path)
+    }
+    var scanCount: Int { lock.withLock { count } }
+}
+
+/// A synchronous source can pause without blocking the main actor consumer.
+private final class StartupScanGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var open = false
+    private var waiting = false
+    private var trace: [String] = []
+    func record(_ event: String) { condition.lock(); trace.append(event); condition.unlock() }
+    func wait() {
+        condition.lock()
+        waiting = true
+        while !open { condition.wait() }
+        condition.unlock()
+    }
+    func release() { condition.lock(); open = true; condition.broadcast(); condition.unlock() }
+    var isWaiting: Bool { condition.lock(); defer { condition.unlock() }; return waiting }
+    var events: [String] { condition.lock(); defer { condition.unlock() }; return trace }
+}
+
 @MainActor private final class DiscoveryState {
     var value = SessionState()
 }
@@ -36,9 +64,11 @@ private struct DiscoveryFixture {
         pi = PiSessionRegistry(fileURL: root.appendingPathComponent("pi.json"))
     }
     func cleanup() { try? FileManager.default.removeItem(at: root) }
-    @MainActor func coordinator(state: DiscoveryState) -> SessionDiscoveryCoordinator {
+    @MainActor func coordinator(state: DiscoveryState, sources: SessionDiscoveryCoordinator.StartupDiscoverySources? = nil, codexFileManager: FileManager = .default) -> SessionDiscoveryCoordinator {
         let discovery = SessionDiscoveryCoordinator(codexSessionStore: codex, claudeSessionRegistry: claude,
-            openCodeSessionRegistry: openCode, cursorSessionRegistry: cursor, piSessionRegistry: pi, loadArchivedCodexSessionIDs: { [] })
+            openCodeSessionRegistry: openCode, cursorSessionRegistry: cursor, piSessionRegistry: pi, loadArchivedCodexSessionIDs: { [] }, startupSources: sources,
+            codexRolloutDiscovery: CodexRolloutDiscovery(rootURL: root.appendingPathComponent("rollouts"), fileManager: codexFileManager),
+            claudeTranscriptDiscovery: ClaudeTranscriptDiscovery(rootURL: root.appendingPathComponent("transcripts")))
         discovery.stateAccessor = { state.value }
         discovery.stateUpdater = { state.value = $0 }
         return discovery
@@ -195,6 +225,167 @@ private struct DiscoveryFixture {
             #expect(restored.claudeMetadata == original.claudeMetadata && restored.updatedAt == original.updatedAt)
             #expect(restored.attachmentState == .stale && !restored.isHookManaged && !restored.isProcessAlive)
         }
+    }
+
+
+    @Test func cacheAndFirstDiscoveryApplyBeforeRemainingSourcesWhileCacheCanEnrich() async throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let gate = StartupScanGate(); defer { gate.release() }
+        let state = DiscoveryState()
+        let now = Date(timeIntervalSince1970: floor(Date.now.timeIntervalSince1970))
+        var cached = session("cached-codex", tool: .codex, at: now.addingTimeInterval(-120))
+        cached.jumpTarget = JumpTarget(terminalApp: "Unknown", workspaceName: "fixture", paneTitle: "fixture",
+            workingDirectory: "/synthetic/workspace")
+        let zcode = session("cached-zcode", tool: .zcode, at: now.addingTimeInterval(-120))
+        try fixture.save([cached, zcode])
+        let first = session("first-codex", tool: .codex, at: now)
+        let later = session("later-codex", tool: .codex, at: now)
+        let claude = session("later-claude", tool: .claudeCode, at: now)
+        var enriched = cached
+        enriched.updatedAt = now; enriched.phase = .completed; enriched.title = "Source enriched"
+        enriched.jumpTarget = JumpTarget(terminalApp: "Codex.app", workspaceName: "fixture", paneTitle: "fixture",
+            workingDirectory: "/synthetic/workspace", terminalSessionID: "exact-desktop-id")
+        enriched.codexMetadata = CodexSessionMetadata(initialUserPrompt: "Source prompt", currentTool: "SourceTool")
+        let enrichment = CodexTrackedSessionRecord(session: enriched)
+        var duplicate = first; duplicate.title = "Older duplicate"; duplicate.updatedAt = now.addingTimeInterval(-60)
+        let older = CodexTrackedSessionRecord(session: duplicate)
+        let sources = SessionDiscoveryCoordinator.StartupDiscoverySources(codex: { emit in
+            gate.record("codex-start")
+            emit(CodexTrackedSessionRecord(session: first))
+            emit(enrichment)
+            gate.wait()
+            emit(CodexTrackedSessionRecord(session: later))
+            emit(older)
+            gate.record("codex-finish")
+        }, claude: { emit in
+            gate.record("claude-start")
+            emit(claude)
+        })
+        let discovery = fixture.coordinator(state: state, sources: sources)
+        let workflow = Task {
+            await discovery.discoverStartupSessions { batch in
+                if !batch.codexRecords.isEmpty { gate.record("cache-applied") }
+                discovery.applyStartupDiscoveryPayload(batch)
+            }
+        }
+        try await waitForDiscovery { gate.isWaiting && state.value.session(id: cached.id)?.title == "Source enriched" }
+        #expect(gate.events == ["cache-applied", "codex-start"])
+        #expect(state.value.session(id: zcode.id)?.tool == .zcode)
+        #expect(state.value.session(id: first.id) != nil)
+        #expect(state.value.session(id: later.id) == nil && state.value.session(id: claude.id) == nil)
+        let surfacedCache = try #require(state.value.session(id: cached.id))
+        #expect(surfacedCache.phase == .completed && surfacedCache.isCodexAppSession)
+        #expect(surfacedCache.codexMetadata?.initialUserPrompt == "Source prompt")
+        #expect(surfacedCache.jumpTarget?.terminalSessionID == "exact-desktop-id")
+        gate.release()
+        await workflow.value
+        #expect(gate.events == ["cache-applied", "codex-start", "codex-finish", "claude-start"])
+        #expect(state.value.sessions.count == 5)
+        #expect(state.value.session(id: first.id)?.title == first.title)
+    }
+
+    @Test func runtimeIngressBetweenBatchesProtectsNativeIdentityTargetAndLateTranscriptAlias() async throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let gate = StartupScanGate(); defer { gate.release() }
+        let state = DiscoveryState()
+        let now = Date(timeIntervalSince1970: floor(Date.now.timeIntervalSince1970))
+        let cachedCodex = session("cached-codex", tool: .codex, at: now.addingTimeInterval(-120))
+        let cachedZcode = session("native-zcode", tool: .zcode, at: now.addingTimeInterval(-120))
+        try fixture.save([cachedCodex, cachedZcode])
+        var staleCodex = cachedCodex
+        staleCodex.title = "Late history"; staleCodex.phase = .running; staleCodex.updatedAt = now.addingTimeInterval(120)
+        staleCodex.jumpTarget = JumpTarget(terminalApp: "Codex.app", workspaceName: "wrong", paneTitle: "wrong",
+            workingDirectory: "/synthetic/wrong", terminalSessionID: "wrong-target")
+        let lateCodex = CodexTrackedSessionRecord(session: staleCodex)
+        var alias = cachedZcode; alias.id = "late-transcript-alias"; alias.tool = .claudeCode
+        alias.title = "Wrong alias"; alias.updatedAt = now.addingTimeInterval(120)
+        alias.jumpTarget = staleCodex.jumpTarget
+        let lateAlias = alias
+        let sources = SessionDiscoveryCoordinator.StartupDiscoverySources(codex: { emit in
+            gate.wait()
+            emit(lateCodex)
+        }, claude: { emit in emit(lateAlias) })
+        let discovery = fixture.coordinator(state: state, sources: sources)
+        let workflow = Task { await discovery.discoverStartupSessions { discovery.applyStartupDiscoveryPayload($0) } }
+        try await waitForDiscovery { gate.isWaiting && state.value.sessions.count == 2 }
+        let events: [AgentEvent] = [
+            .sessionCompleted(.init(sessionID: cachedCodex.id, summary: "Live completed", timestamp: now)),
+            .sessionHeartbeat(.init(sessionID: cachedZcode.id, timestamp: now)),
+            .jumpTargetUpdated(.init(sessionID: cachedZcode.id,
+                jumpTarget: JumpTarget(terminalApp: "ZCode.app", workspaceName: "live", paneTitle: "live",
+                    workingDirectory: "/synthetic/live", terminalSessionID: "live-native-target"), timestamp: now)),
+            .sessionCompleted(.init(sessionID: cachedZcode.id, summary: "Live ZCode completed", timestamp: now)),
+        ]
+        for event in events { discovery.protectFromStartupHistory(event); state.value.apply(event) }
+        let live = state.value.sessions
+        gate.release()
+        await workflow.value
+        for current in live { #expect(state.value.session(id: current.id) == current) }
+        #expect(state.value.session(id: lateAlias.id) == nil)
+        #expect(state.value.session(id: cachedZcode.id)?.tool == .zcode)
+        #expect(state.value.session(id: cachedZcode.id)?.jumpTarget?.terminalSessionID == "live-native-target")
+        try await waitForDiscovery {
+            try fixture.codex.load().first?.phase == .completed && fixture.claude.load().first?.summary == "Live ZCode completed"
+        }
+        // After startup, ordinary source updates retain their existing merge semantics.
+        #expect(discovery.mergeDiscoveredSessions([staleCodex]).first { $0.id == cachedCodex.id }?.title == "Late history")
+    }
+
+    @Test func cacheAdmissionRejectsExpiredDemoAndEndedFamilyRecords() throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let state = DiscoveryState(), discovery = fixture.coordinator(state: state)
+        let now = Date(timeIntervalSince1970: floor(Date.now.timeIntervalSince1970))
+        let current = session("current-workbuddy", tool: .workbuddy, at: now)
+        let expired = session("expired-zcode", tool: .zcode, at: now.addingTimeInterval(-172_800))
+        var demo = session("demo-zcode", tool: .zcode, at: now); demo.origin = .demo
+        var ended = session("ended-workbuddy", tool: .workbuddy, at: now); ended.isSessionEnded = true
+        try fixture.save([current, expired, demo, ended])
+        let batch = discovery.loadStartupCachePayload()
+        #expect(batch.claudeRecords.map(\.sessionID) == [current.id])
+        #expect(batch.claudeRecordsNeedPrune)
+    }
+
+
+
+    @Test func periodicRescanYieldsStartupFirstFlightAndResumesAfterFinish() async throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let gate = StartupScanGate(); defer { gate.release() }
+        let manager = ScanCountingFileManager(), state = DiscoveryState()
+        let sources = SessionDiscoveryCoordinator.StartupDiscoverySources(codex: { _ in gate.wait() }, claude: { _ in })
+        let discovery = fixture.coordinator(state: state, sources: sources, codexFileManager: manager)
+        discovery.beginStartupHistory()
+        discovery.rediscoverCodexAppSessionsIfNeeded()
+        #expect(manager.scanCount == 0) // Reserved before the history task is scheduled.
+        let workflow = Task { await discovery.discoverStartupSessions { discovery.applyStartupDiscoveryPayload($0) } }
+        try await waitForDiscovery { gate.isWaiting }
+        discovery.rediscoverCodexAppSessionsIfNeeded()
+        #expect(manager.scanCount == 0) // Streaming scan owns first flight; live state still accepts events.
+        let live = session("live-native", tool: .zcode, at: .now)
+        state.value = SessionState(sessions: [live])
+        #expect(state.value.session(id: live.id) == live)
+        gate.release()
+        await workflow.value
+        discovery.rediscoverCodexAppSessionsIfNeeded()
+        try await waitForDiscovery { manager.scanCount == 1 }
+    }
+
+    @Test func runtimeBeforeFirstCacheApplyRemainsAuthoritative() async throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let state = DiscoveryState()
+        let now = Date(timeIntervalSince1970: floor(Date.now.timeIntervalSince1970))
+        let cached = session("native-workbuddy", tool: .workbuddy, at: now.addingTimeInterval(120))
+        try fixture.save([cached])
+        let sources = SessionDiscoveryCoordinator.StartupDiscoverySources(codex: { _ in }, claude: { _ in })
+        let discovery = fixture.coordinator(state: state, sources: sources)
+        discovery.beginStartupHistory()
+        let event = AgentEvent.sessionStarted(.init(sessionID: cached.id, title: "Live source", tool: .workbuddy,
+            origin: .live, summary: "Live arrived", timestamp: now,
+            jumpTarget: JumpTarget(terminalApp: "WorkBuddy.app", workspaceName: "live", paneTitle: "live",
+                workingDirectory: "/synthetic/live", terminalSessionID: "live-workbuddy")))
+        discovery.protectFromStartupHistory(event); state.value.apply(event)
+        let live = try #require(state.value.session(id: cached.id))
+        await discovery.discoverStartupSessions { discovery.applyStartupDiscoveryPayload($0) }
+        #expect(state.value.session(id: cached.id) == live)
     }
 
 }

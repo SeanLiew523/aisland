@@ -420,7 +420,12 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
         self.maxFiles = maxFiles
     }
 
-    public func discoverRecentSessions(now: Date = .now) -> [CodexTrackedSessionRecord] {
+    /// Deliver each complete candidate before parsing later files. The returned
+    /// array retains the existing deduplicated ordering and scan semantics.
+    public func discoverRecentSessions(
+        now: Date = .now,
+        onSession: @Sendable (CodexTrackedSessionRecord) -> Void = { _ in }
+    ) -> [CodexTrackedSessionRecord] {
         // Re-entrancy guard: with a large active rollout a scan can outlast
         // the caller's 10s rediscover throttle, and overlapping scans parse
         // the same files on multiple threads at once.
@@ -509,6 +514,7 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
             }
 
             recordsByID[record.sessionID] = record
+            onSession(record)
         }
 
         return recordsByID.values.sorted { lhs, rhs in

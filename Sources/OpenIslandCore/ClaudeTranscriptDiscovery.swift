@@ -28,7 +28,12 @@ public final class ClaudeTranscriptDiscovery: @unchecked Sendable {
         self.maxFiles = maxFiles
     }
 
-    public func discoverRecentSessions(now: Date = .now) -> [AgentSession] {
+    /// Deliver only fully parsed sessions; no partial transcript can infer task
+    /// completion. Callers can surface each candidate while later files scan.
+    public func discoverRecentSessions(
+        now: Date = .now,
+        onSession: @Sendable (AgentSession) -> Void = { _ in }
+    ) -> [AgentSession] {
         guard fileManager.fileExists(atPath: rootURL.path),
               let enumerator = fileManager.enumerator(
                 at: rootURL,
@@ -62,7 +67,9 @@ public final class ClaudeTranscriptDiscovery: @unchecked Sendable {
             .prefix(maxFiles)
 
         return sortedCandidates.compactMap { candidate in
-            parseSession(at: candidate.fileURL, fallbackUpdatedAt: candidate.modifiedAt)
+            guard let session = parseSession(at: candidate.fileURL, fallbackUpdatedAt: candidate.modifiedAt) else { return nil }
+            onSession(session)
+            return session
         }
     }
 

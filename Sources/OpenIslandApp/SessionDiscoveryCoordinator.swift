@@ -12,7 +12,10 @@ final class SessionDiscoveryCoordinator {
         openCodeSessionRegistry: OpenCodeSessionRegistry = OpenCodeSessionRegistry(),
         cursorSessionRegistry: CursorSessionRegistry = CursorSessionRegistry(),
         piSessionRegistry: PiSessionRegistry = PiSessionRegistry(),
-        loadArchivedCodexSessionIDs: @escaping @Sendable () -> Set<String> = { CodexArchivedSessionIndex.archivedSessionIDs() }
+        loadArchivedCodexSessionIDs: @escaping @Sendable () -> Set<String> = { CodexArchivedSessionIndex.archivedSessionIDs() },
+        startupSources: StartupDiscoverySources? = nil,
+        codexRolloutDiscovery: CodexRolloutDiscovery = CodexRolloutDiscovery(),
+        claudeTranscriptDiscovery: ClaudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
     ) {
         self.codexSessionStore = codexSessionStore
         self.claudeSessionRegistry = claudeSessionRegistry
@@ -20,23 +23,40 @@ final class SessionDiscoveryCoordinator {
         self.cursorSessionRegistry = cursorSessionRegistry
         self.piSessionRegistry = piSessionRegistry
         self.loadArchivedCodexSessionIDs = loadArchivedCodexSessionIDs
+        self.startupSources = startupSources
+        self.codexRolloutDiscovery = codexRolloutDiscovery
+        self.claudeTranscriptDiscovery = claudeTranscriptDiscovery
     }
 
-    /// Raw I/O results collected off the main thread during startup.
-    struct StartupDiscoveryPayload: Sendable {
-        var codexRecords: [CodexTrackedSessionRecord]
-        var codexRecordsNeedPrune: Bool
-        var claudeRecords: [ClaudeTrackedSessionRecord]
-        var claudeRecordsNeedPrune: Bool
-        var openCodeRecords: [OpenCodeTrackedSessionRecord]
-        var openCodeRecordsNeedPrune: Bool
-        var cursorRecords: [CursorTrackedSessionRecord]
-        var cursorRecordsNeedPrune: Bool
-        var piRecords: [PiTrackedSessionRecord]
-        var piRecordsNeedPrune: Bool
-        var discoveredCodexRecords: [CodexTrackedSessionRecord]
-        var discoveredClaudeSessions: [AgentSession]
+    /// Source adapters keep startup ordering testable without user transcripts.
+    struct StartupDiscoverySources: Sendable {
+        var codex: @Sendable (@Sendable (CodexTrackedSessionRecord) -> Void) -> Void
+        var claude: @Sendable (@Sendable (AgentSession) -> Void) -> Void
     }
+
+    /// One ordered batch, loaded off the main actor and applied on it.
+    struct StartupDiscoveryPayload: Sendable {
+        var codexRecords: [CodexTrackedSessionRecord] = []
+        var codexRecordsNeedPrune = false
+        var claudeRecords: [ClaudeTrackedSessionRecord] = []
+        var claudeRecordsNeedPrune = false
+        var openCodeRecords: [OpenCodeTrackedSessionRecord] = []
+        var openCodeRecordsNeedPrune = false
+        var cursorRecords: [CursorTrackedSessionRecord] = []
+        var cursorRecordsNeedPrune = false
+        var piRecords: [PiTrackedSessionRecord] = []
+        var piRecordsNeedPrune = false
+        var discoveredCodexRecords: [CodexTrackedSessionRecord] = []
+        var discoveredClaudeSessions: [AgentSession] = []
+    }
+
+    @ObservationIgnored
+    private let startupSources: StartupDiscoverySources?
+
+    // nil outside the one startup history workflow. Runtime ingress protects
+    // identities; restored history itself remains eligible for enrichment.
+    @ObservationIgnored
+    private var startupProtectedSessionIDs: Set<String>?
 
     @ObservationIgnored
     var syntheticClaudeSessionPrefix = ""
@@ -78,10 +98,10 @@ final class SessionDiscoveryCoordinator {
     let codexRolloutWatcher = CodexRolloutWatcher()
 
     @ObservationIgnored
-    private let codexRolloutDiscovery = CodexRolloutDiscovery()
+    private let codexRolloutDiscovery: CodexRolloutDiscovery
 
     @ObservationIgnored
-    private let claudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
+    private let claudeTranscriptDiscovery: ClaudeTranscriptDiscovery
 
     @ObservationIgnored
     private var codexSessionPersistenceTask: Task<Void, Never>?
@@ -108,8 +128,9 @@ final class SessionDiscoveryCoordinator {
 
     // MARK: - Startup discovery
 
-    /// Performs all startup file I/O off the main thread and returns the raw results.
-    nonisolated func loadStartupDiscoveryPayload() -> StartupDiscoveryPayload {
+    /// Only small local registries belong to the first batch. Source transcript
+    /// scans must start after this batch has been applied, never hold it back.
+    nonisolated func loadStartupCachePayload() -> StartupDiscoveryPayload {
         let cutoff = Date.now.addingTimeInterval(-86_400)
 
         let allCodex = (try? codexSessionStore.load()) ?? []
@@ -129,9 +150,6 @@ final class SessionDiscoveryCoordinator {
             $0.updatedAt >= cutoff && ($0.tool == .pi || $0.tool == .ohMyPi)
         }
 
-        let discoveredCodex = codexRolloutDiscovery.discoverRecentSessions()
-        let discoveredClaude = claudeTranscriptDiscovery.discoverRecentSessions()
-
         return StartupDiscoveryPayload(
             codexRecords: codexRecords,
             codexRecordsNeedPrune: codexRecords != allCodex,
@@ -142,18 +160,84 @@ final class SessionDiscoveryCoordinator {
             cursorRecords: cursorRecords,
             cursorRecordsNeedPrune: cursorRecords != allCursor,
             piRecords: piRecords,
-            piRecordsNeedPrune: piRecords != allPi,
-            discoveredCodexRecords: discoveredCodex,
-            discoveredClaudeSessions: discoveredClaude
+            piRecordsNeedPrune: piRecords != allPi
         )
     }
 
-    /// Applies startup discovery results on the main thread after background I/O completes.
+    /// Reserve the discovery single-flight before the live monitor starts.
+    /// Its periodic array scan must not occupy the startup streaming scanner.
+    func beginStartupHistory() {
+        if startupProtectedSessionIDs == nil { startupProtectedSessionIDs = Set(state.sessionsByID.keys) }
+    }
+
+    /// Cache application is awaited before either scanner starts. Afterwards a
+    /// stream carries complete per-file results to the main actor in source order.
+    func discoverStartupSessions(
+        deliver: @escaping @MainActor (StartupDiscoveryPayload) -> Void
+    ) async {
+        beginStartupHistory()
+        defer { startupProtectedSessionIDs = nil }
+        let cache = await Task.detached(priority: .utility) { self.loadStartupCachePayload() }.value
+        guard !Task.isCancelled else { return }
+        deliver(cache)
+
+        let codex = codexRolloutDiscovery, claude = claudeTranscriptDiscovery
+        let sources = startupSources ?? StartupDiscoverySources(
+            codex: { emit in _ = codex.discoverRecentSessions(onSession: emit) },
+            claude: { emit in _ = claude.discoverRecentSessions(onSession: emit) }
+        )
+        let batches = AsyncStream<StartupDiscoveryPayload> { continuation in
+            let producer = Task.detached(priority: .utility) {
+                sources.codex { record in
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(.init(discoveredCodexRecords: [record]))
+                }
+                if !Task.isCancelled {
+                    sources.claude { session in
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.init(discoveredClaudeSessions: [session]))
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in producer.cancel() }
+        }
+        for await batch in batches {
+            guard !Task.isCancelled else { break }
+            deliver(batch)
+        }
+    }
+
+    /// Accepted runtime events outrank every remaining startup-history batch,
+    /// including same-transcript aliases. Pure cache identities are not locked.
+    func protectFromStartupHistory(_ event: AgentEvent) {
+        guard startupProtectedSessionIDs != nil else { return }
+        let sessionID: String
+        switch event {
+        case let .sessionStarted(p): sessionID = p.sessionID
+        case let .activityUpdated(p): sessionID = p.sessionID
+        case let .permissionRequested(p): sessionID = p.sessionID
+        case let .questionAsked(p): sessionID = p.sessionID
+        case let .sessionCompleted(p): sessionID = p.sessionID
+        case let .jumpTargetUpdated(p): sessionID = p.sessionID
+        case let .sessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .claudeSessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .geminiSessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .openCodeSessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .cursorSessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .piSessionMetadataUpdated(p): sessionID = p.sessionID
+        case let .sessionHeartbeat(p): sessionID = p.sessionID
+        case let .actionableStateResolved(p): sessionID = p.sessionID
+        }
+        startupProtectedSessionIDs?.insert(sessionID)
+    }
+
+    /// Applies one startup batch on the main actor while later I/O continues.
     func applyStartupDiscoveryPayload(_ payload: StartupDiscoveryPayload) {
         // Runtime events may arrive while historical I/O is still running.
-        // Existing identities are authoritative, even if a cached timestamp is
-        // newer; history must not replace their status, metadata or jump target.
-        let protectedSessionIDs = Set(state.sessionsByID.keys)
+        // Runtime identities are authoritative even if history has a newer
+        // timestamp. Pure restored cache identities may still be enriched.
+        let protectedSessionIDs = startupProtectedSessionIDs ?? Set(state.sessionsByID.keys)
 
         // Restore persisted Codex sessions.
         if !payload.codexRecords.isEmpty {
@@ -499,6 +583,7 @@ final class SessionDiscoveryCoordinator {
     /// the app-server connection is unavailable.  Throttled to at most
     /// once per 10 seconds.
     func rediscoverCodexAppSessionsIfNeeded() {
+        guard startupProtectedSessionIDs == nil else { return }
         let now = Date.now
         guard now.timeIntervalSince(lastCodexAppRescanDate) >= 10 else { return }
         lastCodexAppRescanDate = now

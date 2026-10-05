@@ -38,14 +38,14 @@ private struct DiscoveryFixture {
     func cleanup() { try? FileManager.default.removeItem(at: root) }
     @MainActor func coordinator(state: DiscoveryState) -> SessionDiscoveryCoordinator {
         let discovery = SessionDiscoveryCoordinator(codexSessionStore: codex, claudeSessionRegistry: claude,
-            openCodeSessionRegistry: openCode, cursorSessionRegistry: cursor, piSessionRegistry: pi)
+            openCodeSessionRegistry: openCode, cursorSessionRegistry: cursor, piSessionRegistry: pi, loadArchivedCodexSessionIDs: { [] })
         discovery.stateAccessor = { state.value }
         discovery.stateUpdater = { state.value = $0 }
         return discovery
     }
     func save(_ sessions: [AgentSession]) throws {
         try codex.save(sessions.filter { $0.tool == .codex }.map(CodexTrackedSessionRecord.init(session:)))
-        try claude.save(sessions.filter { $0.tool == .claudeCode }.map(ClaudeTrackedSessionRecord.init(session:)))
+        try claude.save(sessions.filter { $0.tool.isClaudeCodeFork }.map(ClaudeTrackedSessionRecord.init(session:)))
         try openCode.save(sessions.filter { $0.tool == .openCode }.map(OpenCodeTrackedSessionRecord.init(session:)))
         try cursor.save(sessions.filter { $0.tool == .cursor }.map(CursorTrackedSessionRecord.init(session:)))
         try pi.save(sessions.filter { $0.tool == .ohMyPi }.map(PiTrackedSessionRecord.init(session:)))
@@ -72,7 +72,7 @@ private struct DiscoveryFixture {
             jumpTarget: JumpTarget(terminalApp: "Ghostty", workspaceName: "fixture", paneTitle: id,
                 workingDirectory: "/synthetic/workspace", terminalSessionID: id),
             codexMetadata: tool == .codex ? CodexSessionMetadata(currentTool: "CurrentTool") : nil,
-            claudeMetadata: tool == .claudeCode ? ClaudeSessionMetadata(transcriptPath: "/synthetic/\(id).jsonl", currentTool: "CurrentTool") : nil)
+            claudeMetadata: tool.isClaudeCodeFork ? ClaudeSessionMetadata(transcriptPath: "/synthetic/\(id).jsonl", currentTool: "CurrentTool") : nil)
         value.isProcessAlive = true
         value.isHookManaged = true
         return value
@@ -81,7 +81,7 @@ private struct DiscoveryFixture {
     private func payload(_ records: [AgentSession], prune: Bool = false,
         discoveredCodex: [AgentSession] = [], discoveredClaude: [AgentSession] = []) -> SessionDiscoveryCoordinator.StartupDiscoveryPayload {
         .init(codexRecords: records.filter { $0.tool == .codex }.map(CodexTrackedSessionRecord.init(session:)), codexRecordsNeedPrune: prune,
-            claudeRecords: records.filter { $0.tool == .claudeCode }.map(ClaudeTrackedSessionRecord.init(session:)), claudeRecordsNeedPrune: prune,
+            claudeRecords: records.filter { $0.tool.isClaudeCodeFork }.map(ClaudeTrackedSessionRecord.init(session:)), claudeRecordsNeedPrune: prune,
             openCodeRecords: records.filter { $0.tool == .openCode }.map(OpenCodeTrackedSessionRecord.init(session:)), openCodeRecordsNeedPrune: prune,
             cursorRecords: records.filter { $0.tool == .cursor }.map(CursorTrackedSessionRecord.init(session:)), cursorRecordsNeedPrune: prune,
             piRecords: records.filter { $0.tool == .ohMyPi }.map(PiTrackedSessionRecord.init(session:)), piRecordsNeedPrune: prune,
@@ -167,4 +167,34 @@ private struct DiscoveryFixture {
         let merged = try #require(discovery.mergeDiscoveredSessions([newer]).first)
         #expect(merged.title == newer.title && merged.phase == .completed && merged.updatedAt == newer.updatedAt)
     }
+
+    @Test func familyPersistenceKeepsSourcesAndExcludesDemoSyntheticAndForeignSessions() async throws {
+        let fixture = try DiscoveryFixture(); defer { fixture.cleanup() }
+        let state = DiscoveryState(), discovery = fixture.coordinator(state: state)
+        let now = Date(timeIntervalSince1970: floor(Date.now.timeIntervalSince1970))
+        let family = AgentTool.allCases.filter(\.isClaudeCodeFork).map {
+            session("native-\($0.rawValue)", tool: $0, at: now)
+        }
+        var demo = session("demo", tool: .zcode, at: now); demo.origin = .demo
+        let synthetic = session("synthetic-claude", tool: .claudeCode, at: now)
+        let foreign = session("foreign", tool: .codex, at: now)
+        var ended = session("ended", tool: .workbuddy, at: now); ended.isSessionEnded = true
+        let expired = session("expired", tool: .zcode, at: now.addingTimeInterval(-172_800))
+        discovery.syntheticClaudeSessionPrefix = "synthetic-"
+        state.value = SessionState(sessions: family + [demo, synthetic, foreign, ended, expired])
+        discovery.scheduleClaudeSessionPersistence()
+        try await waitForDiscovery { try fixture.claude.load().count == family.count }
+        let saved = try fixture.claude.load()
+        #expect(Set(saved.map(\.tool)) == Set(family.map(\.tool)))
+        #expect(Set(saved.map(\.sessionID)) == Set(family.map(\.id)))
+        state.value = SessionState()
+        discovery.applyStartupDiscoveryPayload(payload(saved.map(\.session)))
+        for original in family {
+            let restored = try #require(state.value.session(id: original.id))
+            #expect(restored.tool == original.tool && restored.jumpTarget == original.jumpTarget)
+            #expect(restored.claudeMetadata == original.claudeMetadata && restored.updatedAt == original.updatedAt)
+            #expect(restored.attachmentState == .stale && !restored.isHookManaged && !restored.isProcessAlive)
+        }
+    }
+
 }

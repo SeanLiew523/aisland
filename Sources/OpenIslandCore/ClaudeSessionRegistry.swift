@@ -2,6 +2,7 @@ import Foundation
 
 public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
     public var sessionID: String
+    public var tool: AgentTool
     public var title: String
     public var origin: SessionOrigin?
     public var attachmentState: SessionAttachmentState
@@ -9,11 +10,13 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
     public var phase: SessionPhase
     public var updatedAt: Date
     public var firstSeenAt: Date?
+    public var isSessionEnded: Bool
     public var jumpTarget: JumpTarget?
     public var claudeMetadata: ClaudeSessionMetadata?
 
     public init(
         sessionID: String,
+        tool: AgentTool = .claudeCode,
         title: String,
         origin: SessionOrigin? = nil,
         attachmentState: SessionAttachmentState = .stale,
@@ -21,10 +24,12 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
         phase: SessionPhase,
         updatedAt: Date,
         firstSeenAt: Date? = nil,
+        isSessionEnded: Bool = false,
         jumpTarget: JumpTarget? = nil,
         claudeMetadata: ClaudeSessionMetadata? = nil
     ) {
         self.sessionID = sessionID
+        self.tool = tool
         self.title = title
         self.origin = origin
         self.attachmentState = attachmentState
@@ -32,6 +37,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
         self.phase = phase
         self.updatedAt = updatedAt
         self.firstSeenAt = firstSeenAt
+        self.isSessionEnded = isSessionEnded
         self.jumpTarget = jumpTarget
         self.claudeMetadata = claudeMetadata
     }
@@ -39,6 +45,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
     public init(session: AgentSession) {
         self.init(
             sessionID: session.id,
+            tool: session.tool,
             title: session.title,
             origin: session.origin,
             attachmentState: session.attachmentState,
@@ -46,16 +53,17 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
             phase: session.phase,
             updatedAt: session.updatedAt,
             firstSeenAt: session.firstSeenAt,
+            isSessionEnded: session.isSessionEnded,
             jumpTarget: session.jumpTarget,
             claudeMetadata: session.claudeMetadata
         )
     }
 
     public var session: AgentSession {
-        AgentSession(
+        var session = AgentSession(
             id: sessionID,
             title: title,
-            tool: .claudeCode,
+            tool: tool,
             origin: origin,
             attachmentState: attachmentState,
             phase: phase,
@@ -65,6 +73,8 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
             jumpTarget: jumpTarget,
             claudeMetadata: claudeMetadata
         )
+        session.isSessionEnded = isSessionEnded
+        return session
     }
 
     public var restorableSession: AgentSession {
@@ -75,6 +85,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case sessionID
+        case tool
         case title
         case origin
         case attachmentState
@@ -82,6 +93,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
         case phase
         case updatedAt
         case firstSeenAt
+        case isSessionEnded
         case jumpTarget
         case claudeMetadata
     }
@@ -89,6 +101,13 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionID = try container.decode(String.self, forKey: .sessionID)
+        // Only legacy records without a tag are Claude Code. An explicit
+        // unknown/non-Claude-protocol tag must never impersonate that source.
+        tool = container.contains(.tool) ? try container.decode(AgentTool.self, forKey: .tool) : .claudeCode
+        guard tool.isClaudeCodeFork else {
+            throw DecodingError.dataCorruptedError(forKey: .tool, in: container,
+                debugDescription: "Unsupported Claude hook source")
+        }
         title = try container.decode(String.self, forKey: .title)
         origin = try container.decodeIfPresent(SessionOrigin.self, forKey: .origin)
         attachmentState = try container.decodeIfPresent(SessionAttachmentState.self, forKey: .attachmentState) ?? .stale
@@ -96,13 +115,19 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
         phase = try container.decode(SessionPhase.self, forKey: .phase)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         firstSeenAt = try container.decodeIfPresent(Date.self, forKey: .firstSeenAt)
+        isSessionEnded = try container.decodeIfPresent(Bool.self, forKey: .isSessionEnded) ?? false
         jumpTarget = try container.decodeIfPresent(JumpTarget.self, forKey: .jumpTarget)
         claudeMetadata = try container.decodeIfPresent(ClaudeSessionMetadata.self, forKey: .claudeMetadata)
     }
 
     public func encode(to encoder: any Encoder) throws {
+        guard tool.isClaudeCodeFork else {
+            throw EncodingError.invalidValue(tool, .init(codingPath: encoder.codingPath,
+                debugDescription: "Unsupported Claude hook source"))
+        }
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(sessionID, forKey: .sessionID)
+        try container.encode(tool, forKey: .tool)
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(origin, forKey: .origin)
         try container.encode(attachmentState, forKey: .attachmentState)
@@ -110,6 +135,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
         try container.encode(phase, forKey: .phase)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(firstSeenAt, forKey: .firstSeenAt)
+        try container.encode(isSessionEnded, forKey: .isSessionEnded)
         try container.encodeIfPresent(jumpTarget, forKey: .jumpTarget)
         try container.encodeIfPresent(claudeMetadata, forKey: .claudeMetadata)
     }
@@ -117,7 +143,7 @@ public struct ClaudeTrackedSessionRecord: Equatable, Codable, Sendable {
 
 public extension ClaudeTrackedSessionRecord {
     var shouldRestoreToLiveState: Bool {
-        origin != .demo
+        tool.isClaudeCodeFork && origin != .demo && !isSessionEnded
     }
 }
 

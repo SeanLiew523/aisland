@@ -11,13 +11,15 @@ final class SessionDiscoveryCoordinator {
         claudeSessionRegistry: ClaudeSessionRegistry = ClaudeSessionRegistry(),
         openCodeSessionRegistry: OpenCodeSessionRegistry = OpenCodeSessionRegistry(),
         cursorSessionRegistry: CursorSessionRegistry = CursorSessionRegistry(),
-        piSessionRegistry: PiSessionRegistry = PiSessionRegistry()
+        piSessionRegistry: PiSessionRegistry = PiSessionRegistry(),
+        loadArchivedCodexSessionIDs: @escaping @Sendable () -> Set<String> = { CodexArchivedSessionIndex.archivedSessionIDs() }
     ) {
         self.codexSessionStore = codexSessionStore
         self.claudeSessionRegistry = claudeSessionRegistry
         self.openCodeSessionRegistry = openCodeSessionRegistry
         self.cursorSessionRegistry = cursorSessionRegistry
         self.piSessionRegistry = piSessionRegistry
+        self.loadArchivedCodexSessionIDs = loadArchivedCodexSessionIDs
     }
 
     /// Raw I/O results collected off the main thread during startup.
@@ -68,6 +70,9 @@ final class SessionDiscoveryCoordinator {
 
     @ObservationIgnored
     private let piSessionRegistry: PiSessionRegistry
+
+    @ObservationIgnored
+    private let loadArchivedCodexSessionIDs: @Sendable () -> Set<String>
 
     @ObservationIgnored
     let codexRolloutWatcher = CodexRolloutWatcher()
@@ -477,7 +482,7 @@ final class SessionDiscoveryCoordinator {
         guard now.timeIntervalSince(lastCodexAppReconcileDate) >= 15 else { return }
         lastCodexAppReconcileDate = now
 
-        let archivedSessionIDs = CodexArchivedSessionIndex.archivedSessionIDs()
+        let archivedSessionIDs = loadArchivedCodexSessionIDs()
         for event in CodexAppSessionReconciler.reconciliationEvents(
             for: state.sessions,
             archivedSessionIDs: archivedSessionIDs,
@@ -591,8 +596,9 @@ final class SessionDiscoveryCoordinator {
         let prefix = syntheticClaudeSessionPrefix
         let records = state.sessions
             .filter {
-                $0.tool == .claudeCode
+                $0.tool.isClaudeCodeFork
                     && $0.isTrackedLiveSession
+                    && !$0.isSessionEnded
                     && (prefix.isEmpty || !$0.id.hasPrefix(prefix))
                     && $0.updatedAt >= Date.now.addingTimeInterval(-86_400)
                     && ($0.jumpTarget != nil || $0.claudeMetadata?.transcriptPath != nil)

@@ -222,65 +222,136 @@ private final class TestSoundPlayer: NotificationSoundPlayer {
     var plays = 0
     var stops = 0
     var succeeds = true
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
     init(duration: TimeInterval) { self.duration = duration }
     func play() -> Bool { plays += 1; return succeeds }
-    func stop() { stops += 1 }
+    func stop() {
+        stops += 1
+        let waiters = stopWaiters; stopWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+    func waitForStop() async {
+        guard stops == 0 else { return }
+        await withCheckedContinuation { stopWaiters.append($0) }
+    }
+}
+
+/// Logical time only. Requests and stop callbacks provide explicit scheduling
+/// handshakes, so no assertion depends on how fast the shared MainActor runs.
+@MainActor
+private final class TestSoundClock {
+    private(set) var now: TimeInterval = 0
+    private var sleepers: [UUID: (TimeInterval, CheckedContinuation<Void, any Error>)] = [:]
+    private var requests: [TimeInterval] = []
+    private var requestWaiters: [CheckedContinuation<TimeInterval, Never>] = []
+
+    func playback() -> NotificationSoundPlayback {
+        NotificationSoundPlayback(now: { self.now }, sleepUntil: { try await self.sleep(until: $0) })
+    }
+
+    func nextSleep() async -> TimeInterval {
+        if !requests.isEmpty { return requests.removeFirst() }
+        return await withCheckedContinuation { requestWaiters.append($0) }
+    }
+
+    func advance(to time: TimeInterval) {
+        precondition(time >= now)
+        now = time
+        let due = sleepers.filter { $0.value.0 <= time }
+        for (id, sleeper) in due {
+            sleepers.removeValue(forKey: id)
+            sleeper.1.resume()
+        }
+    }
+
+    private func sleep(until deadline: TimeInterval) async throws {
+        try Task.checkCancellation()
+        if requestWaiters.isEmpty { requests.append(deadline) }
+        else { requestWaiters.removeFirst().resume(returning: deadline) }
+        guard deadline > now else { return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else { sleepers[id] = (deadline, continuation) }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.sleepers.removeValue(forKey: id)?.1.resume(throwing: CancellationError())
+            }
+        }
+    }
 }
 
 struct NotificationSoundPlaybackTests {
     @MainActor
     @Test
     func testReplacementCancelsOldTimerAndMuteReleasesCurrentPlayer() async throws {
-        let owner = NotificationSoundPlayback()
-        let first = TestSoundPlayer(duration: 0.03)
-        let second = TestSoundPlayer(duration: 1)
+        let clock = TestSoundClock(), owner = clock.playback()
+        let first = TestSoundPlayer(duration: 3)
+        let second = TestSoundPlayer(duration: 10)
         #expect(owner.play(first))
+        #expect(await clock.nextSleep() == 3)
         #expect(owner.play(second))
+        #expect(await clock.nextSleep() == 10)
         #expect(first.stops == 1)
-        try await Task.sleep(for: .milliseconds(100))
+        clock.advance(to: 4)
         #expect(owner.isPlaying)
         #expect(second.stops == 0)
         owner.setMuted(true)
         #expect(!(owner.isPlaying))
         #expect(second.stops == 1)
-        let muted = TestSoundPlayer(duration: 1)
+        let muted = TestSoundPlayer(duration: 10)
         #expect(!(owner.play(muted, isMuted: true)))
         #expect(muted.plays == 0)
+        // Wake canceled timers after global mute; they must not change either player.
+        clock.advance(to: 20)
+        #expect(first.stops == 1 && second.stops == 1)
     }
 
     @MainActor
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testAutomaticLimitFadesAndReleasesWhilePreviewPlaysFullDuration() async throws {
-        let owner = NotificationSoundPlayback()
-        let automatic = TestSoundPlayer(duration: 1)
-        owner.play(automatic, limit: 0.06, fadeDuration: 0.03)
-        try await Task.sleep(for: .milliseconds(150))
+        let clock = TestSoundClock(), owner = clock.playback()
+        let automatic = TestSoundPlayer(duration: 20)
+        #expect(owner.play(automatic, limit: 6, fadeDuration: 3))
+        #expect(await clock.nextSleep() == 3)
+        clock.advance(to: 3)
+        for step in 1...10 {
+            let deadline = 3 + 3 * Double(step) / 10
+            #expect(await clock.nextSleep() == deadline)
+            // The next sleep is registered only after the preceding volume update.
+            #expect(automatic.volume == Float(11 - step) / 10)
+            clock.advance(to: deadline)
+        }
+        await automatic.waitForStop()
         #expect(!(owner.isPlaying))
         #expect(automatic.stops == 1)
         #expect(automatic.volumes.contains(where: { $0 > 0 && $0 < 1 }))
         #expect(automatic.volume == 0)
-        let preview = TestSoundPlayer(duration: 0.3)
-        owner.play(preview)
-        try await Task.sleep(for: .milliseconds(80))
+        let preview = TestSoundPlayer(duration: 30)
+        #expect(owner.play(preview))
+        #expect(await clock.nextSleep() == 36)
+        clock.advance(to: 35)
         #expect(owner.isPlaying)
         #expect(preview.volume == 1)
-        try await Task.sleep(for: .milliseconds(350))
+        clock.advance(to: 36)
+        await preview.waitForStop()
         #expect(!(owner.isPlaying))
         #expect(preview.stops == 1)
     }
 
     @MainActor
     @Test
-    func testStopAndFailedPlayLeaveNoRetainedPlayback() async throws {
+    func testStopAndFailedPlayLeaveNoRetainedPlayback() {
         let owner = NotificationSoundPlayback()
         weak var retained: TestSoundPlayer?
         do {
-            let player = TestSoundPlayer(duration: 0.05)
+            let player = TestSoundPlayer(duration: 1)
             retained = player
             owner.play(player)
             owner.stop()
         }
-        try await Task.sleep(for: .milliseconds(80))
         #expect(retained == nil)
         let failed = TestSoundPlayer(duration: 1)
         failed.succeeds = false
@@ -382,34 +453,95 @@ struct NotificationSoundPlaybackTests {
     }
 
     @MainActor
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testRuntimeFallbackKeepsAutomaticDeadlineInsteadOfRestartingLimit() async throws {
-        let owner = NotificationSoundPlayback()
-        let original = TestSoundPlayer(duration: 1)
-        let replacement = TestSoundPlayer(duration: 1)
-        owner.play(original, limit: 0.4, fadeDuration: 0, fallback: { replacement })
-        try await Task.sleep(for: .milliseconds(200))
+        let clock = TestSoundClock(), owner = clock.playback()
+        let original = TestSoundPlayer(duration: 10)
+        let replacement = TestSoundPlayer(duration: 10)
+        #expect(owner.play(original, limit: 4, fadeDuration: 0, fallback: { replacement }))
+        #expect(await clock.nextSleep() == 4)
+        clock.advance(to: 2)
         original.failureHandler?()
         #expect(replacement.plays == 1)
-        try await Task.sleep(for: .milliseconds(250))
+        #expect(await clock.nextSleep() == 4)
+        clock.advance(to: 4)
+        await replacement.waitForStop()
         #expect(!owner.isPlaying)
         #expect(replacement.stops == 1)
     }
 
     @MainActor
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testPreviewStartFailureStillPlaysFullFallback() async throws {
-        let owner = NotificationSoundPlayback()
-        let original = TestSoundPlayer(duration: 1)
+        let clock = TestSoundClock(), owner = clock.playback()
+        let original = TestSoundPlayer(duration: 10)
         original.succeeds = false
-        let replacement = TestSoundPlayer(duration: 0.3)
+        let replacement = TestSoundPlayer(duration: 3)
         #expect(owner.play(original, fallback: { replacement }))
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await clock.nextSleep() == 3)
+        clock.advance(to: 2)
         #expect(owner.isPlaying)
         #expect(replacement.volume == 1)
-        try await Task.sleep(for: .milliseconds(250))
+        clock.advance(to: 3)
+        await replacement.waitForStop()
         #expect(!owner.isPlaying)
         #expect(replacement.stops == 1)
     }
 
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func testShortAutomaticAudioEndsNaturallyWithoutFadeAtNonzeroClockOrigin() async {
+        let clock = TestSoundClock(), owner = clock.playback()
+        clock.advance(to: 1000)
+        let player = TestSoundPlayer(duration: 0.3)
+        #expect(owner.play(player, limit: 5))
+        #expect(await clock.nextSleep() == 1000.3)
+        clock.advance(to: 1000.3)
+        await player.waitForStop()
+        #expect(player.volumes == [1] && player.stops == 1)
+        #expect(!owner.isPlaying)
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func testDelayedTimerStartupDoesNotExtendAutomaticDeadline() async {
+        let clock = TestSoundClock(), owner = clock.playback()
+        let player = TestSoundPlayer(duration: 20)
+        #expect(owner.play(player, limit: 6, fadeDuration: 3))
+        // No scheduling yield: model a MainActor occupied past the deadline.
+        clock.advance(to: 10)
+        await player.waitForStop()
+        #expect(!owner.isPlaying)
+        #expect(player.stops == 1 && player.volume == 0)
+        #expect(await clock.nextSleep() == 3)
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func testLateFadeContinuationUsesOriginalStepAndEndInstants() async {
+        let clock = TestSoundClock(), owner = clock.playback()
+        let player = TestSoundPlayer(duration: 20)
+        #expect(owner.play(player, limit: 6, fadeDuration: 3))
+        #expect(await clock.nextSleep() == 3)
+        // Resume the fade well past its first few steps. It must not add a new fade budget.
+        clock.advance(to: 6)
+        await player.waitForStop()
+        #expect(player.stops == 1 && player.volume == 0)
+        #expect(!owner.isPlaying)
+        #expect(await clock.nextSleep() == 3.3)
+    }
+
+    @MainActor
+    @Test
+    func testRuntimeFailureAfterAutomaticDeadlineCannotStartFallback() {
+        let clock = TestSoundClock(), owner = clock.playback()
+        let original = TestSoundPlayer(duration: 20)
+        let replacement = TestSoundPlayer(duration: 20)
+        #expect(owner.play(original, limit: 4, fallback: { replacement }))
+        clock.advance(to: 5)
+        original.failureHandler?()
+        #expect(original.stops == 1)
+        #expect(replacement.plays == 0 && replacement.stops == 1)
+        #expect(!owner.isPlaying)
+    }
 }

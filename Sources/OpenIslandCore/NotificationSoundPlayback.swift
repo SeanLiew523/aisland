@@ -16,10 +16,24 @@ public final class NotificationSoundPlayback {
     private var player: (any NotificationSoundPlayer)?
     private var task: Task<Void, Never>?
     private var generation: UInt64 = 0
-    private let clock = ContinuousClock()
+    private let now: () -> TimeInterval
+    private let sleepUntil: (TimeInterval) async throws -> Void
     public var isPlaying: Bool { player != nil }
 
-    public init() {}
+    public init() {
+        let clock = ContinuousClock(), epoch = clock.now
+        now = {
+            let components = epoch.duration(to: clock.now).components
+            return Double(components.seconds) + Double(components.attoseconds) / 1e18
+        }
+        sleepUntil = { try await clock.sleep(until: epoch.advanced(by: .seconds($0))) }
+    }
+
+    // Internal clock seam: fixtures can drive the real scheduling logic without audio or wall-time races.
+    init(now: @escaping () -> TimeInterval, sleepUntil: @escaping (TimeInterval) async throws -> Void) {
+        self.now = now
+        self.sleepUntil = sleepUntil
+    }
 
     @discardableResult
     public func play(_ next: any NotificationSoundPlayer, isMuted: Bool = false,
@@ -29,16 +43,13 @@ public final class NotificationSoundPlayback {
         guard !isMuted else { return false }
         stop()
         if let limit, !limit.isFinite || limit <= 0 { return false }
-        let deadline = limit.map { clock.now.advanced(by: .seconds($0)) }
+        let deadline = limit.map { now() + $0 }
         return start(next, deadline: deadline, fadeDuration: fadeDuration, fallback: fallback)
     }
 
-    private func start(_ next: any NotificationSoundPlayer, deadline: ContinuousClock.Instant?, fadeDuration: TimeInterval,
+    private func start(_ next: any NotificationSoundPlayer, deadline: TimeInterval?, fadeDuration: TimeInterval,
                        fallback: (() -> (any NotificationSoundPlayer)?)?) -> Bool {
-        let remaining = deadline.map {
-            let components = clock.now.duration(to: $0).components
-            return Double(components.seconds) + Double(components.attoseconds) / 1e18
-        }
+        let remaining = deadline.map { $0 - now() }
         if let remaining, remaining <= 0 { next.stop(); return false }
         guard next.duration.isFinite, next.duration > 0 else {
             next.stop()
@@ -61,15 +72,21 @@ public final class NotificationSoundPlayback {
             return startFallback(fallback, deadline: deadline, fadeDuration: fadeDuration)
         }
         guard generation == token, player.map(ObjectIdentifier.init) == identity else { return isPlaying }
-        let duration = min(next.duration, remaining ?? next.duration)
-        let fade = remaining != nil && next.duration > duration ? min(fadeDuration.isFinite ? max(0, fadeDuration) : 0, duration) : 0
+        let startTime = now()
+        let naturalEnd = startTime + next.duration
+        let end = min(naturalEnd, deadline ?? .infinity)
+        let duration = max(0, end - startTime)
+        let fade = end < naturalEnd ? min(fadeDuration.isFinite ? max(0, fadeDuration) : 0, duration) : 0
+        let sleepUntil = self.sleepUntil
         task = Task { [weak self] in
             do {
-                try await Task.sleep(for: .seconds(max(0, duration - fade)))
+                // Absolute instants retain the original deadline even if task startup
+                // or a fade continuation is delayed by MainActor contention.
+                try await sleepUntil(end - fade)
                 if fade > 0 {
                     let steps = 10
                     for step in 1...steps {
-                        try await Task.sleep(for: .seconds(fade / Double(steps)))
+                        try await sleepUntil(end - fade + fade * Double(step) / Double(steps))
                         guard !Task.isCancelled, self?.generation == token else { return }
                         self?.player?.volume = Float(steps - step) / Float(steps)
                     }
@@ -82,7 +99,7 @@ public final class NotificationSoundPlayback {
     }
 
     private func startFallback(_ fallback: (() -> (any NotificationSoundPlayer)?)?,
-                               deadline: ContinuousClock.Instant?, fadeDuration: TimeInterval) -> Bool {
+                               deadline: TimeInterval?, fadeDuration: TimeInterval) -> Bool {
         guard let replacement = fallback?() else { return false }
         // The fallback receives no fallback of its own: failure never recurses or loops.
         return start(replacement, deadline: deadline, fadeDuration: fadeDuration, fallback: nil)

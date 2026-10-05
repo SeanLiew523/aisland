@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 @preconcurrency import MarkdownUI
 import OpenIslandCore
 
@@ -1352,6 +1353,7 @@ private struct IslandSessionRow: View {
         // Keep real child controls separate; the container owns only the row action.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(lang.t("island.accessibility.openSession", summaryHeadlineText))
+        .accessibilityIdentifier("island-session-" + SHA256.hash(data: Data(session.id.utf8)).map { String(format: "%02x", $0) }.joined())
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(.default, handlePrimaryTap)
         .accessibilityHidden(!isInteractive)

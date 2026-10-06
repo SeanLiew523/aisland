@@ -82,14 +82,24 @@ struct MiniMaxCodeConversationController: Sendable {
 /// Enable the renderer only while the source PID/version and TCC stay admitted.
 enum MiniMaxCodeAccessibilityAdmission {
     static func prepare(deadline: TimeInterval, clock: () -> TimeInterval,
-                        isCurrent: () -> Bool, isEnabled: () -> Bool?, enable: () -> Bool) -> Bool {
+                        isCurrent: () -> Bool, isEnabled: () -> Bool?, enable: () -> Bool,
+                        pause: (TimeInterval) -> Void) -> Bool {
         guard clock() < deadline, isCurrent() else { return false }
         let enabled = isEnabled()
         guard clock() < deadline, isCurrent() else { return false }
-        if enabled != true {
-            guard enable() else { return false }
+        if enabled == true { return true }
+        guard enable() else { return false }
+        // Electron 42.8.0 debounces complete AX mode for two seconds. A
+        // successful setter and an early partial tree cannot admit AXPress.
+        // Repeated setters would restart that debounce; request only once.
+        while clock() < deadline {
+            guard isCurrent() else { return false }
+            let ready = isEnabled() == true
+            guard clock() < deadline, isCurrent() else { return false }
+            if ready { return true }
+            pause(deadline)
         }
-        return clock() < deadline && isCurrent()
+        return false
     }
 }
 
@@ -189,7 +199,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
-        case rendererAccessibilityUnavailable
+        case rendererAccessibilityUnavailable, rendererAccessibilityReady
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -457,18 +467,21 @@ private enum MiniMaxCodeAXNavigation {
         // Use Electron's documented runtime attribute on this admitted PID only.
         let axApp = AXUIElementCreateApplication(source.processID)
         AXUIElementSetMessagingTimeout(axApp, 0.08)
+        let accessibilityStarted = ProcessInfo.processInfo.systemUptime
         let accessibilityReady = MiniMaxCodeAccessibilityAdmission.prepare(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime },
             isCurrent: { AXIsProcessTrusted() && self.source() == source },
             isEnabled: { bool(axApp, "AXManualAccessibility") },
-            enable: { AXUIElementSetAttributeValue(axApp, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success })
-        guard accessibilityReady else {
-            var diagnostic = MiniMaxCodeCopyDiagnostic()
-            diagnostic.stage = .accessibility; diagnostic.reason = .rendererAccessibilityUnavailable
-            diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
-            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
-            return false
-        }
+            enable: { AXUIElementSetAttributeValue(axApp, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success },
+            pause: pause)
+        var accessibilityDiagnostic = MiniMaxCodeCopyDiagnostic()
+        accessibilityDiagnostic.stage = .accessibility
+        accessibilityDiagnostic.reason = accessibilityReady ? .rendererAccessibilityReady : .rendererAccessibilityUnavailable
+        accessibilityDiagnostic.frontmost = frontmost(source); accessibilityDiagnostic.deadlineExpired = !remaining(deadline)
+        accessibilityDiagnostic.entryBudgetMilliseconds = Int(max(0, deadline - accessibilityStarted) * 1000)
+        accessibilityDiagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - accessibilityStarted) * 1000)
+        MiniMaxCodeCopyDiagnosticRecorder.record(accessibilityDiagnostic)
+        guard accessibilityReady else { return false }
         // Jump work runs off-main. Ask LaunchServices to foreground the already
         // admitted source instance. NSRunningApplication.activate returned false
         // in the live accessory-app jump even on the AppKit thread. Opening the

@@ -230,6 +230,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case activationRequestFailed, activationUnobserved
         case rendererAccessibilityUnavailable, rendererAccessibilitySettled
         case labelGeometryStable, labelHoverDispatched, labelPointerUnavailable, labelTextDetached
+        case labelHitIsland, labelHitOtherApp, labelHitSourceOutsideItem
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -766,10 +767,15 @@ private enum MiniMaxCodeAXNavigation {
         var ownedMenu: AXUIElement?
         var navigationWindow: AXUIElement?
         var dispatched = false
+        var restoreClosedPanel: (@MainActor @Sendable () -> Void)?
         defer {
             if !dispatched, let menu = ownedMenu, let root = navigationWindow {
                 diagnostic.cleanup = cleanupOwnMenu(menu, window: root, source: source)
             } else if !dispatched { diagnostic.cleanup = .unowned }
+            if let restore = restoreClosedPanel {
+                if Thread.isMainThread { MainActor.assumeIsolated { restore() } }
+                else { DispatchQueue.main.sync { restore() } }
+            }
             diagnostic.deadlineExpired = !remaining(deadline)
             diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
             MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
@@ -827,7 +833,15 @@ private enum MiniMaxCodeAXNavigation {
         guard pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
         diagnostic.stage = .label; diagnostic.reason = .labelActivationFailed
         let activated = activateCopyLabel(copyID, source: source, deadline: deadline,
-                                          isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
+            isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount },
+            recoverOwnOcclusion: {
+                guard restoreClosedPanel == nil else { return false }
+                let suspend: @Sendable () -> (@MainActor @Sendable () -> Void)? = {
+                    MainActor.assumeIsolated { OverlayPanelController.suspendClosedPanelForExternalInput() }
+                }
+                restoreClosedPanel = Thread.isMainThread ? suspend() : DispatchQueue.main.sync(execute: suspend)
+                return restoreClosedPanel != nil
+            })
         acceptanceLog(.copyIDPress, flag: activated)
         guard activated else { return nil }
         dispatched = true
@@ -1003,7 +1017,8 @@ private enum MiniMaxCodeAXNavigation {
     /// AXPress on the outer ARIA menuitem only closes the menu. Click the exact
     /// admitted label with a fresh source-process hit test, never a guessed point.
     static func activateCopyLabel(_ item: AXUIElement, source: MiniMaxCodeConversationUI.Source,
-                                  deadline: TimeInterval, isPasteboardUnchanged: () -> Bool) -> Bool {
+                                  deadline: TimeInterval, isPasteboardUnchanged: () -> Bool,
+                                  recoverOwnOcclusion: () -> Bool) -> Bool {
         guard remaining(deadline), frontmost(source), AXIsProcessTrusted(), CGPreflightPostEventAccess(),
               role(item) == "AXMenuItem" else { return false }
         let members = nodes(item, deadline, maximum: 17, depth: 4)
@@ -1016,6 +1031,7 @@ private enum MiniMaxCodeAXNavigation {
         var geometry = MiniMaxCodeCopyLabelGeometry()
         var hoveredPoint: CGPoint?
         var recordedDetachedText = false
+        var recordedHitReason: MiniMaxCodeCopyDiagnostic.Reason?
         // Opening the renderer submenu animates its geometry. Fresh bounds and
         // hit identity must agree before clicking; wait within the same budget.
         while remaining(deadline), AXIsProcessTrusted(), self.source() == source,
@@ -1040,6 +1056,24 @@ private enum MiniMaxCodeAXNavigation {
             let matches = hit.map { candidate in members.contains { CFEqual($0, candidate) } } ?? false
             acceptanceLog(.copyLabel, count: 3, error: Int(hitResult.rawValue), flag: matches)
             guard hitResult == .success else { return false }
+            if let hit, !matches {
+                var owner: pid_t = 0
+                guard AXUIElementGetPid(hit, &owner) == .success else { return false }
+                let reason: MiniMaxCodeCopyDiagnostic.Reason = owner == getpid() ? .labelHitIsland
+                    : (owner == source.processID ? .labelHitSourceOutsideItem : .labelHitOtherApp)
+                if recordedHitReason != reason {
+                    recordedHitReason = reason
+                    var diagnostic = MiniMaxCodeCopyDiagnostic()
+                    diagnostic.stage = .label; diagnostic.reason = reason
+                    diagnostic.focusedRole = DiagnosticRole(role(hit)).rawValue
+                    diagnostic.frontmost = frontmost(source)
+                    MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+                }
+                if owner == getpid(), recoverOwnOcclusion() {
+                    geometry = MiniMaxCodeCopyLabelGeometry(); hoveredPoint = nil
+                    pause(deadline); continue
+                }
+            }
             if let hit, matches {
                 var owner: pid_t = 0
                 guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,

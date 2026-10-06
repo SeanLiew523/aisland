@@ -79,7 +79,7 @@ struct MiniMaxCodeConversationController: Sendable {
     }
 }
 
-/// Enable the renderer only while the source PID/version and TCC stay admitted.
+/// Settle Electron's enable request while the source PID/version and TCC stay admitted.
 enum MiniMaxCodeAccessibilityAdmission {
     static func prepare(deadline: TimeInterval, clock: () -> TimeInterval,
                         isCurrent: () -> Bool, isEnabled: () -> Bool?, enable: () -> Bool,
@@ -89,17 +89,18 @@ enum MiniMaxCodeAccessibilityAdmission {
         guard clock() < deadline, isCurrent() else { return false }
         if enabled == true { return true }
         guard enable() else { return false }
-        // Electron 42.8.0 debounces complete AX mode for two seconds. A
-        // successful setter and an early partial tree cannot admit AXPress.
-        // Repeated setters would restart that debounce; request only once.
-        while clock() < deadline {
-            guard isCurrent() else { return false }
-            let ready = isEnabled() == true
+        // Electron 42.8.0 debounces the request for two seconds. Its getter
+        // compares kAXModeComplete exactly, although the setter adds platform
+        // and screen-reader flags, so false cannot prove incomplete mode.
+        // Request once and settle that debounce before inspecting/pressing UI.
+        // Actual readiness and success still require the exact window, search
+        // result and copied native ID below. Never restart the request timer.
+        let settleUntil = clock() + 2.1
+        while clock() < settleUntil {
             guard clock() < deadline, isCurrent() else { return false }
-            if ready { return true }
-            pause(deadline)
+            pause(min(deadline, settleUntil))
         }
-        return false
+        return clock() < deadline && isCurrent()
     }
 }
 
@@ -199,7 +200,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
-        case rendererAccessibilityUnavailable, rendererAccessibilityReady
+        case rendererAccessibilityUnavailable, rendererAccessibilitySettled
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -476,7 +477,7 @@ private enum MiniMaxCodeAXNavigation {
             pause: pause)
         var accessibilityDiagnostic = MiniMaxCodeCopyDiagnostic()
         accessibilityDiagnostic.stage = .accessibility
-        accessibilityDiagnostic.reason = accessibilityReady ? .rendererAccessibilityReady : .rendererAccessibilityUnavailable
+        accessibilityDiagnostic.reason = accessibilityReady ? .rendererAccessibilitySettled : .rendererAccessibilityUnavailable
         accessibilityDiagnostic.frontmost = frontmost(source); accessibilityDiagnostic.deadlineExpired = !remaining(deadline)
         accessibilityDiagnostic.entryBudgetMilliseconds = Int(max(0, deadline - accessibilityStarted) * 1000)
         accessibilityDiagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - accessibilityStarted) * 1000)

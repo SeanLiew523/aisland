@@ -10,7 +10,7 @@ struct MiniMaxCodeAccessibilityAdmissionTests {
                 isCurrent: { true }, isEnabled: { time >= 2 ? true : initial },
                 enable: { enables += 1; return true }, pause: { _ in time += 0.04; pauses += 1 }))
             #expect(enables == (initial == true ? 0 : 1))
-            #expect(initial == true ? pauses == 0 : time >= 2)
+            #expect(initial == true ? pauses == 0 : time >= 2.1)
         }
     }
     @Test func changedSourceOrExpiredQueryNeverChangesTheRenderer() {
@@ -32,7 +32,7 @@ struct MiniMaxCodeAccessibilityAdmissionTests {
         #expect(!MiniMaxCodeAccessibilityAdmission.prepare(deadline: 3, clock: { 0 },
             isCurrent: { current }, isEnabled: { nil }, enable: { current = false; return true }, pause: { _ in }))
     }
-    @Test func aSuccessfulSetterWithoutObservedReadinessCannotAdmitNavigationOrRestartDebounce() {
+    @Test func aSetterCannotSkipDebounceOrContinueAfterSourceRevocation() {
         var time = 0.0, enables = 0
         #expect(!MiniMaxCodeAccessibilityAdmission.prepare(deadline: 0.2, clock: { time },
             isCurrent: { true }, isEnabled: { false }, enable: { enables += 1; return true },
@@ -44,5 +44,14 @@ struct MiniMaxCodeAccessibilityAdmissionTests {
             isCurrent: { current }, isEnabled: { false }, enable: { true },
             pause: { _ in time += 0.04; current = false }))
         #expect(time == 0.04)
+    }
+    @Test func aFalseOrUnavailableGetterCannotKeepTheSettledRequestWaitingForever() {
+        for enabled in [false, nil] as [Bool?] {
+            var time = 0.0, enables = 0
+            #expect(MiniMaxCodeAccessibilityAdmission.prepare(deadline: 6, clock: { time },
+                isCurrent: { true }, isEnabled: { enabled }, enable: { enables += 1; return true },
+                pause: { _ in time += 0.04 }))
+            #expect(enables == 1 && time >= 2.1 && time < 2.2)
+        }
     }
 }

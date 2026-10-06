@@ -224,7 +224,6 @@ struct TerminalJumpService {
     private static let zellijParentTerminals = knownApps.map(\.bundleIdentifier)
 
     private static let ghosttyFocusSettleDelay = 0.08
-    private static let ghosttyWindowActivationDelay = 0.04
     private static let ghosttyFocusAttempts = 3
 
     /// Maximum time to wait for Warp to become the system frontmost app after
@@ -1258,31 +1257,12 @@ struct TerminalJumpService {
         tell application "Ghostty"
             if not (it is running) then return ""
             if "\(terminalSessionID)" is "" then return ""
-            set targetWindow to missing value
-            set targetTab to missing value
-            set targetTerminal to missing value
-            set matchCount to 0
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
-                    repeat with aTerminal in terminals of aTab
-                        if (id of aTerminal as text) is "\(terminalSessionID)" then
-                            set matchCount to matchCount + 1
-                            set targetWindow to aWindow
-                            set targetTab to aTab
-                            set targetTerminal to aTerminal
-                        end if
-                    end repeat
-                end repeat
-            end repeat
-            if matchCount is not 1 then return ""
-            -- Activating the resolved window already foregrounds Ghostty.
-            -- A global activate can raise every open window first.
+            if (count of (every terminal whose id is "\(terminalSessionID)")) is not 1 then return ""
+            -- Window indexes are front-to-back and change when a window is raised.
+            -- Never retain enumeration references across activation/tab selection.
+            -- Native focus resolves this surface ID and raises its own window/tab.
             repeat \(Self.ghosttyFocusAttempts) times
-                activate window targetWindow
-                delay \(Self.ghosttyWindowActivationDelay)
-                select tab targetTab
-                delay \(Self.ghosttyWindowActivationDelay)
-                focus targetTerminal
+                focus (terminal id "\(terminalSessionID)")
                 -- Ghostty updates the focused split asynchronously after focus returns.
                 delay \(Self.ghosttyFocusSettleDelay)
                 try

@@ -18,7 +18,7 @@ struct TerminalJumpServiceTests {
     }
 
     @Test
-    func ghosttyJumpScriptActivatesWindowAndRetriesFocusUntilItSticks() {
+    func ghosttyJumpScriptPinsTheNativeIDAcrossWindowReorderingAndRetriesFocus() {
         let target = JumpTarget(
             terminalApp: "Ghostty",
             workspaceName: "open-island",
@@ -30,16 +30,16 @@ struct TerminalJumpServiceTests {
         let script = TerminalJumpService().ghosttyJumpScript(for: target)
 
         #expect(!script.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "activate" })
-        #expect(script.contains("activate window targetWindow"))
-        #expect(script.contains("select tab targetTab"))
-        #expect(script.contains("focus targetTerminal"))
+        #expect(!script.contains("activate window"))
+        #expect(!script.contains("select tab targetTab"))
+        #expect(script.contains("focus (terminal id \"448D7E28-24FB-46F1-9504-C252F97926C1\")"))
+        #expect(script.contains("every terminal whose id is \"448D7E28-24FB-46F1-9504-C252F97926C1\""))
         #expect(script.contains("repeat 3 times"))
-        #expect(script.contains("delay 0.04"))
         #expect(script.contains("delay 0.08"))
         #expect(script.contains("focused terminal of selected tab of front window"))
-        #expect(script.contains("repeat with aWindow in windows"))
-        #expect(script.contains("repeat with aTab in tabs of aWindow"))
-        #expect(script.contains("repeat with aTerminal in terminals of aTab"))
+        #expect(!script.contains("repeat with aWindow in windows"))
+        #expect(!script.contains("tabs of aWindow"))
+        #expect(!script.contains("terminals of aTab"))
     }
 
     @Test

@@ -158,10 +158,10 @@ enum MiniMaxCodeWindowFocusAdmission {
     static func wait(deadline: TimeInterval, clock: () -> TimeInterval,
                      isCurrent: () -> Bool, isFocused: () -> Bool,
                      supportsRaise: () -> Bool, raise: () -> Bool,
-                     pause: (TimeInterval) -> Void) -> Result {
+                     pause: (TimeInterval) -> Void, requireRaise: Bool = false) -> Result {
         var result = Result()
         guard clock() < deadline, isCurrent() else { return result }
-        if isFocused() {
+        if !requireRaise, isFocused() {
             result.focused = clock() < deadline && isCurrent()
             return result
         }
@@ -253,6 +253,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var focusedRole = "unavailable"
     var focusEqual = false
     var pointerMatches = false
+    var hitOwnerPID = 0
     var frontmost = false
     var inputAvailable = false
     var copied = false
@@ -264,7 +265,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) pointerMatches=\(pointerMatches) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) pointerMatches=\(pointerMatches) hitOwnerPID=\(min(max(hitOwnerPID, 0), Int(Int32.max))) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -578,7 +579,7 @@ private enum MiniMaxCodeAXNavigation {
                                               diagnostic: &windowDiagnostic, diagnosticEnabled: diagnosticEnabled)
             }, supportsRaise: { action(admittedWindow, kAXRaiseAction) }, raise: {
                 AXUIElementPerformAction(admittedWindow, kAXRaiseAction as CFString) == .success
-            }, pause: pause)
+            }, pause: pause, requireRaise: true)
         windowDiagnostic.stage = .window
         windowDiagnostic.reason = windowAdmission.focused ? .windowFocused : .windowFocusUnobserved
         windowDiagnostic.windowRaise = windowAdmission.raiseAttempted
@@ -767,15 +768,10 @@ private enum MiniMaxCodeAXNavigation {
         var ownedMenu: AXUIElement?
         var navigationWindow: AXUIElement?
         var dispatched = false
-        var restoreClosedPanel: (@MainActor @Sendable () -> Void)?
         defer {
             if !dispatched, let menu = ownedMenu, let root = navigationWindow {
                 diagnostic.cleanup = cleanupOwnMenu(menu, window: root, source: source)
             } else if !dispatched { diagnostic.cleanup = .unowned }
-            if let restore = restoreClosedPanel {
-                if Thread.isMainThread { MainActor.assumeIsolated { restore() } }
-                else { DispatchQueue.main.sync { restore() } }
-            }
             diagnostic.deadlineExpired = !remaining(deadline)
             diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
             MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
@@ -833,15 +829,7 @@ private enum MiniMaxCodeAXNavigation {
         guard pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
         diagnostic.stage = .label; diagnostic.reason = .labelActivationFailed
         let activated = activateCopyLabel(copyID, source: source, deadline: deadline,
-            isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount },
-            recoverOwnOcclusion: {
-                guard restoreClosedPanel == nil else { return false }
-                let suspend: @Sendable () -> (@MainActor @Sendable () -> Void)? = {
-                    MainActor.assumeIsolated { OverlayPanelController.suspendClosedPanelForExternalInput() }
-                }
-                restoreClosedPanel = Thread.isMainThread ? suspend() : DispatchQueue.main.sync(execute: suspend)
-                return restoreClosedPanel != nil
-            })
+            isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
         acceptanceLog(.copyIDPress, flag: activated)
         guard activated else { return nil }
         dispatched = true
@@ -1017,8 +1005,7 @@ private enum MiniMaxCodeAXNavigation {
     /// AXPress on the outer ARIA menuitem only closes the menu. Click the exact
     /// admitted label with a fresh source-process hit test, never a guessed point.
     static func activateCopyLabel(_ item: AXUIElement, source: MiniMaxCodeConversationUI.Source,
-                                  deadline: TimeInterval, isPasteboardUnchanged: () -> Bool,
-                                  recoverOwnOcclusion: () -> Bool) -> Bool {
+                                  deadline: TimeInterval, isPasteboardUnchanged: () -> Bool) -> Bool {
         guard remaining(deadline), frontmost(source), AXIsProcessTrusted(), CGPreflightPostEventAccess(),
               role(item) == "AXMenuItem" else { return false }
         let members = nodes(item, deadline, maximum: 17, depth: 4)
@@ -1066,12 +1053,9 @@ private enum MiniMaxCodeAXNavigation {
                     var diagnostic = MiniMaxCodeCopyDiagnostic()
                     diagnostic.stage = .label; diagnostic.reason = reason
                     diagnostic.focusedRole = DiagnosticRole(role(hit)).rawValue
+                    diagnostic.hitOwnerPID = Int(owner)
                     diagnostic.frontmost = frontmost(source)
                     MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
-                }
-                if owner == getpid(), recoverOwnOcclusion() {
-                    geometry = MiniMaxCodeCopyLabelGeometry(); hoveredPoint = nil
-                    pause(deadline); continue
                 }
             }
             if let hit, matches {

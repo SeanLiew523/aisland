@@ -3,6 +3,17 @@ import Testing
 @testable import OpenIslandApp
 
 struct MiniMaxCodeWindowSelectionTests {
+    @Test func processLocalFocusCannotSkipTheProductionWindowRaise() {
+        var raises = 0
+        let result = MiniMaxCodeWindowFocusAdmission.wait(deadline: 3, clock: { 0 },
+            isCurrent: { true }, isFocused: { true }, supportsRaise: { true },
+            raise: { raises += 1; return true }, pause: { _ in }, requireRaise: true)
+        #expect(result.focused && result.raiseAttempted && result.raiseSucceeded && raises == 1)
+        let failed = MiniMaxCodeWindowFocusAdmission.wait(deadline: 3, clock: { 0 },
+            isCurrent: { true }, isFocused: { true }, supportsRaise: { true },
+            raise: { raises += 1; return false }, pause: { _ in }, requireRaise: true)
+        #expect(!failed.focused && failed.raiseAttempted && !failed.raiseSucceeded)
+    }
     private var main: MiniMaxCodeWindowSelection.Attributes {
         .init(role: "AXWindow", subrole: "AXStandardWindow", title: "MiniMax Code",
               isMain: true, isMinimized: false)

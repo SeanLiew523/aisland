@@ -82,23 +82,6 @@ final class OverlayPanelController {
         panel?.acceptsMouseMovedEvents = false
     }
 
-    /// A system AX hit can still return the transparent, closed island panel.
-    /// Temporarily exclude only that admitted panel during an external copy;
-    /// keep a newly opened notification or user action authoritative on restore.
-    static func suspendClosedPanelForExternalInput() -> (@MainActor @Sendable () -> Void)? {
-        let panels = NSApp.windows.compactMap { $0 as? NotchPanel }.filter {
-            $0.isVisible && $0.ignoresMouseEvents && $0.notchController?.model?.notchStatus == .closed
-        }
-        guard panels.count == 1, let panel = panels.first else { return nil }
-        panel.orderOut(nil)
-        return { [weak panel] in
-            guard let panel, panel.notchController?.model?.notchStatus == .closed else { return }
-            panel.ignoresMouseEvents = true
-            panel.acceptsMouseMovedEvents = false
-            panel.orderFrontRegardless()
-        }
-    }
-
     func setInteractive(_ interactive: Bool) {
         guard let panel else {
             return

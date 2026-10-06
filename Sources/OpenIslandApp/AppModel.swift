@@ -1009,8 +1009,14 @@ final class AppModel {
             if ordered.count <= 9 {
                 cells = ordered.map(Self.agentsGridCell(for:))
             } else {
-                cells = ordered.prefix(7).map(Self.agentsGridCell(for:))
-                cells.append(.overflow(ordered.count - 7))
+                // Reserve scarce visible slots for attention/running sessions.
+                // Preserve observation order within the admitted visible set.
+                let attention = ordered.filter { $0.phase.requiresAttention }
+                let running = ordered.filter { $0.phase == .running }
+                let idle = ordered.filter { !$0.phase.requiresAttention && $0.phase != .running }
+                let visibleIDs = Set((attention + running + idle).prefix(7).map(\.id))
+                cells = ordered.filter { visibleIDs.contains($0.id) }.map(Self.agentsGridCell(for:))
+                cells.append(.overflow(ordered.count - cells.count))
             }
             return cells.isEmpty ? nil : .agents(cells)
         }

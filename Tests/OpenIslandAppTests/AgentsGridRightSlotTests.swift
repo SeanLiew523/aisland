@@ -170,6 +170,24 @@ struct AgentsGridRightSlotTests {
         #expect(s2 == .idle)
     }
 
+    @Test func runningAndWaitingSessionsBeyondOldOverflowRemainVisible() {
+        let model = makeAgentsSlotModel()
+        let now = Date.now
+        var sessions = (0..<14).map { makeSession(id: "idle-\($0)",
+            firstSeenAt: now.addingTimeInterval(Double($0)), updatedAt: now, phase: .completed) }
+        model.state = SessionState(sessions: sessions)
+        _ = model.islandClosedRightSlotContent()
+        sessions[12].phase = .running
+        sessions[13].phase = .waitingForApproval
+        sessions[13].permissionRequest = PermissionRequest(title: "edit", summary: "edit", affectedPath: "/tmp/x")
+        model.state = SessionState(sessions: sessions)
+        guard case let .agents(cells)? = model.islandClosedRightSlotContent() else { Issue.record("Missing grid"); return }
+        #expect(cells.contains(Self.cellFor(sessions[12])))
+        #expect(cells.contains(Self.cellFor(sessions[13])))
+        #expect(cells.last == .overflow(7))
+        #expect(cells.filter { if case .session(_, .idle) = $0 { return true }; return false }.count == 5)
+    }
+
     // MARK: - helpers
 
     /// The implicit `islandRightSlot` setter resolves the display profile

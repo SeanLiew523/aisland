@@ -104,6 +104,23 @@ enum MiniMaxCodeAccessibilityAdmission {
     }
 }
 
+/// A successful hit during a submenu transition is not yet a stable click target.
+struct MiniMaxCodeCopyLabelGeometry {
+    private var bounds: CGRect?
+    private var stableSince: TimeInterval = 0
+    mutating func observe(_ current: CGRect, at time: TimeInterval) -> Bool {
+        guard current.origin.x.isFinite, current.origin.y.isFinite,
+              current.width.isFinite, current.height.isFinite,
+              current.width > 0, current.height > 0 else {
+            bounds = nil; return false
+        }
+        if bounds != current {
+            bounds = current; stableSince = time; return false
+        }
+        return time - stableSince >= 0.16
+    }
+}
+
 /// An activation request returns before macOS necessarily changes the frontmost
 /// process. Wait within the original navigation budget, without reactivating.
 enum MiniMaxCodeActivationAdmission {
@@ -201,6 +218,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
         case rendererAccessibilityUnavailable, rendererAccessibilitySettled
+        case labelGeometryStable, labelHoverDispatched
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -982,9 +1000,14 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.copyLabel, count: labels.count, nodes: members.count, flag: remaining(deadline))
         guard labels.count == 1, let label = labels.first else { return false }
         let application = AXUIElementCreateApplication(source.processID)
+        guard let admittedWindow = window(source) else { return false }
+        var geometry = MiniMaxCodeCopyLabelGeometry()
+        var hoveredPoint: CGPoint?
         // Opening the renderer submenu animates its geometry. Fresh bounds and
         // hit identity must agree before clicking; wait within the same budget.
-        while remaining(deadline), frontmost(source), isPasteboardUnchanged() {
+        while remaining(deadline), AXIsProcessTrusted(), self.source() == source,
+              frontmost(source), isPasteboardUnchanged() {
+            guard let currentWindow = window(source), CFEqual(currentWindow, admittedWindow) else { return false }
             guard let pointValue = value(label, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
                   let sizeValue = value(label, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
             var origin = CGPoint.zero; var size = CGSize.zero
@@ -1001,9 +1024,31 @@ private enum MiniMaxCodeAXNavigation {
             if let hit, matches {
                 var owner: pid_t = 0
                 guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
-                      remaining(deadline), frontmost(source), isPasteboardUnchanged(),
+                      remaining(deadline), frontmost(source), isPasteboardUnchanged() else { return false }
+                guard geometry.observe(CGRect(origin: origin, size: size), at: ProcessInfo.processInfo.systemUptime) else {
+                    hoveredPoint = nil; pause(deadline); continue
+                }
+                // Publish ordinary pointer hover to this exact stable label
+                // before the click. The renderer otherwise retains the first
+                // submenu row's keyboard/hover state on the live cold path.
+                if hoveredPoint != point {
+                    guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                        mouseCursorPosition: point, mouseButton: .left) else { return false }
+                    move.flags = []; move.post(tap: .cgSessionEventTap)
+                    hoveredPoint = point
+                    var diagnostic = MiniMaxCodeCopyDiagnostic()
+                    diagnostic.stage = .label; diagnostic.reason = .labelHoverDispatched
+                    diagnostic.frontmost = true; diagnostic.focusEqual = true
+                    MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+                    pause(deadline); continue
+                }
+                guard remaining(deadline), frontmost(source), isPasteboardUnchanged(),
                       let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
                       let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { return false }
+                var diagnostic = MiniMaxCodeCopyDiagnostic()
+                diagnostic.stage = .label; diagnostic.reason = .labelGeometryStable
+                diagnostic.frontmost = true; diagnostic.focusEqual = true
+                MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
                 down.flags = []; up.flags = []
                 down.setIntegerValueField(.mouseEventClickState, value: 1)
                 up.setIntegerValueField(.mouseEventClickState, value: 1)

@@ -69,13 +69,23 @@ public struct DesktopConnectionInstallationManager: Sendable {
                   path.hasPrefix("/"), URL(fileURLWithPath: path).lastPathComponent == "source-probe" else { throw Failure.unownedInstallation }
             let helper = URL(fileURLWithPath: path).deletingLastPathComponent()
             guard helper.lastPathComponent == "minimaxcode-passive" else { throw Failure.unownedInstallation }
-            let receipt = try json(helper.appendingPathComponent("receipt.json"))
-            guard receipt["owner"] as? String == "aisland.minimaxcode-passive.installer",
-                  receipt["dataDir"] as? String == dataDir.resolvingSymlinksInPath().path,
-                  receipt["helperDirectory"] as? String == helper.path else { throw Failure.unownedInstallation }
-            if preservesPreviousHelper && helper.path != supportDirectory.appendingPathComponent("minimaxcode-passive").path {
-                previousHelperDirectory = helper.path
-            } else { support = helper.deletingLastPathComponent() }
+            if !FileManager.default.fileExists(atPath: helper.path) {
+                // The installer independently compares every current plugin byte
+                // and inventory before repairing this exact missing support tree.
+                guard helper.standardizedFileURL.path == supportDirectory.appendingPathComponent("minimaxcode-passive").standardizedFileURL.path else {
+                    throw Failure.unownedInstallation
+                }
+            } else {
+                let receiptURL = helper.appendingPathComponent("receipt.json")
+                guard FileManager.default.fileExists(atPath: receiptURL.path) else { throw Failure.unownedInstallation }
+                let receipt = try json(receiptURL)
+                guard receipt["owner"] as? String == "aisland.minimaxcode-passive.installer",
+                      receipt["dataDir"] as? String == dataDir.resolvingSymlinksInPath().path,
+                      receipt["helperDirectory"] as? String == helper.path else { throw Failure.unownedInstallation }
+                if preservesPreviousHelper && helper.path != supportDirectory.appendingPathComponent("minimaxcode-passive").path {
+                    previousHelperDirectory = helper.path
+                } else { support = helper.deletingLastPathComponent() }
+            }
         }
         var request: [String: Any] = ["operation": "install", "dataDirConfirmed": true,
             "dataDir": dataDir.resolvingSymlinksInPath().path, "supportDir": support.path,
@@ -87,7 +97,7 @@ public struct DesktopConnectionInstallationManager: Sendable {
         let plan = try jsonData(runner(runtime, [installer.path, try jsonString(request)], runtimeEnvironment))
         guard let action = plan["action"] as? String else { throw Failure.invalidMetadata }
         if action == "already-installed" { return .waitingForActivation }
-        if action == "replace-owned" {
+        if action == "replace-owned" || action == "repair-missing-helper" {
             guard let destination = plan["destination"] as? String,
                   let existingReceipt = plan["existingReceipt"] as? [String: Any],
                   let previousHelper = existingReceipt["helperDirectory"] as? String,
@@ -103,10 +113,12 @@ public struct DesktopConnectionInstallationManager: Sendable {
                 try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try FileManager.default.copyItem(at: source, to: target)
             }
-            _ = try regular(URL(fileURLWithPath: receiptPath))
-            try FileManager.default.copyItem(at: URL(fileURLWithPath: receiptPath), to: backup.appendingPathComponent("receipt.json"))
-            _ = try regular(URL(fileURLWithPath: helperPath), maximum: 4 * 1024 * 1024)
-            try FileManager.default.copyItem(at: URL(fileURLWithPath: helperPath), to: backup.appendingPathComponent("source-probe"))
+            if action == "replace-owned" {
+                _ = try regular(URL(fileURLWithPath: receiptPath))
+                try FileManager.default.copyItem(at: URL(fileURLWithPath: receiptPath), to: backup.appendingPathComponent("receipt.json"))
+                _ = try regular(URL(fileURLWithPath: helperPath), maximum: 4 * 1024 * 1024)
+                try FileManager.default.copyItem(at: URL(fileURLWithPath: helperPath), to: backup.appendingPathComponent("source-probe"))
+            }
         }
         request["apply"] = true
         let result = try jsonData(runner(runtime, [installer.path, try jsonString(request)], runtimeEnvironment))

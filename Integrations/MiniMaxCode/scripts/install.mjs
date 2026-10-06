@@ -38,6 +38,20 @@ export async function inspectOwnership(plan) {
   const helperDirectory = !newHelper && destination && plan.previousHelperDirectory ? plan.previousHelperDirectory : plan.helperDirectory;
   const helper = await maybeStat(helperDirectory);
   if (!destination && !helper) return null;
+  // Reinstall may leave the exact reviewed plugin while its app-owned helper
+  // tree was removed. Recover only a byte-identical current package, at the
+  // current support path, with no unknown files or previous-path relocation.
+  if (destination?.isDirectory() && !helper && !plan.previousHelperDirectory
+      && plan.operation === 'install' && plan.helperBuild.kind === 'copy-bundled') {
+    if ((await inventory(plan.destination, expectedPluginInventory)).join('\n') !== expectedPluginInventory.join('\n')) throw new Error('Refusing unrecorded plugin inventory');
+    for (const path of installedFiles) {
+      if (digest(await regularFile(join(plan.destination, path))) !== plan.fileHashes[path]) throw new Error('Refusing changed plugin during helper recovery: ' + path);
+    }
+    return { schemaVersion: 1, owner, dataDir: plan.dataDir, destination: plan.destination,
+      helperDirectory: plan.helperDirectory, helperPath: plan.helperPath,
+      files: plan.fileHashes, helperHash: plan.helperBuild.bundledProbeHash,
+      helperSourceHash: plan.helperSourceHash, missingHelper: true };
+  }
   if (!destination?.isDirectory() || !helper?.isDirectory()) throw new Error('Refusing unrecorded or partial existing installation');
   const receipt = JSON.parse(await regularFile(join(helperDirectory, 'receipt.json'), 65536));
   if (receipt.schemaVersion !== 1 || receipt.owner !== owner || receipt.dataDir !== plan.dataDir
@@ -63,7 +77,7 @@ async function preflight(helperPath, plan) {
   await runFile(helperPath, [String(process.pid), plan.config.sourceDiscovery.desktopAppPath], { timeout: 200, maxBuffer: 16384 });
 }
 function sameInstallation(plan, receipt) {
-  return receipt && receipt.helperDirectory === plan.helperDirectory && receipt.helperSourceHash === plan.helperSourceHash
+  return receipt && !receipt.missingHelper && receipt.helperDirectory === plan.helperDirectory && receipt.helperSourceHash === plan.helperSourceHash
     && (plan.helperBuild.kind !== 'copy-bundled' || receipt.helperHash === plan.helperBuild.bundledProbeHash)
     && installedFiles.every(path => receipt.files[path] === plan.fileHashes[path]);
 }
@@ -103,7 +117,7 @@ async function publish(plan, staged, stage, previous) {
     const plugins = join(plan.dataDir, 'plugins'); await mkdir(plugins, { recursive: true }); await regularDirectory(plugins);
     if (previous) {
       await rename(plan.destination, join(stage, 'previous-plugin')); moved.push([join(stage, 'previous-plugin'), plan.destination]);
-      if (previous.helperDirectory === plan.helperDirectory) {
+      if (!previous.missingHelper && previous.helperDirectory === plan.helperDirectory) {
         await rename(plan.helperDirectory, join(stage, 'previous-helper')); moved.push([join(stage, 'previous-helper'), plan.helperDirectory]);
       } // Relocation preserves the complete previous helper tree unchanged.
     }
@@ -147,7 +161,7 @@ export async function executeRequest(request = {}) {
   if (request.apply !== undefined && typeof request.apply !== 'boolean') throw new Error('apply must be an explicit boolean');
   const plan = await buildPlan(request); const receipt = await inspectOwnership(plan);
   const action = plan.operation === 'remove' ? (receipt ? 'remove-owned' : 'already-absent')
-    : sameInstallation(plan, receipt) ? 'already-installed' : receipt ? 'replace-owned' : 'install-new';
+    : sameInstallation(plan, receipt) ? 'already-installed' : receipt?.missingHelper ? 'repair-missing-helper' : receipt ? 'replace-owned' : 'install-new';
   if (request.apply !== true) return { ...plan, action, existingReceipt: receipt, mode: 'dry-run-only' };
   if (plan.operation === 'remove') return await removeOwned(plan);
   if (action === 'already-installed') return { ...plan, action, mode: 'applied', result: action, receipt };

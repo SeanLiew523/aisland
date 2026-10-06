@@ -86,6 +86,39 @@ struct DesktopConnectionInstallationTests {
         try Data("foreign change".utf8).write(to: root.appendingPathComponent("support/deepseek-passive/package/core.mjs"))
         #expect(throws: DesktopConnectionInstallationManager.Failure.unownedInstallation) { try manager.configureDeepSeek(evidence: evidence, sourceRunning: false) }
     }
+    @Test func missingCurrentMiniMaxHelperDelegatesByteValidationWithoutRawReceiptError() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("aisland-repair-\(UUID())").resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("MiniMax.app/Contents/MacOS/MiniMax")
+        let probe = root.appendingPathComponent("probe")
+        let installer = root.appendingPathComponent("packages/MiniMaxCode/scripts/install.mjs")
+        let dataDir = root.appendingPathComponent("source")
+        let helper = root.appendingPathComponent("Library/Application Support/AIsland/minimaxcode-passive")
+        let config = dataDir.appendingPathComponent("plugins/aisland-minimaxcode-passive/config.json")
+        for dir in [executable.deletingLastPathComponent(), installer.deletingLastPathComponent(), config.deletingLastPathComponent()] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        for file in [executable, probe, installer] {
+            try Data("fixture".utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        try JSONSerialization.data(withJSONObject: ["sourceDiscovery": ["probePath": helper.appendingPathComponent("source-probe").path]]).write(to: config)
+        let calls = Calls()
+        let manager = DesktopConnectionInstallationManager(home: root, packagesDirectory: root.appendingPathComponent("packages"), nodeURL: nil, bundledProbeURL: probe) { url, args, _ in
+            calls.record(url: url, arguments: args)
+            let request = try #require(JSONSerialization.jsonObject(with: Data(args[1].utf8)) as? [String: Any])
+            #expect(request["previousHelperDirectory"] == nil)
+            return Data((request["apply"] as? Bool == true ? "{\"mode\":\"applied\",\"result\":\"installed\"}" : "{\"action\":\"install-new\"}").utf8)
+        }
+        let evidence = AgentInstallationDetector.Evidence(executableURL: executable, bundleURL: root.appendingPathComponent("MiniMax.app"), version: "3.1.1")
+        #expect(try manager.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) == .waitingForActivation)
+        #expect(calls.count == 2)
+        // A missing helper at an unrelated path cannot be recovered by guessing ownership.
+        try JSONSerialization.data(withJSONObject: ["sourceDiscovery": ["probePath": root.appendingPathComponent("other/minimaxcode-passive/source-probe").path]]).write(to: config)
+        #expect(throws: DesktopConnectionInstallationManager.Failure.unownedInstallation) { try manager.configureMiniMax(evidence: evidence, activeDataDirectory: dataDir) }
+        #expect(calls.count == 2)
+    }
+
     @Test func nativeMiniMaxUsesOfficialRuntimeAndRelocatesAnOwnedTemporaryHelper() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("aisland-native-probe-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

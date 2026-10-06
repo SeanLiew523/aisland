@@ -219,3 +219,35 @@ test('Native CLI entry points return JSON through a symlinked package path witho
     }
   } finally { await f.remove(); }
 });
+
+
+test('Missing helper is recovered only for the exact bundled plugin; changed or foreign files survive refusal', platform, async () => {
+  const f = await fixture();
+  try {
+    const bundledProbePath = process.env.AISLAND_TEST_BUNDLED_PROBE_PATH;
+    assert.ok(bundledProbePath);
+    const request = { ...f.request, bundledProbePath, bundledProbeHash: digest(await readFile(bundledProbePath)) };
+    const installed = await executeRequest({ ...request, apply: true });
+    const oldConfig = await readFile(join(installed.destination, 'config.json'));
+    await rm(installed.helperDirectory, { recursive: true });
+    const plan = await executeRequest(request);
+    assert.equal(plan.action, 'repair-missing-helper');
+    assert.equal(existsSync(installed.helperDirectory), false);
+    const hook = join(installed.destination, 'scripts/hook.mjs');
+    const original = await readFile(hook);
+    await writeFile(hook, 'USER_CHANGED');
+    await assert.rejects(executeRequest({ ...request, apply: true }), /changed plugin/);
+    assert.equal(await readFile(hook, 'utf8'), 'USER_CHANGED');
+    await writeFile(hook, original);
+    await writeFile(join(installed.destination, 'foreign'), 'KEEP');
+    await assert.rejects(executeRequest({ ...request, apply: true }), /Unexpected files|inventory/);
+    assert.equal(await readFile(join(installed.destination, 'foreign'), 'utf8'), 'KEEP');
+    await rm(join(installed.destination, 'foreign'));
+    const fixed = await executeRequest({ ...request, apply: true });
+    assert.equal(fixed.action, 'repair-missing-helper');
+    assert.equal(fixed.result, 'installed');
+    assert.deepEqual(await readFile(join(fixed.destination, 'config.json')), oldConfig);
+    assert.ok(await inspectOwnership(fixed));
+    assert.equal((await executeRequest(request)).action, 'already-installed');
+  } finally { await f.remove(); }
+});

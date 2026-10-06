@@ -6,23 +6,23 @@ import Testing
 @testable import OpenIslandCore
 
 struct MiniMaxCodeConversationControllerTests {
-    @Test func defaultWorkspaceStillRequiresExactNativeIDAndForeground() throws {
+    @Test func defaultWorkspaceRequiresPassiveSelectionAndForeground() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         try fixture.exec("UPDATE local_runtime_sessions SET is_default_workspace=1, session_kind='conversation', project_id=5")
         #expect(fixture.controller.focus(target: fixture.target) == .focused)
-        fixture.copiedID = "different-native-id"
-        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-id-unverified"))
-        fixture.copiedID = "observed"; fixture.frontmost = false
+        fixture.selectionVerified = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-selection-unverified"))
+        fixture.selectionVerified = true; fixture.frontmost = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("app-not-frontmost"))
     }
-    @Test func reviewedPatchUpgradeRetainsOldConversationAndExactIDGate() throws {
+    @Test func reviewedPatchUpgradeRetainsConversationAndPassiveSelectionGate() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         fixture.sourceVersion = "3.1.1"
         #expect(fixture.controller.focus(target: fixture.target) == .focused)
         var target = fixture.target; target.runtimeSourceVersion = "3.1.1"
         #expect(fixture.controller.focus(target: target) == .focused)
-        fixture.copiedID = "other"
-        #expect(fixture.controller.focus(target: target) == .unavailable("active-session-id-unverified"))
+        fixture.selectionVerified = false
+        #expect(fixture.controller.focus(target: target) == .unavailable("active-session-selection-unverified"))
     }
 
     @Test func initialActivationWaitsForForegroundWithinOriginalBudget() {
@@ -38,7 +38,7 @@ struct MiniMaxCodeConversationControllerTests {
         #expect(pauses == 0)
     }
 
-    @Test func activationTimeoutAndRevokedAccessNeverAdmitCopy() {
+    @Test func activationTimeoutAndRevokedAccessNeverAdmitVerification() {
         var time: TimeInterval = 0
         #expect(!MiniMaxCodeActivationAdmission.wait(deadline: 0.12, clock: { time },
             available: { true }, frontmost: { false }, pause: { _ in time += 0.04 }))
@@ -59,14 +59,14 @@ struct MiniMaxCodeConversationControllerTests {
         fixture.accessibilityAvailable = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
         #expect(fixture.sourceCount == 0)
-        #expect(fixture.selectCount == 0 && fixture.activationCount == 0 && fixture.copyCount == 0)
+        #expect(fixture.selectCount == 0 && fixture.activationCount == 0 && fixture.verificationCount == 0)
     }
 
-    @Test func accessibilityRevokedDuringSelectionStopsBeforeCopy() throws {
+    @Test func accessibilityRevokedDuringSelectionStopsBeforeVerification() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         fixture.onSelect = { fixture.accessibilityAvailable = false }
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
-        #expect(fixture.copyCount == 0)
+        #expect(fixture.verificationCount == 0)
         fixture.accessibilityAvailable = true; fixture.selected = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("accessibility-unavailable"))
     }
@@ -74,20 +74,20 @@ struct MiniMaxCodeConversationControllerTests {
     @Test func exactSessionIdentityAndForegroundAreBothRequired() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         #expect(fixture.controller.focus(target: fixture.target) == .focused)
-        #expect(fixture.selectCount == 1 && fixture.copyCount == 1)
-        fixture.copiedID = "another-native-id"
-        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-id-unverified"))
-        fixture.copiedID = "observed"; fixture.frontmost = false
+        #expect(fixture.selectCount == 1 && fixture.verificationCount == 1)
+        fixture.selectionVerified = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-selection-unverified"))
+        fixture.selectionVerified = true; fixture.frontmost = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("app-not-frontmost"))
     }
 
-    @Test func activationAloneAndMissingCopyActionAreNeverSuccess() throws {
+    @Test func activationAloneAndUnverifiedPageAreNeverSuccess() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         fixture.selected = false
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("sidebar-conversation-unavailable"))
-        #expect(fixture.copyCount == 0)
-        fixture.selected = true; fixture.copiedID = nil
-        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-id-unverified"))
+        #expect(fixture.verificationCount == 0)
+        fixture.selected = true; fixture.selectionVerified = false
+        #expect(fixture.controller.focus(target: fixture.target) == .unavailable("active-session-selection-unverified"))
     }
 
     @Test func admissionAndActualRunningSourceMustAgree() throws {
@@ -105,13 +105,13 @@ struct MiniMaxCodeConversationControllerTests {
 
     @Test func staleMetadataDuplicateTitleAndReplacedProcessFailClosed() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
-        fixture.onCopy = { try? fixture.exec("UPDATE local_runtime_sessions SET title='renamed'") }
+        fixture.onVerify = { try? fixture.exec("UPDATE local_runtime_sessions SET title='renamed'") }
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("session-metadata-changed"))
-        fixture.onCopy = nil
+        fixture.onVerify = nil
         try fixture.exec("INSERT INTO local_runtime_sessions SELECT 'second',title,workspace_dir,project_workspace_dir,68,visibility,archived,columnar_version,is_default_workspace,parent_session_id,session_kind FROM local_runtime_sessions")
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("ambiguous-session-title"))
         try fixture.exec("DELETE FROM local_runtime_sessions WHERE session_id='second'")
-        fixture.onCopy = { fixture.processID = 99 }
+        fixture.onVerify = { fixture.processID = 99 }
         #expect(fixture.controller.focus(target: fixture.target) == .unavailable("app-not-frontmost"))
     }
 
@@ -121,17 +121,17 @@ struct MiniMaxCodeConversationControllerTests {
         #expect(fixture.selectCount == 0)
         fixture.onSelect = { fixture.time = 4 }
         #expect(MiniMaxCodeConversationController(ui: fixture.ui, clock: { fixture.time }, timeout: 3).focus(target: fixture.target) == .unavailable("focus-timeout"))
-        #expect(fixture.copyCount == 0)
+        #expect(fixture.verificationCount == 0)
     }
 
-    @Test func coldSelectionHasTimeForNativeCopyButCannotExtendItsDeadline() throws {
+    @Test func coldSelectionHasTimeForPassiveVerificationButCannotExtendItsDeadline() throws {
         let fixture = try ControllerFixture(); defer { fixture.dispose() }
         fixture.onSelect = { fixture.time = 3.4 }
         let controller = MiniMaxCodeConversationController(ui: fixture.ui, clock: { fixture.time })
         #expect(controller.focus(target: fixture.target) == .focused)
-        #expect(fixture.copyCount == 1)
+        #expect(fixture.verificationCount == 1)
         fixture.time = 0
-        fixture.onCopy = { fixture.time = 6 }
+        fixture.onVerify = { fixture.time = 6 }
         #expect(controller.focus(target: fixture.target) == .unavailable("focus-timeout"))
     }
 
@@ -174,7 +174,7 @@ struct MiniMaxCodeConversationControllerTests {
 private final class ControllerFixture: @unchecked Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("minimax-controller-" + UUID().uuidString)
     var db: OpaquePointer?
-    var copiedID: String? = "observed"
+    var selectionVerified = true
     var selected = true
     var frontmost = true
     var accessibilityAvailable = true
@@ -184,16 +184,16 @@ private final class ControllerFixture: @unchecked Sendable {
     var selectCount = 0
     var sourceCount = 0
     var activationCount = 0
-    var copyCount = 0
+    var verificationCount = 0
     var onSelect: (@Sendable () -> Void)?
-    var onCopy: (@Sendable () -> Void)?
+    var onVerify: (@Sendable () -> Void)?
     var path: String { directory.appendingPathComponent("v2/sqlite/runtime-state.sqlite").path }
     var target: JumpTarget { .init(terminalApp: "MiniMax Code.app", workspaceName: "Synthetic workspace", paneTitle: "Synthetic task", appConversationID: "observed", runtimeMetadataDatabasePath: path, runtimeSourceVersion: "3.1.0") }
     var ui: MiniMaxCodeConversationUI {
         .init(isAccessibilityAvailable: { self.accessibilityAvailable },
               source: { self.sourceCount += 1; return .init(bundleIdentifier: "com.minimax.agent", version: self.sourceVersion, processID: self.processID) },
               select: { _, _, _ in self.selectCount += 1; self.activationCount += 1; self.onSelect?(); return self.selected },
-              copyActiveSessionID: { _, _, _ in self.copyCount += 1; self.onCopy?(); return self.copiedID },
+              verifyActiveSelection: { _, _, _ in self.verificationCount += 1; self.onVerify?(); return self.selectionVerified },
               isFrontmost: { _ in self.frontmost })
     }
     var controller: MiniMaxCodeConversationController { .init(ui: ui) }

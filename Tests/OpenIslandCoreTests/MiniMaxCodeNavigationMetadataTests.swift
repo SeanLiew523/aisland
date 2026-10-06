@@ -24,7 +24,21 @@ struct MiniMaxCodeNavigationMetadataTests {
             try fixture.reader.conversation(sessionID: "first", sourceVersion: "3.1.0")
         }
         try fixture.exec("UPDATE local_runtime_sessions SET archived=1 WHERE session_id='second'")
-        #expect(try fixture.reader.conversation(sessionID: "first", sourceVersion: "3.1.0") != nil)
+        #expect(throws: MiniMaxCodeNavigationMetadata.ReadError.ambiguousTitle) {
+            try fixture.reader.conversation(sessionID: "first", sourceVersion: "3.1.0")
+        }
+    }
+
+    @Test func hiddenOldAndChildTitleCollisionsCannotProveSelectionWithoutCopy() throws {
+        for mutation in ["visibility='hidden'", "columnar_version=2", "parent_session_id='first'", "session_kind='peek'"] {
+            let fixture = try NavigationFixture(); defer { fixture.dispose() }
+            try fixture.insert(id: "first", title: "Same local title")
+            try fixture.insert(id: "second", title: "Same local title", project: 68)
+            try fixture.exec("UPDATE local_runtime_sessions SET \(mutation) WHERE session_id='second'")
+            #expect(throws: MiniMaxCodeNavigationMetadata.ReadError.ambiguousTitle) {
+                try fixture.reader.conversation(sessionID: "first", sourceVersion: "3.1.1")
+            }
+        }
     }
 
     @Test func hiddenArchivedOldAndChildSessionsAreNeverAdmitted() throws {

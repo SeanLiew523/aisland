@@ -19,12 +19,12 @@ struct MiniMaxCodeConversationUI: Sendable {
     var isAccessibilityAvailable: @Sendable () -> Bool = { true }
     var source: @Sendable () -> Source?
     var select: @Sendable (MiniMaxCodeConversationMetadata, Source, TimeInterval) -> Bool
-    var copyActiveSessionID: @Sendable (MiniMaxCodeConversationMetadata, Source, TimeInterval) -> String?
+    var verifyActiveSelection: @Sendable (MiniMaxCodeConversationMetadata, Source, TimeInterval) -> Bool
     var isFrontmost: @Sendable (Source) -> Bool
 }
 
-/// Selects an existing sidebar item, then verifies its native ID through the
-/// public task menu. Activation or a same-title heading alone is never success.
+/// Selects an existing item admitted by ID and globally unique local title,
+/// then passively verifies its local page. Never opens Copy or changes the clipboard.
 struct MiniMaxCodeConversationController: Sendable {
     private let ui: MiniMaxCodeConversationUI
     private let clock: @Sendable () -> TimeInterval
@@ -63,8 +63,8 @@ struct MiniMaxCodeConversationController: Sendable {
         }
         guard clock() < deadline else { return .unavailable("focus-timeout") }
         guard ui.isAccessibilityAvailable() else { return .unavailable("accessibility-unavailable") }
-        guard ui.copyActiveSessionID(record, source, deadline) == record.sessionID else {
-            return .unavailable("active-session-id-unverified")
+        guard ui.verifyActiveSelection(record, source, deadline) else {
+            return .unavailable("active-session-selection-unverified")
         }
         guard clock() < deadline else { return .unavailable("focus-timeout") }
         // Re-admit metadata after navigation: a concurrent rename, archive or
@@ -72,7 +72,7 @@ struct MiniMaxCodeConversationController: Sendable {
         guard (try? reader.conversation(sessionID: id, sourceVersion: source.version)) == record else {
             return .unavailable("session-metadata-changed")
         }
-        guard clock() < deadline, ui.source() == source, ui.isFrontmost(source) else {
+        guard clock() < deadline, ui.isAccessibilityAvailable(), ui.source() == source, ui.isFrontmost(source) else {
             return .unavailable("app-not-frontmost")
         }
         return .focused
@@ -94,7 +94,7 @@ enum MiniMaxCodeAccessibilityAdmission {
         // and screen-reader flags, so false cannot prove incomplete mode.
         // Request once and settle that debounce before inspecting/pressing UI.
         // Actual readiness and success still require the exact window, search
-        // result and copied native ID below. Never restart the request timer.
+        // result and passively verified local page below. Never restart the request timer.
         let settleUntil = clock() + 2.1
         while clock() < settleUntil {
             guard clock() < deadline, isCurrent() else { return false }
@@ -231,7 +231,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case rendererAccessibilityUnavailable, rendererAccessibilitySettled
         case labelGeometryStable, labelHoverDispatched, labelPointerUnavailable, labelTextDetached
         case labelHitIsland, labelHitOtherApp, labelHitSourceOutsideItem
-        case searchPrepared, searchDispatched
+        case searchPrepared, searchDispatched, selectionVerified, selectionUnavailable
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -476,7 +476,7 @@ private enum MiniMaxCodeAXNavigation {
               childRoles.count < children.count ? 1 : 0)
     }
     static let ui = MiniMaxCodeConversationUI(isAccessibilityAvailable: { AXIsProcessTrusted() }, source: source, select: select,
-                                             copyActiveSessionID: copyID, isFrontmost: frontmost)
+                                             verifyActiveSelection: verifySelection, isFrontmost: frontmost)
     static func source() -> MiniMaxCodeConversationUI.Source? {
         let applications = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
             .filter { !$0.isTerminated && $0.processIdentifier > 0 }
@@ -605,7 +605,7 @@ private enum MiniMaxCodeAXNavigation {
         windowDiagnostic.deadlineExpired = !remaining(deadline)
         MiniMaxCodeCopyDiagnosticRecorder.record(windowDiagnostic)
         if acceptanceDiagnosticsEnabled { NSLog("aisland_minimax_window %@", windowDiagnostic.line) }
-        guard windowAdmission.focused else { return false }
+        guard windowAdmission.focused, localMode(admittedWindow, deadline: deadline) else { return false }
         if record.isDefaultWorkspace {
             return selectFromSearch(record, source: source, window: admittedWindow, deadline: deadline)
         }
@@ -655,7 +655,7 @@ private enum MiniMaxCodeAXNavigation {
         return false
     }
     /// Default-workspace tasks have no path-labelled project header. Use the
-    /// public local search, then retain the same copied native-ID verification.
+    /// public local search, then passively verify the globally unique local page.
     /// Never overwrite an already-open user search or select a command result.
     static func selectFromSearch(_ record: MiniMaxCodeConversationMetadata,
                                  source: MiniMaxCodeConversationUI.Source,
@@ -773,101 +773,51 @@ private enum MiniMaxCodeAXNavigation {
         diagnostic.reason = .searchBudgetExpired
         return false
     }
-    static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
-                       _ deadline: TimeInterval) -> String? {
+    /// Read-only page proof. No menu press, key event, pointer move or pasteboard access.
+    static func verifySelection(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
+                                _ deadline: TimeInterval) -> Bool {
         let started = ProcessInfo.processInfo.systemUptime
         var diagnostic = MiniMaxCodeCopyDiagnostic()
-        let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
+        diagnostic.stage = .complete; diagnostic.reason = .selectionUnavailable
         diagnostic.entryBudgetMilliseconds = Int(max(0, deadline - started) * 1000)
-        var ownedMenu: AXUIElement?
-        var navigationWindow: AXUIElement?
-        var dispatched = false
+        let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
         defer {
-            if !dispatched, let menu = ownedMenu, let root = navigationWindow {
-                diagnostic.cleanup = cleanupOwnMenu(menu, window: root, source: source)
-            } else if !dispatched { diagnostic.cleanup = .unowned }
+            diagnostic.frontmost = frontmost(source)
             diagnostic.deadlineExpired = !remaining(deadline)
             diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
             MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
-            if acceptanceDiagnosticsEnabled { NSLog("aisland_minimax_copy %@", diagnostic.line) }
         }
-        let inTime = remaining(deadline)
-        acceptanceLog(.copyEntryDeadline, flag: inTime)
-        guard inTime else { return nil }
-        diagnostic.reason = .sourceNotFrontmost
-        let inFront = frontmost(source)
-        diagnostic.frontmost = inFront
-        acceptanceLog(.copyEntryFrontmost, flag: inFront)
-        guard inFront else { return nil }
-        diagnostic.reason = .windowUnavailable
-        let root = window(source)
-        acceptanceLog(.copyEntryWindow, flag: root != nil)
-        guard let root else { return nil }
-        diagnostic.windowFocused = focusedElementBelongsToWindow(root, source: source, deadline: deadline,
-                                                                  diagnostic: &diagnostic, diagnosticEnabled: diagnosticEnabled)
-        guard diagnostic.windowFocused else { diagnostic.reason = .windowFocusUnobserved; return nil }
-        navigationWindow = root
-        diagnostic.stage = .title; diagnostic.reason = .titleUnavailable
-        var menuAlreadyOpen = false
-        let more = titleMenuButton(root, title: record.title, deadline: deadline, rejectOpenMenu: true,
-                                   menuAlreadyOpen: &menuAlreadyOpen, defaultWorkspace: record.isDefaultWorkspace)
-        if menuAlreadyOpen { diagnostic.reason = .menuAlreadyOpen }
-        acceptanceLog(.copyTitleButton, flag: more != nil)
-        guard let more else { return nil }
-        diagnostic.reason = .titlePressFailed
-        let titlePressed = press(more, deadline)
-        acceptanceLog(.copyTitlePress, flag: titlePressed)
-        guard titlePressed else { return nil }
-        diagnostic.stage = .menu; diagnostic.reason = .copyUnavailable
-        let copy = waitForMenuLabel(["复制", "Copy"], source: source, deadline: deadline)
-        acceptanceLog(.copyMenuItem, flag: copy != nil)
-        guard let copy else { return nil }
-        ownedMenu = menuAncestor(copy, deadline: deadline)
-        diagnostic.reason = .copyPressFailed
-        let copyPressed = press(copy, deadline)
-        acceptanceLog(.copyMenuPress, flag: copyPressed)
-        guard copyPressed else { return nil }
-        let opened = openCopySubmenu(copy, source: source, deadline: deadline, diagnostic: &diagnostic, diagnosticEnabled: diagnosticEnabled)
-        acceptanceLog(.copySubmenu, flag: opened)
-        guard opened else { return nil }
-        diagnostic.stage = .item; diagnostic.reason = .itemUnavailable
-        let item = waitForMenuLabel(["复制会话 ID", "Copy session ID"], source: source, deadline: deadline)
-        acceptanceLog(.copyIDItem, flag: item != nil)
-        guard let copyID = item, frontmost(source), remaining(deadline) else { return nil }
-        diagnostic.stage = .clipboard; diagnostic.reason = .clipboardUnavailable
-        let pasteboard = NSPasteboard.general
-        let captured = MiniMaxCodePasteboardSnapshot.capture(pasteboard)
-        acceptanceLog(.pasteboardCapture, flag: captured != nil)
-        guard let snapshot = captured, remaining(deadline) else { return nil }
-        diagnostic.reason = .clipboardChanged
-        guard pasteboard.changeCount == snapshot.originalChangeCount else { return nil }
-        diagnostic.stage = .label; diagnostic.reason = .labelActivationFailed
-        let activated = activateCopyLabel(copyID, source: source, deadline: deadline,
-            isPasteboardUnchanged: { pasteboard.changeCount == snapshot.originalChangeCount })
-        acceptanceLog(.copyIDPress, flag: activated)
-        guard activated else { return nil }
-        dispatched = true
-        diagnostic.stage = .clipboard; diagnostic.reason = .copyUnobserved
-        // A dispatched asynchronous copy gets at least 300 ms of bounded cleanup
-        // observation. A late exact result is restored but never reports success.
-        let cleanupDeadline = max(deadline, ProcessInfo.processInfo.systemUptime + 0.3)
-        repeat {
-            if pasteboard.changeCount != snapshot.originalChangeCount {
-                diagnostic.reason = .copyMismatch
-                let result = snapshot.consumeMatchingCopy(pasteboard, expectedID: record.sessionID)
-                acceptanceLog(.pasteboardIdentity, flag: result != nil)
-                guard let result else { return nil }
-                diagnostic.copied = true; diagnostic.restored = result.restored
-                acceptanceLog(.pasteboardRestore, flag: result.restored)
-                diagnostic.reason = .lateCopy
-                guard remaining(deadline) else { return nil }
-                diagnostic.stage = .complete; diagnostic.reason = .verified
-                return result.sessionID
-            }
-            guard remaining(cleanupDeadline) else { break }
-            pause(cleanupDeadline)
-        } while remaining(cleanupDeadline)
-        return nil
+        let verified = MiniMaxCodePassiveSelectionAdmission.verify(deadline: deadline,
+            clock: { ProcessInfo.processInfo.systemUptime },
+            isCurrent: { AXIsProcessTrusted() && self.source() == source && frontmost(source) },
+            readSelection: {
+                guard let root = window(source) else { return nil }
+                // The metadata DB is local-only. A cloud page with the same
+                // title must never count as the ID-bound local conversation.
+                guard localMode(root, deadline: deadline) else { return nil }
+                if !record.isDefaultWorkspace {
+                    let headers = projectHeaders(root, path: record.projectWorkspacePath, deadline: deadline)
+                    guard headers.count == 1,
+                          projectRows(headers[0], title: record.title, deadline: deadline)?.count == 1 else { return nil }
+                }
+                var menuAlreadyOpen = false
+                guard let title = titleMenuButton(root, title: record.title, deadline: deadline,
+                    rejectOpenMenu: true, menuAlreadyOpen: &menuAlreadyOpen,
+                    defaultWorkspace: record.isDefaultWorkspace, recordDiagnostic: false),
+                      focusedElementBelongsToWindow(root, source: source, deadline: deadline,
+                        diagnostic: &diagnostic, diagnosticEnabled: diagnosticEnabled) else { return nil }
+                return (window: root, titleControl: title)
+            }, equal: { CFEqual($0, $1) })
+        diagnostic.windowFocused = verified
+        if verified { diagnostic.reason = .selectionVerified }
+        return verified
+    }
+    static func localMode(_ root: AXUIElement, deadline: TimeInterval) -> Bool {
+        let radios = nodes(root, deadline).filter { role($0) == "AXRadioButton" }
+        let local = radios.filter { ["本地", "Local"].contains(exactLabel($0) ?? "") }
+        let cloud = radios.filter { ["云端", "Cloud"].contains(exactLabel($0) ?? "") }
+        return local.count == 1 && cloud.count == 1 && remaining(deadline)
+            && bool(local[0], kAXValueAttribute) == true && bool(cloud[0], kAXValueAttribute) == false
     }
     static func focusedElementBelongsToWindow(_ root: AXUIElement, source: MiniMaxCodeConversationUI.Source,
                                               deadline: TimeInterval, diagnostic: inout MiniMaxCodeCopyDiagnostic,

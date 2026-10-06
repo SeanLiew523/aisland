@@ -73,14 +73,13 @@ public struct MiniMaxCodeNavigationMetadata: Sendable {
                                                      isDefaultWorkspace: projectFlag == 1)
         guard sqlite3_step(statement) == SQLITE_DONE else { throw ReadError.incompatibleSchema }
         // Aggregate only: no other session's identity, title, or path leaves
-        // SQLite. Conservative global uniqueness avoids project/pinned aliases.
+        // SQLite. Without Copy ID, even hidden/archived/child title collisions
+        // must reject navigation: a stale renderer could still display them.
         // Same Unicode whitespace normalization as AX title comparison.
         let whitespace = "char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)"
         let duplicateSQL = """
         SELECT COUNT(session_id) FROM local_runtime_sessions
-        WHERE trim(title,\(whitespace))=? AND archived=0 AND visibility='visible'
-              AND columnar_version=3 AND parent_session_id IS NULL
-              AND session_kind IN ('task','conversation','unknown')
+        WHERE trim(title,\(whitespace))=?
         """
         let duplicates = try prepare(duplicateSQL, db: db)
         defer { sqlite3_finalize(duplicates) }

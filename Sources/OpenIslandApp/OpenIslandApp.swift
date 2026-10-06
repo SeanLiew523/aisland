@@ -159,7 +159,8 @@ final class OpenIslandAppDelegate: NSObject, NSApplicationDelegate {
         guard !BloubTrialController.isEnabled, harnessLaunchConfiguration.scenario == nil,
               welcomeStore.claimAutomaticPresentation(
                 migrationReady: model.hooks.intentStore.migrationVersion > 0,
-                firstLaunchCompleted: model.firstLaunchCompleted
+                firstLaunchCompleted: model.firstLaunchCompleted,
+                installation: OnboardingPresentationStore.Installation.current()
               ) else { return }
         recordWelcomeReceipt(event: .claimed, language: resolvedWelcomeLanguage())
         presentWelcome(mode: .autoMandatory)

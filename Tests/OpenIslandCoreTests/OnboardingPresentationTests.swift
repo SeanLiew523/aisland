@@ -60,6 +60,23 @@ struct OnboardingPresentationTests {
         #expect(OnboardingLanguage.resolve(manualLanguage: manual, preferredLanguages: [system]) == expected)
     }
 
+    @Test func unseenIntroIsIndependentOfLegacyHooksAndReinstallHasNewClaim() throws {
+        try withDefaults { defaults in
+            let store = OnboardingPresentationStore(defaults: defaults)
+            let original = OnboardingPresentationStore.Installation(identity: "device:1", build: "88")
+            #expect(!store.claimAutomaticPresentation(migrationReady: false, firstLaunchCompleted: true, installation: original))
+            #expect(store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true, installation: original))
+            #expect(!store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true, installation: original))
+            let reinstalled = OnboardingPresentationStore.Installation(identity: "device:2", build: "88")
+            #expect(store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true, installation: reinstalled))
+            #expect(!store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true, installation: reinstalled))
+            let upgraded = OnboardingPresentationStore.Installation(identity: "device:3", build: "89")
+            #expect(!store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true, installation: upgraded))
+            #expect(store.claimAutomaticPresentation(migrationReady: true, firstLaunchCompleted: true,
+                installation: .init(identity: "device:4", build: "89")))
+        }
+    }
+
     private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
         let suite = "onboarding-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

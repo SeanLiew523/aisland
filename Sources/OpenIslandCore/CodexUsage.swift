@@ -108,37 +108,47 @@ public enum CodexUsageLoader {
             return lhs.modifiedAt > rhs.modifiedAt
         }
 
+        var latest: CodexUsageSnapshot?
         for candidate in sortedCandidates {
             if let snapshot = loadLatestSnapshot(
                 from: candidate.fileURL,
                 modifiedAt: candidate.modifiedAt
             ) {
-                return snapshot
+                if latest == nil || (snapshot.capturedAt ?? .distantPast) > (latest?.capturedAt ?? .distantPast) {
+                    latest = snapshot
+                }
             }
         }
 
-        return nil
+        return latest
     }
 
     private static func loadLatestSnapshot(from fileURL: URL, modifiedAt: Date) -> CodexUsageSnapshot? {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            return nil
-        }
-
-        var latestSnapshot: CodexUsageSnapshot?
-        contents.enumerateLines { line, _ in
-            guard let snapshot = snapshot(
-                from: line,
-                filePath: fileURL.path,
-                fallbackTimestamp: modifiedAt
-            ) else {
-                return
+        // Read newest lines first; usage lives near the tail of active rollouts.
+        // Do not decode entire conversation histories on every quota refresh.
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        guard var offset = try? handle.seekToEnd() else { return nil }
+        var pending = Data()
+        while offset > 0 {
+            let length = min(offset, 65_536)
+            offset -= length
+            do {
+                try handle.seek(toOffset: offset)
+                guard let chunk = try handle.read(upToCount: Int(length)) else { return nil }
+                pending.insert(contentsOf: chunk, at: 0)
+            } catch { return nil }
+            var lines = pending.split(separator: 0x0a, omittingEmptySubsequences: false)
+            pending = offset > 0 ? Data(lines.removeFirst()) : Data()
+            for bytes in lines.reversed() {
+                let line = String(decoding: bytes, as: UTF8.self)
+                guard line.contains("rate_limits"), line.contains("token_count") else { continue }
+                if let value = snapshot(from: line, filePath: fileURL.path, fallbackTimestamp: modifiedAt) {
+                    return value
+                }
             }
-
-            latestSnapshot = snapshot
         }
-
-        return latestSnapshot
+        return nil
     }
 
     private static func snapshot(
@@ -157,6 +167,9 @@ public enum CodexUsageLoader {
             return nil
         }
 
+        // Reserved/base-model buckets are separate quotas, never the Codex quota.
+        let limitID = string(from: rateLimits["limit_id"])
+        guard limitID == nil || limitID == "codex" else { return nil }
         let windows = ["primary", "secondary"].compactMap { key in
             usageWindow(for: key, in: rateLimits)
         }
@@ -176,7 +189,8 @@ public enum CodexUsageLoader {
     private static func usageWindow(for key: String, in rateLimits: [String: Any]) -> CodexUsageWindow? {
         guard let payload = rateLimits[key] as? [String: Any],
               let usedPercentage = number(from: payload["used_percent"]),
-              let windowMinutes = integer(from: payload["window_minutes"]) else {
+              usedPercentage.isFinite, (0...100).contains(usedPercentage),
+              let windowMinutes = integer(from: payload["window_minutes"]), windowMinutes > 0 else {
             return nil
         }
 
@@ -232,6 +246,8 @@ public enum CodexUsageLoader {
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: string)
     }
 

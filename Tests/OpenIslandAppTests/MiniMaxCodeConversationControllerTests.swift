@@ -124,6 +124,17 @@ struct MiniMaxCodeConversationControllerTests {
         #expect(fixture.copyCount == 0)
     }
 
+    @Test func coldSelectionHasTimeForNativeCopyButCannotExtendItsDeadline() throws {
+        let fixture = try ControllerFixture(); defer { fixture.dispose() }
+        fixture.onSelect = { fixture.time = 3.4 }
+        let controller = MiniMaxCodeConversationController(ui: fixture.ui, clock: { fixture.time })
+        #expect(controller.focus(target: fixture.target) == .focused)
+        #expect(fixture.copyCount == 1)
+        fixture.time = 0
+        fixture.onCopy = { fixture.time = 6 }
+        #expect(controller.focus(target: fixture.target) == .unavailable("focus-timeout"))
+    }
+
     @Test func clipboardRestoresAllTypesAndPreservesAConcurrentProducer() throws {
         let board = NSPasteboard(name: .init("aisland-minimax-nav-test-" + UUID().uuidString))
         defer { board.releaseGlobally() }

@@ -31,7 +31,7 @@ struct MiniMaxCodeConversationController: Sendable {
     private let timeout: TimeInterval
     init(ui: MiniMaxCodeConversationUI = MiniMaxCodeAXNavigation.ui,
          clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         timeout: TimeInterval = 3) {
+         timeout: TimeInterval = 6) {
         self.ui = ui; self.clock = clock; self.timeout = max(0, timeout)
     }
     func focus(target: JumpTarget) -> MiniMaxCodeConversationFocusResult {
@@ -190,6 +190,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
         case rendererAccessibilityUnavailable
+        case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -621,15 +622,27 @@ private enum MiniMaxCodeAXNavigation {
             }
         }
         guard let root = current() else { return false }
-        let initialGroups = searchGroups(root)
+        // Reuse one snapshot for the unopened-search check and its chrome button.
+        // A newly enabled Electron renderer can be expensive on its first walk.
+        let initialNodes = nodes(root, deadline)
+        let initialGroups = initialNodes.filter {
+            role($0) == "AXGroup" && ["全局搜索", "Global search"].contains(exactLabel($0) ?? "")
+        }
         diagnostic.searchCount = initialGroups.count
         guard initialGroups.isEmpty else { diagnostic.reason = .searchAlreadyOpen; return false }
-        let buttons = nodes(root, deadline).filter {
+        let buttons = initialNodes.filter {
             role($0) == "AXButton" && ["搜索", "Search"].contains(exactLabel($0) ?? "") && action($0, kAXPressAction)
         }
         diagnostic.searchCount = buttons.count
         guard buttons.count == 1 else { diagnostic.reason = .searchButtonUnavailable; return false }
+        diagnostic.reason = .searchPrepared
+        diagnostic.searchNodes = initialNodes.count
+        diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
+        MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
         guard current() != nil, press(buttons[0], deadline) else { diagnostic.reason = .searchPressFailed; return false }
+        diagnostic.reason = .searchDispatched
+        diagnostic.elapsedMilliseconds = Int(max(0, ProcessInfo.processInfo.systemUptime - started) * 1000)
+        MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
         defer {
             // Close only our own search, in the same source/window and budget.
             if let root = current() {
@@ -697,6 +710,7 @@ private enum MiniMaxCodeAXNavigation {
             }
             return false
         }
+        diagnostic.reason = .searchBudgetExpired
         return false
     }
     static func copyID(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,

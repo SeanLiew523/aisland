@@ -712,6 +712,25 @@ struct AppModelSessionListTests {
         #expect(model.islandSurface == .sessionList(actionableSessionID: "background-session"))
     }
 
+    @Test func foregroundCompletionCannotCancelSlowerBackgroundCompletionProbe() async throws {
+        let now = Date.now
+        let model = AppModel(isNotificationSessionAlreadyFrontmost: { session in
+            if session.id == "background-ghostty" { try? await Task.sleep(for: .milliseconds(60)); return false }
+            return true
+        })
+        model.notchStatus = .closed
+        model.state = SessionState(sessions: ["background-ghostty", "foreground-peer"].map { id in
+            AgentSession(id: id, title: id, tool: .ohMyPi, origin: .live,
+                attachmentState: .attached, phase: .running, summary: "Running", updatedAt: now)
+        })
+        model.applyTrackedEvent(.sessionCompleted(.init(sessionID: "background-ghostty", summary: "Completed", timestamp: now)), ingress: .bridge)
+        model.applyTrackedEvent(.sessionCompleted(.init(sessionID: "foreground-peer", summary: "Completed", timestamp: now)), ingress: .bridge)
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(model.notchStatus == .opened)
+        #expect(model.notchOpenReason == .notification)
+        #expect(model.islandSurface == .sessionList(actionableSessionID: "background-ghostty"))
+    }
+
     @Test
     func hoverOpenedSessionListAutoCollapsesOnPointerExit() {
         let model = AppModel()

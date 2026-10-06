@@ -610,7 +610,7 @@ final class AppModel {
     private var jumpTask: Task<Void, Never>?
 
     @ObservationIgnored
-    private var notificationPresentationTask: Task<Void, Never>?
+    private var notificationPresentationTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
     private static func appearanceDefaultsKey(_ profile: IslandAppearanceDisplayProfile, _ name: String) -> String {
         "appearance.island.v8.\(profile.rawValue).\(name)"
@@ -1777,12 +1777,18 @@ final class AppModel {
             return
         }
 
-        notificationPresentationTask?.cancel()
-        notificationPresentationTask = Task { @MainActor [weak self] in
+        notificationPresentationTasks[sessionID]?.task.cancel()
+        let presentationID = UUID()
+        let task = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
 
+            defer {
+                if self.notificationPresentationTasks[sessionID]?.id == presentationID {
+                    self.notificationPresentationTasks.removeValue(forKey: sessionID)
+                }
+            }
             let shouldSuppress = await self.isNotificationSessionAlreadyFrontmost(session)
             guard !Task.isCancelled,
                   !shouldSuppress,
@@ -1792,6 +1798,7 @@ final class AppModel {
 
             self.presentNotificationSurface(surface)
         }
+        notificationPresentationTasks[sessionID] = (presentationID, task)
     }
 
     private func notificationSurfaceIsEligibleForPresentation(

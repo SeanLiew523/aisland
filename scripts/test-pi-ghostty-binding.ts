@@ -129,3 +129,28 @@ test("interactive real-PTY source binds when its agent cwd differs from shell OS
   expect(reads).toBe(pinnedReads);
   handlers.get("session_shutdown")!({ reason: "reload" }, moved);
 });
+
+
+test("OMP final agent_end covers paths without session_stop and ignores continuations and failures", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "aisland-omp-completion-"));
+  try {
+    const source = readFileSync(new URL("../Sources/OpenIslandApp/Resources/open-island-pi.ts", import.meta.url), "utf8").replaceAll("__OPEN_ISLAND_PI_SOURCE__", "oh-my-pi");
+    const path = join(directory, "extension.ts"); writeFileSync(path, source);
+    const { default: extension } = await import(path);
+    const handlers = new Map<string, Function>(), sent: any[] = [];
+    const ctx = { cwd: "/tmp/fixture", hasUI: false, sessionManager: { getSessionId: () => "fixture" } };
+    extension({ on: (name: string, handler: Function) => handlers.set(name, handler) }, {
+      diagnostic: () => {}, environment: {}, getTTY: () => undefined, normalizeDirectory: normalize,
+      ghosttySnapshot: () => { throw new Error("no UI observation allowed"); }, sendCommand: async (value: any) => { sent.push(value); },
+    });
+    const emit = (name: string, event = {}) => handlers.get(name)!(event, ctx);
+    emit("before_agent_start");
+    await emit("agent_end", { willContinue: true });
+    expect(sent.filter(v => v.piHook.hook_event_name === "Stop")).toHaveLength(0);
+    await emit("agent_end", { messages: [{ role: "assistant", stopReason: "error" }] });
+    expect(sent.filter(v => v.piHook.hook_event_name === "Stop")).toHaveLength(0);
+    await emit("agent_end", { willContinue: false, messages: [{ role: "assistant", stopReason: "stop" }] });
+    await emit("session_stop");
+    expect(sent.filter(v => v.piHook.hook_event_name === "Stop")).toHaveLength(1);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

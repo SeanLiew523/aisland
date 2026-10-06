@@ -57,6 +57,8 @@ interface ExtensionEvent {
   toolName?: string;
   args?: unknown;
   reason?: string;
+  willContinue?: boolean;
+  messages?: { role?: string; stopReason?: string }[];
   message?: {
     role?: string;
     content?: unknown;
@@ -441,6 +443,15 @@ export default function openIslandPiExtension(pi: ExtensionAPICompat, dependenci
 
   if (AGENT_SOURCE === "oh-my-pi") {
     pi.on("session_stop", (_event, ctx) => sendStop(ctx));
+    // OMP can settle without invoking session_stop (e.g. a terminal tool-call
+    // path). Its public agent_end is emitted after maintenance, with an
+    // explicit continuation flag. Intermediate settles must stay running.
+    pi.on("agent_end", (event, ctx) => {
+      if (event.willContinue === true) return;
+      const assistant = event.messages?.findLast(message => message.role === "assistant");
+      if (assistant?.stopReason === "aborted" || assistant?.stopReason === "error") return;
+      return sendStop(ctx); // one completion across both callbacks
+    });
   } else {
     pi.on("agent_settled", (_event, ctx) => sendStop(ctx));
   }

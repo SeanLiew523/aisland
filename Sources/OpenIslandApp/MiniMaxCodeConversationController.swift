@@ -79,6 +79,20 @@ struct MiniMaxCodeConversationController: Sendable {
     }
 }
 
+/// Enable the renderer only while the source PID/version and TCC stay admitted.
+enum MiniMaxCodeAccessibilityAdmission {
+    static func prepare(deadline: TimeInterval, clock: () -> TimeInterval,
+                        isCurrent: () -> Bool, isEnabled: () -> Bool?, enable: () -> Bool) -> Bool {
+        guard clock() < deadline, isCurrent() else { return false }
+        let enabled = isEnabled()
+        guard clock() < deadline, isCurrent() else { return false }
+        if enabled != true {
+            guard enable() else { return false }
+        }
+        return clock() < deadline && isCurrent()
+    }
+}
+
 /// An activation request returns before macOS necessarily changes the frontmost
 /// process. Wait within the original navigation budget, without reactivating.
 enum MiniMaxCodeActivationAdmission {
@@ -164,7 +178,7 @@ enum MiniMaxCodeFocusedElementAdmission {
 /// Copy diagnostics contain only closed vocabulary and bounded numeric fields.
 /// No source text, native ID/hash, pasteboard bytes, path or geometry is retained.
 struct MiniMaxCodeCopyDiagnostic: Sendable {
-    enum Stage: String, Sendable { case activation, window, search, topbar, entry, title, menu, focus, arrow, item, label, clipboard, complete }
+    enum Stage: String, Sendable { case accessibility, activation, window, search, topbar, entry, title, menu, focus, arrow, item, label, clipboard, complete }
     enum Reason: String, Sendable {
         case windowFocused, windowFocusUnobserved, deadline, sourceNotFrontmost, windowUnavailable, titleUnavailable, menuAlreadyOpen
         case titlePressFailed, copyUnavailable, copyPressFailed, copyFocusUnobserved
@@ -175,6 +189,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case searchResultPressFailed, searchTitleUnavailable, searchBudgetExpired, searchSelected
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
+        case rendererAccessibilityUnavailable
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
     var stage: Stage = .entry
@@ -435,6 +450,24 @@ private enum MiniMaxCodeAXNavigation {
     static func select(_ record: MiniMaxCodeConversationMetadata, _ source: MiniMaxCodeConversationUI.Source,
                        _ deadline: TimeInterval) -> Bool {
         guard remaining(deadline), AXIsProcessTrusted(), let app = app(source) else { return false }
+        // Electron does not expose its renderer tree merely because this process
+        // has TCC permission. Computer-use inspectors enable it themselves, which
+        // previously made manual tests pass only after inspecting the source UI.
+        // Use Electron's documented runtime attribute on this admitted PID only.
+        let axApp = AXUIElementCreateApplication(source.processID)
+        AXUIElementSetMessagingTimeout(axApp, 0.08)
+        let accessibilityReady = MiniMaxCodeAccessibilityAdmission.prepare(deadline: deadline,
+            clock: { ProcessInfo.processInfo.systemUptime },
+            isCurrent: { AXIsProcessTrusted() && self.source() == source },
+            isEnabled: { bool(axApp, "AXManualAccessibility") },
+            enable: { AXUIElementSetAttributeValue(axApp, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success })
+        guard accessibilityReady else {
+            var diagnostic = MiniMaxCodeCopyDiagnostic()
+            diagnostic.stage = .accessibility; diagnostic.reason = .rendererAccessibilityUnavailable
+            diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
+            MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            return false
+        }
         // Jump work runs off-main. Ask LaunchServices to foreground the already
         // admitted source instance. NSRunningApplication.activate returned false
         // in the live accessory-app jump even on the AppKit thread. Opening the

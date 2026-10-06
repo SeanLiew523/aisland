@@ -18,6 +18,74 @@ struct MiniMaxCodeWindowSelectionTests {
         .init(role: "AXWindow", subrole: "AXStandardWindow", title: "MiniMax Code",
               isMain: true, isMinimized: false)
     }
+    @Test func minimizedWindowCanLoseMainWithoutBecomingANavigationCandidate() {
+        let dialog = MiniMaxCodeWindowSelection.Attributes(role: "AXWindow", subrole: "AXDialog",
+            title: "MiniMax Code", isMain: true, isMinimized: true)
+        for state in [nil, false, true] as [Bool?] {
+            var minimized = main; minimized.isMain = state; minimized.isMinimized = true
+            #expect(MiniMaxCodeWindowSelection.mainIndex(in: [dialog, minimized]) == nil)
+            #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: [dialog, minimized]) == 1)
+            #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: [minimized, main]) == nil)
+        }
+        #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: [dialog]) == nil)
+        #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: [main]) == nil)
+        var unknown = main; unknown.isMinimized = nil
+        #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: [unknown]) == nil)
+        #expect(MiniMaxCodeWindowSelection.minimizedIndex(in: Array(repeating: main, count: 9)) == nil)
+    }
+    @Test func restoringWaitsForTheSameStrictMainWindowAndNeverRepeatsTheSetter() {
+        var time = 0.0, writes = 0, polls = 0
+        let result = MiniMaxCodeWindowRestoration.wait(deadline: 1, clock: { time }, isCurrent: { true },
+            readMainWindow: { polls >= 3 ? "source-window" : nil },
+            readMinimizedWindow: { "source-window" }, canRestore: { _ in true },
+            restore: { _ in writes += 1; return true }, equal: ==,
+            pause: { _ in polls += 1; time += 0.04 })
+        #expect(result.window == "source-window" && result.attempted && result.succeeded)
+        #expect(writes == 1 && polls == 3)
+        time = 0; writes = 0
+        let unchanged = MiniMaxCodeWindowRestoration.wait(deadline: 0.12, clock: { time }, isCurrent: { true },
+            readMainWindow: { nil as String? }, readMinimizedWindow: { "source-window" },
+            canRestore: { _ in true }, restore: { _ in writes += 1; return true }, equal: ==,
+            pause: { _ in time += 0.04 })
+        #expect(unchanged.window == nil && unchanged.attempted && unchanged.succeeded && writes == 1)
+    }
+    @Test func visibleWindowRequiresNoRestorationAndColdWindowKeepsItsBudget() {
+        var reads = 0, writes = 0, time = 0.0
+        let visible = MiniMaxCodeWindowRestoration.wait(deadline: 1, clock: { time }, isCurrent: { true },
+            readMainWindow: { "visible" }, readMinimizedWindow: { reads += 1; return "minimized" },
+            canRestore: { _ in true }, restore: { _ in writes += 1; return true }, equal: ==, pause: { _ in })
+        #expect(visible.window == "visible" && !visible.attempted && reads == 0 && writes == 0)
+        reads = 0
+        let cold = MiniMaxCodeWindowRestoration.wait(deadline: 0.2, clock: { time }, isCurrent: { true },
+            readMainWindow: { reads += 1; return reads >= 3 ? "cold" : nil },
+            readMinimizedWindow: { nil as String? }, canRestore: { _ in true },
+            restore: { _ in writes += 1; return true }, equal: ==, pause: { _ in time += 0.04 })
+        #expect(cold.window == "cold" && !cold.attempted && writes == 0 && time < 0.2)
+    }
+    @Test func restorationRejectsRevokedSourceChangedCandidateAndExpiryBeforeWriting() {
+        for change in 0..<3 {
+            var time = 0.0, current = true, reads = 0, writes = 0
+            let result = MiniMaxCodeWindowRestoration.wait(deadline: 1, clock: { time }, isCurrent: { current },
+                readMainWindow: { nil as String? }, readMinimizedWindow: {
+                    reads += 1; return change == 1 && reads > 1 ? "replacement" : "source-window"
+                }, canRestore: { _ in
+                    if change == 0 { current = false }
+                    if change == 2 { time = 2 }
+                    return true
+                }, restore: { _ in writes += 1; return true }, equal: ==, pause: { _ in time += 0.04 })
+            #expect(result.window == nil && !result.attempted && writes == 0)
+        }
+    }
+    @Test func failedSetterOrReplacementMainWindowCannotAdmitNavigation() {
+        for failSetter in [false, true] {
+            var time = 0.0, writes = 0
+            let result = MiniMaxCodeWindowRestoration.wait(deadline: 1, clock: { time }, isCurrent: { true },
+                readMainWindow: { writes > 0 ? "other-window" : nil }, readMinimizedWindow: { "source-window" },
+                canRestore: { _ in true }, restore: { _ in writes += 1; return !failSetter }, equal: ==,
+                pause: { _ in time += 0.04 })
+            #expect(result.window == nil && result.attempted && result.succeeded == !failSetter && writes == 1)
+        }
+    }
     @Test func coldStartWaitsForTheStrictMainWindowWithinTheOriginalBudget() {
         var time = 0.0, reads = 0
         let result: String? = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: 0.3,

@@ -245,6 +245,8 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var focusAncestorMatches = false
     var windowRaise = false
     var windowRaiseSucceeded = false
+    var windowRestore = false
+    var windowRestoreSucceeded = false
     var windowFocused = false
     var searchCount = 0
     var searchNodes = 0
@@ -265,7 +267,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) pointerMatches=\(pointerMatches) hitOwnerPID=\(min(max(hitOwnerPID, 0), Int(Int32.max))) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowRestore=\(windowRestore) windowRestoreSucceeded=\(windowRestoreSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) pointerMatches=\(pointerMatches) hitOwnerPID=\(min(max(hitOwnerPID, 0), Int(Int32.max))) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -556,18 +558,30 @@ private enum MiniMaxCodeAXNavigation {
             MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
             return false
         }
-        guard let admittedWindow = MiniMaxCodeWindowSelection.waitForMainWindow(deadline: deadline,
+        let restoration = MiniMaxCodeWindowRestoration.wait(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime },
             isCurrent: { AXIsProcessTrusted() && self.source() == source && frontmost(source) },
-            readWindow: { window(source) }, pause: pause) else {
+            readMainWindow: { window(source) }, readMinimizedWindow: { window(source, minimized: true) },
+            canRestore: { candidate in
+                var settable = DarwinBoolean(false)
+                return AXUIElementIsAttributeSettable(candidate, kAXMinimizedAttribute as CFString, &settable) == .success
+                    && settable.boolValue
+            }, restore: { candidate in
+                AXUIElementSetAttributeValue(candidate, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success
+            }, equal: { CFEqual($0, $1) }, pause: pause)
+        guard let admittedWindow = restoration.window else {
             var diagnostic = MiniMaxCodeCopyDiagnostic()
             diagnostic.stage = .window; diagnostic.reason = .windowUnavailable
+            diagnostic.windowRestore = restoration.attempted
+            diagnostic.windowRestoreSucceeded = restoration.succeeded
             diagnostic.frontmost = frontmost(source); diagnostic.deadlineExpired = !remaining(deadline)
             MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
             return false
         }
         let focusStarted = ProcessInfo.processInfo.systemUptime
         var windowDiagnostic = MiniMaxCodeCopyDiagnostic()
+        windowDiagnostic.windowRestore = restoration.attempted
+        windowDiagnostic.windowRestoreSucceeded = restoration.succeeded
         let diagnosticEnabled = acceptanceDiagnosticsEnabled || MiniMaxCodeCopyDiagnosticRecorder.isEnabled()
         let windowAdmission = MiniMaxCodeWindowFocusAdmission.wait(deadline: deadline,
             clock: { ProcessInfo.processInfo.systemUptime }, isCurrent: {
@@ -1315,7 +1329,7 @@ private enum MiniMaxCodeAXNavigation {
         }
         return nil
     }
-    static func window(_ source: MiniMaxCodeConversationUI.Source) -> AXUIElement? {
+    static func window(_ source: MiniMaxCodeConversationUI.Source, minimized: Bool = false) -> AXUIElement? {
         let root = AXUIElementCreateApplication(source.processID)
         AXUIElementSetMessagingTimeout(root, 0.08)
         var output: CFTypeRef?
@@ -1324,8 +1338,8 @@ private enum MiniMaxCodeAXNavigation {
         acceptanceLog(.windowQuery, count: values.count, error: Int(error.rawValue), flag: error == .success)
         acceptanceWindowLog(values)
         // Live 3.1.0 exposes an auxiliary AXDialog beside its standard main
-        // window. Admit one exact, non-minimized standard window only, then
-        // require its project header and copied native session ID as before.
+        // window. A separate minimized candidate permits restoration only.
+        // Every navigation/Copy caller still requires the strict main window.
         guard values.count <= 8 else { return nil }
         let attributes = values.map {
             MiniMaxCodeWindowSelection.Attributes(role: role($0),
@@ -1334,7 +1348,9 @@ private enum MiniMaxCodeAXNavigation {
                 isMain: bool($0, kAXMainAttribute),
                 isMinimized: bool($0, kAXMinimizedAttribute))
         }
-        guard let index = MiniMaxCodeWindowSelection.mainIndex(in: attributes) else { return nil }
+        let selected = minimized ? MiniMaxCodeWindowSelection.minimizedIndex(in: attributes)
+            : MiniMaxCodeWindowSelection.mainIndex(in: attributes)
+        guard let index = selected else { return nil }
         return values[index]
     }
     static func nodes(_ root: AXUIElement, _ deadline: TimeInterval, maximum: Int = 4000, depth maximumDepth: Int = 48) -> [AXUIElement] {

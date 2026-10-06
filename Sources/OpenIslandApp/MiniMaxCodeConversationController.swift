@@ -218,7 +218,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
         case rendererAccessibilityUnavailable, rendererAccessibilitySettled
-        case labelGeometryStable, labelHoverDispatched
+        case labelGeometryStable, labelHoverDispatched, labelPointerUnavailable
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -240,6 +240,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
     var focusQueryError = 0
     var focusedRole = "unavailable"
     var focusEqual = false
+    var pointerMatches = false
     var frontmost = false
     var inputAvailable = false
     var copied = false
@@ -251,7 +252,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         let roles = ["AXMenuItem", "AXMenu", "AXButton", "AXStaticText", "AXGroup", "AXTextArea", "AXWebArea"]
         let role = roles.contains(focusedRole) ? focusedRole : "unavailable"
         func bounded(_ value: Int) -> Int { min(max(value, 0), 60_000) }
-        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
+        return "stage=\(stage.rawValue) reason=\(reason.rawValue) cleanup=\(cleanup.rawValue) searchCount=\(bounded(searchCount)) searchNodes=\(bounded(searchNodes)) windowRaise=\(windowRaise) windowRaiseSucceeded=\(windowRaiseSucceeded) windowFocused=\(windowFocused) windowFocusProof=\(windowFocusProof.rawValue) focusWindowMatches=\(focusWindowMatches) focusAncestorMatches=\(focusAncestorMatches) focusPolls=\(bounded(focusPolls)) focusQueryError=\(min(max(focusQueryError, -25_220), 0)) focusedRole=\(role) focusEqual=\(focusEqual) pointerMatches=\(pointerMatches) frontmost=\(frontmost) inputAvailable=\(inputAvailable) copied=\(copied) restored=\(restored) deadlineExpired=\(deadlineExpired) entryBudgetMs=\(bounded(entryBudgetMilliseconds)) elapsedMs=\(bounded(elapsedMilliseconds))"
     }
 }
 
@@ -1034,7 +1035,7 @@ private enum MiniMaxCodeAXNavigation {
                 if hoveredPoint != point {
                     guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
                         mouseCursorPosition: point, mouseButton: .left) else { return false }
-                    move.flags = []; move.post(tap: .cgSessionEventTap)
+                    move.flags = []; move.post(tap: .cghidEventTap)
                     hoveredPoint = point
                     var diagnostic = MiniMaxCodeCopyDiagnostic()
                     diagnostic.stage = .label; diagnostic.reason = .labelHoverDispatched
@@ -1042,17 +1043,27 @@ private enum MiniMaxCodeAXNavigation {
                     MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
                     pause(deadline); continue
                 }
+                let pointerMatches = CGEvent(source: nil).map {
+                    abs($0.location.x - point.x) <= 1 && abs($0.location.y - point.y) <= 1
+                } ?? false
+                guard pointerMatches else {
+                    var diagnostic = MiniMaxCodeCopyDiagnostic()
+                    diagnostic.stage = .label; diagnostic.reason = .labelPointerUnavailable
+                    diagnostic.frontmost = frontmost(source)
+                    MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+                    return false
+                }
                 guard remaining(deadline), frontmost(source), isPasteboardUnchanged(),
                       let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
                       let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else { return false }
                 var diagnostic = MiniMaxCodeCopyDiagnostic()
                 diagnostic.stage = .label; diagnostic.reason = .labelGeometryStable
-                diagnostic.frontmost = true; diagnostic.focusEqual = true
+                diagnostic.frontmost = true; diagnostic.focusEqual = true; diagnostic.pointerMatches = true
                 MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
                 down.flags = []; up.flags = []
                 down.setIntegerValueField(.mouseEventClickState, value: 1)
                 up.setIntegerValueField(.mouseEventClickState, value: 1)
-                down.post(tap: .cgSessionEventTap); up.post(tap: .cgSessionEventTap)
+                down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
                 return true
             }
             if acceptanceDiagnosticsEnabled {

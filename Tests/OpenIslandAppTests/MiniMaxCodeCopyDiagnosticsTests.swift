@@ -47,7 +47,7 @@ struct MiniMaxCodeCopyDiagnosticsTests {
         #expect(line.contains("focusQueryError=-25220") && line.contains("stage=focus"))
         #expect(line.contains("searchCount=60000") && line.contains("searchNodes=0"))
         let keys = line.split(separator: " ").map { String($0.split(separator: "=", maxSplits: 1)[0]) }
-        #expect(Set(keys) == Set(["timestamp", "stage", "reason", "cleanup", "searchCount", "searchNodes", "windowRaise", "windowRaiseSucceeded", "windowFocused", "windowFocusProof", "focusWindowMatches", "focusAncestorMatches", "focusPolls", "focusQueryError", "focusedRole", "focusEqual", "frontmost", "inputAvailable", "copied", "restored", "deadlineExpired", "entryBudgetMs", "elapsedMs"]))
+        #expect(Set(keys) == Set(["timestamp", "stage", "reason", "cleanup", "searchCount", "searchNodes", "windowRaise", "windowRaiseSucceeded", "windowFocused", "windowFocusProof", "focusWindowMatches", "focusAncestorMatches", "focusPolls", "focusQueryError", "focusedRole", "focusEqual", "pointerMatches", "frontmost", "inputAvailable", "copied", "restored", "deadlineExpired", "entryBudgetMs", "elapsedMs"]))
         var info = stat(); #expect(lstat(f.log.path, &info) == 0)
         #expect(info.st_uid == getuid() && info.st_nlink == 1)
         #expect((info.st_mode & S_IFMT) == S_IFREG && (info.st_mode & 0o7777) == 0o600)

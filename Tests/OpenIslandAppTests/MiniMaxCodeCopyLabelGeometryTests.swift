@@ -19,4 +19,16 @@ struct MiniMaxCodeCopyLabelGeometryTests {
         let admitted = trace.map { geometry.observe($0.0, at: $0.1) }
         #expect(admitted == [false, true, false, false, true])
     }
+    @Test func detachedTextUsesOnlyItsVisiblePaddingZeroMenuItem() {
+        let window = CGRect(x: 100, y: 200, width: 1000, height: 800)
+        let item = CGRect(x: 500, y: 400, width: 200, height: 30)
+        let label = CGRect(x: 550, y: 405, width: 100, height: 20)
+        #expect(MiniMaxCodeCopyLabelGeometry.clickBounds(label: label, item: item, window: window) == label)
+        #expect(MiniMaxCodeCopyLabelGeometry.clickBounds(label: label.offsetBy(dx: -550, dy: -405),
+            item: item, window: window) == item)
+        #expect(MiniMaxCodeCopyLabelGeometry.clickBounds(label: nil, item: item, window: window) == item)
+        #expect(MiniMaxCodeCopyLabelGeometry.clickBounds(label: label, item: .zero, window: window) == nil)
+        #expect(MiniMaxCodeCopyLabelGeometry.clickBounds(label: label, item: item.offsetBy(dx: -500, dy: -400),
+            window: window) == nil)
+    }
 }

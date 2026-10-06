@@ -119,6 +119,17 @@ struct MiniMaxCodeCopyLabelGeometry {
         }
         return time - stableSince >= 0.16
     }
+    static func clickBounds(label: CGRect?, item: CGRect, window: CGRect) -> CGRect? {
+        func valid(_ bounds: CGRect) -> Bool {
+            bounds.origin.x.isFinite && bounds.origin.y.isFinite && bounds.width.isFinite
+                && bounds.height.isFinite && bounds.width > 0 && bounds.height > 0
+        }
+        guard valid(item), valid(window), window.contains(item) else { return nil }
+        if let label, valid(label), item.contains(label) { return label }
+        // The reviewed matrix label div fills its padding-zero menu item.
+        // A detached/off-item text rectangle cannot determine the click point.
+        return item
+    }
 }
 
 /// An activation request returns before macOS necessarily changes the frontmost
@@ -218,7 +229,7 @@ struct MiniMaxCodeCopyDiagnostic: Sendable {
         case terminalButtonAmbiguous, topbarParentUnavailable, topbarChildrenInvalid, topbarPrefixInvalid, topbarVerified
         case activationRequestFailed, activationUnobserved
         case rendererAccessibilityUnavailable, rendererAccessibilitySettled
-        case labelGeometryStable, labelHoverDispatched, labelPointerUnavailable
+        case labelGeometryStable, labelHoverDispatched, labelPointerUnavailable, labelTextDetached
         case searchPrepared, searchDispatched
     }
     enum Cleanup: String, Sendable { case unnecessary, unowned, focusChanged, unsupported, attempted, dispatched }
@@ -1000,25 +1011,32 @@ private enum MiniMaxCodeAXNavigation {
         let labels = members.filter { role($0) == "AXStaticText" && ["复制会话 ID", "Copy session ID"].contains(text($0) ?? "") }
         acceptanceLog(.copyLabel, count: labels.count, nodes: members.count, flag: remaining(deadline))
         guard labels.count == 1, let label = labels.first else { return false }
-        let application = AXUIElementCreateApplication(source.processID)
+        let system = AXUIElementCreateSystemWide()
         guard let admittedWindow = window(source) else { return false }
         var geometry = MiniMaxCodeCopyLabelGeometry()
         var hoveredPoint: CGPoint?
+        var recordedDetachedText = false
         // Opening the renderer submenu animates its geometry. Fresh bounds and
         // hit identity must agree before clicking; wait within the same budget.
         while remaining(deadline), AXIsProcessTrusted(), self.source() == source,
               frontmost(source), isPasteboardUnchanged() {
             guard let currentWindow = window(source), CFEqual(currentWindow, admittedWindow) else { return false }
-            guard let pointValue = value(label, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
-                  let sizeValue = value(label, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return false }
-            var origin = CGPoint.zero; var size = CGSize.zero
-            guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
-                  AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
-                  origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite,
-                  size.width > 0, size.height > 0 else { return false }
-            let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+            let labelBounds = bounds(label)
+            guard let itemBounds = bounds(item), let windowBounds = bounds(admittedWindow),
+                  let clickBounds = MiniMaxCodeCopyLabelGeometry.clickBounds(label: labelBounds,
+                      item: itemBounds, window: windowBounds) else { return false }
+            if labelBounds.map({ itemBounds.contains($0) }) != true, !recordedDetachedText {
+                recordedDetachedText = true
+                var diagnostic = MiniMaxCodeCopyDiagnostic()
+                diagnostic.stage = .label; diagnostic.reason = .labelTextDetached
+                MiniMaxCodeCopyDiagnosticRecorder.record(diagnostic)
+            }
+            let point = CGPoint(x: clickBounds.midX, y: clickBounds.midY)
             var hit: AXUIElement?
-            let hitResult = AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &hit)
+            // The source-specific hit test can ignore another app's overlay.
+            // Require the system hit at the delivered point to belong to this
+            // exact source item; never send input through an occluding window.
+            let hitResult = AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit)
             let matches = hit.map { candidate in members.contains { CFEqual($0, candidate) } } ?? false
             acceptanceLog(.copyLabel, count: 3, error: Int(hitResult.rawValue), flag: matches)
             guard hitResult == .success else { return false }
@@ -1026,12 +1044,11 @@ private enum MiniMaxCodeAXNavigation {
                 var owner: pid_t = 0
                 guard AXUIElementGetPid(hit, &owner) == .success, owner == source.processID,
                       remaining(deadline), frontmost(source), isPasteboardUnchanged() else { return false }
-                guard geometry.observe(CGRect(origin: origin, size: size), at: ProcessInfo.processInfo.systemUptime) else {
+                guard geometry.observe(clickBounds, at: ProcessInfo.processInfo.systemUptime) else {
                     hoveredPoint = nil; pause(deadline); continue
                 }
-                // Publish ordinary pointer hover to this exact stable label
-                // before the click. The renderer otherwise retains the first
-                // submenu row's keyboard/hover state on the live cold path.
+                // Publish ordinary pointer hover to this exact stable target,
+                // then readmit the system hit and actual pointer before clicking.
                 if hoveredPoint != point {
                     guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
                         mouseCursorPosition: point, mouseButton: .left) else { return false }
@@ -1072,6 +1089,16 @@ private enum MiniMaxCodeAXNavigation {
             pause(deadline)
         }
         return false
+    }
+    static func bounds(_ element: AXUIElement) -> CGRect? {
+        guard let pointValue = value(element, kAXPositionAttribute), CFGetTypeID(pointValue) == AXValueGetTypeID(),
+              let sizeValue = value(element, kAXSizeAttribute), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
+        var origin = CGPoint.zero; var size = CGSize.zero
+        guard AXValueGetValue(unsafeDowncast(pointValue, to: AXValue.self), .cgPoint, &origin),
+              AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size),
+              origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return nil }
+        return CGRect(origin: origin, size: size)
     }
 
     /// Live 3.1.0 flattens title/menu/controls into adjacent direct children.

@@ -5,6 +5,8 @@ import base64
 import os
 from pathlib import Path
 import plistlib
+import json
+CONFIG = json.loads((Path(__file__).resolve().parent.parent / "config/packaging/AIslandUpdates.json").read_text())
 
 LEGACY = "3IF8txq9RRNanzE2FNhyGRcwhslTucCcJHpTkpxcgBQ="
 parser = argparse.ArgumentParser(description=__doc__)
@@ -24,7 +26,8 @@ else:
     assert info.get("SUVerifyUpdateBeforeExtraction") is True
     assert info.get("SUEnableAutomaticChecks") is False
     assert info.get("SUAutomaticallyUpdate") is False
-    assert info.get("SUFeedURL") == "https://raw.githubusercontent.com/SeanLiew523/aisland/main/appcast.xml"
+    assert info.get("SUFeedURL") == CONFIG["feed_url"]
+assert key == CONFIG["public_key"], "Update public key must match the committed AIsland identity."
 assert key and key != LEGACY, "AIsland public key is required; the legacy upstream key is rejected."
 assert len(base64.b64decode(key, validate=True)) == 32, "Ed25519 public key must contain exactly 32 bytes."
 print("Update public configuration verified. This does not verify a published release or installation.")

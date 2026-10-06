@@ -35,7 +35,16 @@ jobs:
           brew install create-dmg
           pip3 install --break-system-packages Pillow
 
+      - name: Verify signed update rejection and isolated admission
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 scripts/test-release-update-signatures.py
+          python3 scripts/test-updater-app-fixture.py
+
       - name: Build and package
+        env:
+          OPEN_ISLAND_DISABLE_UPDATES: "true"
         run: zsh scripts/package-aisland.sh
 
       - name: Verify AIsland identity and archives

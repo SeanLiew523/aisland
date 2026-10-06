@@ -129,6 +129,8 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>en</string><string>zh-Hans</string><string>zh-Hant</string></array>
     <key>CFBundleDisplayName</key>
     <string>$app_name</string>
     <key>CFBundleExecutable</key>
@@ -160,7 +162,7 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
     <key>AIslandSourceCommit</key>
     <string>$(git rev-parse HEAD)</string>
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/SeanLiew523/aisland/main/appcast.xml</string>
+    <string>https://github.com/SeanLiew523/aisland/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>${OPEN_ISLAND_EDDSA_PUBLIC_KEY:-}</string>
 </dict>
@@ -209,6 +211,7 @@ echo "Bundle structure verified."
 # --- Smoke-test the app outside the repo to catch Bundle.module fallback hacks ---
 # SPM's generated resource accessor has a hardcoded fallback to the local .build/
 # directory. Running from /tmp ensures the app works without that crutch.
+if [[ "${OPEN_ISLAND_PACKAGE_SMOKE:-true}" == "true" ]]; then
 smoke_dir="$(mktemp -d)/smoke-test"
 mkdir -p "$smoke_dir"
 cp -R "$bundle_dir" "$smoke_dir/"
@@ -237,6 +240,8 @@ if [[ -x "$smoke_binary" ]]; then
     rm -rf "$(dirname "$smoke_dir")"
 else
     echo "WARNING: smoke test skipped — binary not found at $smoke_binary" >&2
+fi
+
 fi
 
 sparkle_fw="$bundle_dir/Contents/Frameworks/Sparkle.framework"

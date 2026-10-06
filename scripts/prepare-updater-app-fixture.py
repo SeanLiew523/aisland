@@ -80,6 +80,9 @@ for (offset, version) in ["0.1.1", "0.1.2"].enumerated() {
     info["CFBundleDisplayName"] = "AIsland Update Acceptance"
     info["CFBundleShortVersionString"] = version
     info["CFBundleVersion"] = String(currentBuild + offset)
+    info["OpenIslandRuntimeAcceptance"] = true
+    info["AIslandUpdaterFixtureSupported"] = true
+    info["AIslandApprovedV6Commit"] = "32c94f2fb0282242d17ef4db63f6c169a874e25f"
     info["AIslandUpdaterFixture"] = true
     info["AIslandUpdaterFixtureRoot"] = root.path
     info["AIslandUpdaterFixtureOrigin"] = origin
@@ -122,12 +125,17 @@ try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys]).wri
 try Data(publicKey.utf8).write(to: root.appendingPathComponent("public-key.txt"))
 '''
 
-def prepare(template, tamper):
+def prepare(template, tamper, release_template=False):
     template = Path(template).absolute()
     if template.resolve() != template or template.suffix != '.app':
         raise ValueError('Template must be a canonical full acceptance app.')
     info = plistlib.loads((template / 'Contents/Info.plist').read_bytes())
-    if info.get('OpenIslandRuntimeAcceptance') is not True or info.get('AIslandUpdaterFixtureSupported') is not True or not info.get('CFBundleIdentifier', '').startswith('dev.aisland.v011.acceptance.') or info.get('CFBundleShortVersionString') != '0.1.1' or info.get('AIslandUpdaterFixture') is not None:
+    if release_template:
+        repo = Path(__file__).resolve().parent.parent
+        if not template.is_relative_to(repo / 'output') or info.get('CFBundleIdentifier') != 'dev.aisland.app' or info.get('CFBundleShortVersionString') != '0.1.1' or any('Acceptance' in k or 'Fixture' in k for k in info):
+            raise ValueError('Only a normal release under repository output may be copied; installed apps are excluded.')
+        run(['python3', str(repo / 'scripts/verify-update-configuration.py'), '--app', str(template)])
+    elif info.get('OpenIslandRuntimeAcceptance') is not True or info.get('AIslandUpdaterFixtureSupported') is not True or not info.get('CFBundleIdentifier', '').startswith('dev.aisland.v011.acceptance.') or info.get('CFBundleShortVersionString') != '0.1.1' or info.get('AIslandUpdaterFixture') is not None:
         raise ValueError('Build a fresh full acceptance app with the validated fixture interface first.')
     if not (template / 'Contents/Frameworks/Sparkle.framework').is_dir() or not (template / 'Contents/Resources/OpenIsland_OpenIslandApp.bundle').is_dir():
         raise ValueError('Template is missing real Sparkle or full application resources.')
@@ -213,10 +221,11 @@ def inspect(root, expected):
 def main():
     p=argparse.ArgumentParser(description=__doc__); g=p.add_mutually_exclusive_group()
     g.add_argument('--prepare',metavar='FULL_ACCEPTANCE_APP'); g.add_argument('--serve',metavar='FIXTURE_ROOT')
-    g.add_argument('--inspect',metavar='FIXTURE_ROOT'); g.add_argument('--cleanup',metavar='FIXTURE_ROOT')
+    g.add_argument('--prepare-release',metavar='FULL_RELEASE_APP'); g.add_argument('--inspect',metavar='FIXTURE_ROOT'); g.add_argument('--cleanup',metavar='FIXTURE_ROOT')
     p.add_argument('--tamper',choices=['feed','archive']); p.add_argument('--rate-kib',type=int,default=512)
     p.add_argument('--expect',choices=['updated','rejected']); a=p.parse_args()
     if a.prepare: prepare(a.prepare,a.tamper)
+    elif a.prepare_release: prepare(a.prepare_release,a.tamper,release_template=True)
     elif a.serve:
         root,m,_,_=load(a.serve)
         if not 64<=a.rate_kib<=8192: raise ValueError('Rate must be 64–8192 KiB/s.')

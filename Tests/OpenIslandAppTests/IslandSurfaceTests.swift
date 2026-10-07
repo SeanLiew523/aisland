@@ -5,6 +5,30 @@ import OpenIslandCore
 
 struct IslandSurfaceTests {
     @Test
+    func soundCategoryFollowsTheNotifiedSessionAndRejectsFailedOrStaleCards() {
+        let surface = IslandSurface.sessionList(actionableSessionID: "task")
+        var session = AgentSession(id: "task", title: "Test", tool: .claudeCode,
+            phase: .waitingForApproval, summary: "Test", updatedAt: .now,
+            permissionRequest: PermissionRequest(title: "Allow?", summary: "Test", affectedPath: "/tmp"))
+        #expect(surface.notificationSoundCategory(for: session) == .approval)
+        session.phase = .waitingForAnswer
+        session.questionPrompt = QuestionPrompt(title: "Which?", options: ["A", "B"])
+        #expect(surface.notificationSoundCategory(for: session) == .answer)
+        session.phase = .completed
+        #expect(surface.notificationSoundCategory(for: session) == .completed)
+        session.runtimeOutcome = .failed
+        #expect(surface.notificationSoundCategory(for: session) == nil)
+        session.runtimeOutcome = .interrupted
+        #expect(surface.notificationSoundCategory(for: session) == nil)
+        session.runtimeOutcome = .succeeded
+        session.id = "other-task"
+        #expect(surface.notificationSoundCategory(for: session) == nil)
+        session.id = "task"; session.phase = .running
+        #expect(surface.notificationSoundCategory(for: session) == nil)
+        #expect(surface.notificationSoundCategory(for: nil) == nil)
+    }
+
+    @Test
     func permissionEventsRouteToActionableSurface() {
         let event = AgentEvent.permissionRequested(
             PermissionRequested(

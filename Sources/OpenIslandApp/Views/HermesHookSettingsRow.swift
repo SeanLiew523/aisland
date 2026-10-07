@@ -1,0 +1,106 @@
+import AppKit
+import SwiftUI
+import OpenIslandCore
+
+/// Profile-scoped setup. Installation never grants Hermes' first-use consent.
+struct HermesHookSettingsRow: View {
+    let hooksBinaryURL: URL?
+    let lang: LanguageManager
+    var setupDisabled = false
+    var setupDisabledExplanationKey = "setup.connection.isolated"
+    var sourceDetected = true
+    var automaticStatus: HermesHookInstallationStatus? = nil
+    var receivedSessionEventProfiles: Set<String> = []
+    var onConfigurationChanged: ((HermesHookInstallationStatus, AgentHookIntent) -> Void)? = nil
+    @State private var profileDirectory = HermesHookInstallationManager.defaultProfileDirectory
+    @State private var pythonURL = HermesHookInstallationManager.defaultPythonURL
+    @State private var status: HermesHookInstallationStatus?
+    @State private var message: String?
+    @State private var busy = false
+    private var chinese: Bool { lang.language.resolvedCode.hasPrefix("zh") }
+    private func text(_ en: String, _ zh: String) -> String { chinese ? zh : en }
+    private var hasReceivedSessionEvent: Bool {
+        status?.isInstalled != false && receivedSessionEventProfiles.contains(profileDirectory.standardizedFileURL.path)
+    }
+    private var connectionDescription: String {
+        if hasReceivedSessionEvent { return text("Session events received", "已收到会话事件") }
+        if status?.isInstalled == true {
+            return status?.hasConsent == true
+                ? text("Configured · consent recorded", "已配置 · 已记录授权")
+                : text("Configured · Hermes consent pending", "已配置 · 等待 Hermes 授权")
+        }
+        return lang.t(status == nil ? "setup.connection.unknown" : "setup.connection.notConfigured")
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Hermes CLI").fontWeight(.medium)
+                Spacer()
+                Text(connectionDescription)
+                    .foregroundStyle(.secondary).font(.caption)
+                Button(text("Refresh", "刷新")) { refresh() }.disabled(busy || setupDisabled)
+                Button(lang.t(status?.isInstalled == true ? "setup.connection.update" : "setup.connection.configure")) { perform(install: true) }
+                    .disabled(busy || setupDisabled || !sourceDetected || hooksBinaryURL == nil)
+                if status?.isInstalled == true {
+                    Button(lang.t("setup.connection.remove")) { perform(install: false) }.disabled(busy || setupDisabled)
+                }
+            }
+            HStack {
+                Text(profileDirectory.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Button(text("Choose profile…", "选择 profile…")) { choose(directory: true) }.disabled(busy || setupDisabled)
+                Button(text("Choose Python…", "选择 Python…")) { choose(directory: false) }.disabled(busy || setupDisabled)
+            }
+            Text(lang.t("setup.connection.hermesExplanation"))
+                .font(.caption).foregroundStyle(.secondary)
+            if !sourceDetected && !setupDisabled && !hasReceivedSessionEvent {
+                Text(lang.t("setup.connection.sourceMissing")).font(.caption).foregroundStyle(.secondary)
+            }
+            if setupDisabled || hooksBinaryURL == nil {
+                Text(lang.t(setupDisabled ? setupDisabledExplanationKey : "setup.connection.missingHelper"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+        }
+        .task { if setupDisabled { status = automaticStatus } else { refresh() } }
+        .onChange(of: automaticStatus) { _, value in
+            if profileDirectory == HermesHookInstallationManager.defaultProfileDirectory { status = value }
+        }
+    }
+    private func choose(directory: Bool) {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = directory; panel.canChooseFiles = !directory
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        if directory { profileDirectory = selected } else { pythonURL = selected }
+        status = nil; refresh()
+    }
+    private func refresh() { perform(install: nil) }
+    private func perform(install: Bool?) {
+        guard !setupDisabled else { return }
+        guard !busy else { return }
+        busy = true; message = nil
+        let manager = HermesHookInstallationManager(profileDirectory: profileDirectory, pythonURL: pythonURL)
+        let binary = hooksBinaryURL
+        Task {
+            let result = await Task.detached { () -> Result<HermesHookInstallationStatus, Error> in
+                Result {
+                    if install == true {
+                        guard let binary else { throw HermesHookInstallationError.missingBinary }
+                        return try manager.install(hooksBinaryURL: binary)
+                    }
+                    if install == false { return try manager.uninstall() }
+                    return try manager.status(hooksBinaryURL: binary)
+                }
+            }.value
+            switch result {
+            case let .success(value):
+                status = value
+                if let install, profileDirectory.standardizedFileURL == HermesHookInstallationManager.defaultProfileDirectory.standardizedFileURL {
+                    onConfigurationChanged?(value, install ? .installed : .uninstalled)
+                }
+            case let .failure(error): message = error.localizedDescription
+            }
+            busy = false
+        }
+    }
+}

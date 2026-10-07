@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 @preconcurrency import MarkdownUI
 import OpenIslandCore
 
@@ -304,6 +305,29 @@ struct IslandPanelView: View {
         pill
         .scaleEffect(isPopping ? 1.04 : 1, anchor: .top)
         .animation(popAnimation, value: isPopping)
+        // One semantic control for the pill; mouse handling stays on notchContent.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(lang.t("island.accessibility.openPanel"))
+        .accessibilityValue(closedPillAccessibilityValue(pill))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default) {
+            if model.notchStatus != .opened {
+                model.notchOpen(reason: .click)
+            }
+        }
+        .accessibilityHidden(usesOpenedVisualState)
+    }
+
+    private func closedPillAccessibilityValue(_ pill: V6ClosedPill) -> String {
+        let sessionCount: Int?
+        switch pill.rightSlot {
+        case .count(let count): sessionCount = count
+        case .agents(let cells): sessionCount = cells.count
+        case nil: sessionCount = nil
+        }
+        return [pill.label, sessionCount.map { lang.t("island.accessibility.sessionCount", $0) }]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     // MARK: - Opened surface
@@ -1326,6 +1350,13 @@ private struct IslandSessionRow: View {
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.15), value: isHighlighted)
         .onTapGesture(perform: handlePrimaryTap)
+        // Keep real child controls separate; the container owns only the row action.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(lang.t("island.accessibility.openSession", summaryHeadlineText))
+        .accessibilityIdentifier("island-session-" + SHA256.hash(data: Data(session.id.utf8)).map { String(format: "%02x", $0) }.joined())
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, handlePrimaryTap)
+        .accessibilityHidden(!isInteractive)
         .onHover { hovering in
             guard isInteractive, allowsRowHoverHighlight else { return }
             isHighlighted = hovering
@@ -1391,7 +1422,7 @@ private struct IslandSessionRow: View {
     private func rowAuxiliaryDetails(presence: IslandSessionPresence) -> some View {
         if !shouldShowEmbeddedDetailBody,
            let activityLine = session.spotlightActivityLineText ?? expandedActivityLineText {
-            Text(activityLine)
+            Text(session.localizedRuntimeStatus(using: lang) ?? activityLine)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(activityColor(for: presence).opacity(0.94))
                 .lineLimit(2)
@@ -1870,6 +1901,7 @@ private struct IslandSessionRow: View {
     // MARK: - Actionable helpers
 
     private var completionMessageText: String {
+        if let runtimeStatus = session.localizedRuntimeStatus(using: lang) { return runtimeStatus }
         if let text = session.completionAssistantMessageText?.trimmedForNotificationCard, !text.isEmpty {
             return text
         }
@@ -2006,7 +2038,10 @@ private struct IslandSessionRow: View {
     }
 
     private var statusGlyphName: String {
-        switch session.phase {
+        if session.runtimeOutcome == .failed { return "xmark.circle.fill" }
+        if session.runtimeOutcome == .interrupted { return "pause.circle.fill" }
+        if session.runtimeOutcome == .ended { return "minus.circle.fill" }
+        return switch session.phase {
         case .waitingForApproval:
             "exclamationmark.triangle.fill"
         case .waitingForAnswer:
@@ -2102,7 +2137,9 @@ private struct IslandSessionRow: View {
     }
 
     private func statusTint(for presence: IslandSessionPresence) -> Color {
-        IslandDesignPalette.Status.tint(for: session.phase, presence: presence)
+        if session.runtimeOutcome == .failed { return .red.opacity(presence == .inactive ? 0.45 : 0.9) }
+        if session.runtimeOutcome == .interrupted || session.runtimeOutcome == .ended { return .gray }
+        return IslandDesignPalette.Status.tint(for: session.phase, presence: presence)
     }
 
     private func activityColor(for presence: IslandSessionPresence) -> Color {

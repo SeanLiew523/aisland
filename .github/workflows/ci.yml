@@ -22,7 +22,24 @@ jobs:
       - name: Show Swift Version
         run: swift --version
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare isolated Hermes test interpreter
+        env:
+          OPEN_ISLAND_HERMES_PYTHON: ${{ runner.temp }}/aisland-hermes-test-python/bin/python
+        run: |
+          python -m venv "${{ runner.temp }}/aisland-hermes-test-python"
+          "$OPEN_ISLAND_HERMES_PYTHON" -m pip install PyYAML==6.0.2
+
+      - name: Build the real callback helper for isolated ingress tests
+        run: swift build --product OpenIslandHooks
+
       - name: Run CI checks
+        env:
+          OPEN_ISLAND_HERMES_PYTHON: ${{ runner.temp }}/aisland-hermes-test-python/bin/python
+          AISLAND_TEST_HOOKS_BINARY: ${{ github.workspace }}/.build/debug/OpenIslandHooks
         run: zsh scripts/harness.sh ci
 
   package-verify:
@@ -35,7 +52,16 @@ jobs:
           brew install create-dmg
           pip3 install --break-system-packages Pillow
 
+      - name: Verify signed update rejection and isolated admission
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 scripts/test-release-update-signatures.py
+          python3 scripts/test-updater-app-fixture.py
+
       - name: Build and package
+        env:
+          OPEN_ISLAND_DISABLE_UPDATES: "true"
         run: zsh scripts/package-aisland.sh
 
       - name: Verify AIsland identity and archives

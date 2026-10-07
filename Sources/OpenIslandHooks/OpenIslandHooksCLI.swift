@@ -21,12 +21,13 @@ struct OpenIslandHooksCLI {
         case grok
         case zcode
         case workbuddy
+        case hermes
 
         var isClaudeFormat: Bool {
             switch self {
             case .claude, .qoder, .qwen, .factory, .droid, .codebuddy, .kimi, .zcode, .workbuddy:
                 return true
-            case .codex, .cursor, .gemini, .grok:
+            case .codex, .cursor, .gemini, .grok, .hermes:
                 return false
             }
         }
@@ -48,6 +49,15 @@ struct OpenIslandHooksCLI {
             let arguments = Array(CommandLine.arguments.dropFirst())
             let source = hookSource(arguments: arguments)
             let sourceString = rawSourceString(arguments: arguments)
+            // Grok loads Claude/Cursor hook configurations too. Suppress its
+            // proven compatibility callbacks before any terminal lookup,
+            // bridge mutation, notification or blocking directive.
+            if GrokCompatibilityHookProvenance.shouldSuppress(
+                input: input, declaredSource: source.rawValue,
+                environment: ProcessInfo.processInfo.environment
+            ) {
+                return
+            }
             let decoder = JSONDecoder()
             let client = BridgeCommandClient(socketURL: BridgeSocketLocation.currentURL())
 
@@ -110,6 +120,12 @@ struct OpenIslandHooksCLI {
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
                 _ = try? client.send(.processGeminiHook(payload), timeout: 45)
+            case .hermes:
+                let profileIndex = arguments.firstIndex(of: "--profile-id")
+                let profile = profileIndex.flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+                if let payload = try HermesHookAdapter.decode(input, profileID: profile, environment: ProcessInfo.processInfo.environment) {
+                    _ = try? client.send(.processRuntimeLifecycleHook(payload), timeout: 2)
+                }
             case .grok:
                 let payload = try decoder
                     .decode(GrokHookPayload.self, from: input)

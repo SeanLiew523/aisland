@@ -116,6 +116,10 @@ struct AgentSessionPresentationTests {
             (.ohMyPi, "Oh My Pi"),
             (.zcode, "ZCode"),
             (.workbuddy, "WorkBuddy"),
+            (.hermesCLI, "Hermes CLI"),
+            (.deepseekHarness, "DeepSeek Harness"),
+            (.minimaxCodeDesktop, "MiniMaxCode Desktop"),
+            (.minimaxCodeCLI, "MiniMaxCode CLI"),
         ]
         #expect(expectedNames.map { $0.0.rawValue }.sorted() == AgentTool.allCases.map(\.rawValue).sorted())
 

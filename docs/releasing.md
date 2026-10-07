@@ -1,97 +1,72 @@
 # Releasing AIsland
 
-AIsland uses Semantic Versioning and publishes GitHub Releases from `v*` tags on `main`.
+Formal releases are locally prepared Universal Developer ID packages with an
+AIsland-signed update archive and signed `appcast.xml`. CI smoke packages remain
+ad-hoc and update-disabled. Keep the stable names `AIsland.dmg`, `AIsland.zip`,
+`appcast.xml`, `SHA256SUMS.txt` and `release-metadata.json`.
 
-## Versioning
+## Build
 
-- **Patch** (`0.1.x`): bug fixes, documentation, and small improvements
-- **Minor** (`0.x.0`): new compatible features
-- **Major** (`x.0.0`): intentionally breaking changes or migration boundaries
+Commit the feature branch before packaging and choose a fresh output directory:
 
-## Current release pipeline
-
-The workflow at `.github/workflows/release.yml`:
-
-1. checks out the tagged commit;
-2. builds Universal `OpenIslandApp`, `OpenIslandHooks`, and `OpenIslandSetup` binaries;
-3. packages them as **AIsland.app**, **AIsland.zip**, and **AIsland.dmg**;
-4. verifies bundle identity, version, structure, and code signature;
-5. publishes a GitHub Release with DMG, ZIP, `SHA256SUMS.txt` and `release-metadata.json`.
-
-Public releases currently use ad-hoc signing and disable Sparkle updates. They are not Apple-notarized. This avoids reusing Open Island's signing identity, appcast, or updater key while AIsland establishes its own release credentials.
-
-## Release checklist
-
-1. Confirm all intended changes are merged into `main` and CI is green.
-2. Review the diff since the previous AIsland tag.
-3. Update user-facing documentation and `.github/RELEASE_TEMPLATE.md` when installation behavior changes.
-4. Create and push an annotated tag:
-
-   ```bash
-   git switch main
-   git pull --ff-only
-   git tag -a v<version> -m "AIsland v<version>"
-   git push origin v<version>
-   ```
-
-5. Wait for the `Release` workflow to finish.
-6. Verify that the GitHub Release is not a draft and contains the app archives, checksum file and exact-source metadata.
-7. Compare the published asset digests with the workflow output.
-
-## Local package verification
-
-To build the same product identity locally:
-
-```bash
-OPEN_ISLAND_VERSION=<version> zsh scripts/package-aisland.sh
+```zsh
+OPEN_ISLAND_VERSION=0.1.1 OPEN_ISLAND_BUILD_NUMBER=87 \
+OPEN_ISLAND_PACKAGE_ROOT="$PWD/output/releases/v0.1.1-build87" \
+zsh scripts/package-aisland.sh
+python3 scripts/verify-aisland-package.py output/releases/v0.1.1-build87
 ```
 
-This writes artifacts under `output/aisland/`. Public packaging defaults to ad-hoc signing. Local developers may explicitly provide an existing identity; no certificate or system setting is created or changed.
+The builder uses the committed public identity and its dedicated existing
+Keychain account. It never creates, exports or uploads a private key. It signs
+the complete app/ZIP/DMG and produces the exact signed per-release feed.
+Keep source/build numbers increasing. Local developer builders continue to
+disable updates so public versions cannot overwrite branch fixes.
 
-## Release notes
+## Notarization and final verification
 
-Release notes should be bilingual and lead with user impact. Use this structure:
+For synchronous Apple submission, explicitly pass
+`OPEN_ISLAND_NOTARY_PROFILE=aisland-notary` while packaging. Apple may take an
+unbounded time; for an asynchronous submission, preserve the candidate, submit
+its ZIP without `--wait`, and record the returned job ID. Do not publish while
+Apple acceptance is pending. Once accepted, staple the app, rebuild the ZIP and
+DMG from that stapled app, regenerate the signed feed for the final ZIP bytes,
+and staple the DMG after its own Apple acceptance. Never change a signed ZIP
+without re-signing its enclosure and feed.
 
-```markdown
-## AIsland v<version> — Short title
-
-One-paragraph English summary.
-一段中文摘要。
-
-### Highlights | 主要变化
-
-- **Feature**: English description
-  中文描述
-
-### Installation | 安装
-
-1. Download **AIsland.dmg** and drag **AIsland** to **Applications**.
-   下载 **AIsland.dmg**，并将 **AIsland** 拖入 **Applications**。
-2. Requires macOS 14+.
-   需要 macOS 14+。
+```zsh
+python3 scripts/verify-aisland-package.py output/releases/v0.1.1-build87 \
+  --require-notarized --expected-source <exact-packaged-commit>
 ```
 
-## Sparkle boundary
+Verification checks Universal app/helpers, bundle identity, strict signatures,
+mounted DMG and extracted ZIP, exact build/source/feed URL, cryptographic archive
+and feed signatures using only the public key, both notarization tickets and
+Gatekeeper. The generated metadata records actual notarization rather than a
+fixed false/true value; SHA256SUMS includes the signed feed.
 
-`appcast.xml` points only to `SeanLiew523/aisland` and intentionally has no release entries yet. Do not enable updates until AIsland has:
+## Publish
 
-- its own Developer ID and notarization credentials;
-- its own Sparkle EdDSA key pair;
-- a verified appcast entry referencing an AIsland ZIP;
-- an upgrade test from an already installed AIsland version.
+Integrate through a PR targeting main and tag the exact packaged source commit
+after confirming it is an ancestor of main. Prepare a draft GitHub Release with
+all five verified assets and bilingual release notes. Dispatch the `Release`
+workflow with that existing tag. It downloads/checks the complete prepared
+assets, verifies exact source and notarization, then publishes the draft as
+latest. It cannot rebuild unsigned replacements or access local private keys.
+Verify public downloads and their digests after publication.
 
-Once those conditions are satisfied, enable the feed in packaging, update `scripts/update-appcast.sh`, and document the key and rollback process without committing private credentials.
+Settings first queries GitHub's stable-release metadata, then uses that same
+release's `appcast.xml` asset. The bundle fallback URL is the latest-release
+asset; the old repository `appcast.xml` is not the active delivery contract.
+No local fixture is evidence of a published upgrade. Actual update verification
+can copy the release executable/resources with `prepare-updater-app-fixture.py
+--prepare-release <release.app>` into a random isolated domain and test through
+Settings; it never modifies the installed app or grants production loopback
+overrides. Corrupt archive/feed rejection must remain effective.
 
-## Upstream releases
+v0.1.0 build 5 has updates disabled and requires one manual upgrade. v0.1.1
+supports Settings → Check for Updates → Download and Install → automatic
+relaunch for subsequent compatible signed releases. Reinstalling the app alone
+retains first-run preferences; use a fresh profile for automatic-welcome tests.
 
-Open Island version numbers and release artifacts are not AIsland releases. Upstream changes may be reviewed and integrated manually under [upstream.md](upstream.md), but they do not advance AIsland's version or appcast automatically.
-
-## Website download contract
-
-The public page at https://seanliew523.github.io/aisland/ is deployed from
-`aisland-website/dist` by the Website workflow. Every download button uses
+The public website download remains
 `https://github.com/SeanLiew523/aisland/releases/latest/download/AIsland.dmg`.
-Keep this asset name stable in future releases. After publishing, download both
-archives and metadata, compare SHA-256 with the GitHub asset digests, and inspect
-the mounted DMG identity. Existing Sites hosting keeps its audience and uses the
-same static output; it does not embed or independently replace a binary.

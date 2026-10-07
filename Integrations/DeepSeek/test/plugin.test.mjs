@@ -1,0 +1,253 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import net from 'node:net';
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync, lstatSync, chmodSync, writeFileSync, renameSync, symlinkSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import vm from 'node:vm';
+import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import { BridgeSender, LifecycleProjection, NavigationBroker, resolveOptions, attachHost } from '../core.mjs';
+
+const options = (extra = {}) => resolveOptions({ bridgeSocketPath: '/tmp/aisland-deepseek-test-absent.sock', ...extra }, {});
+const session = (id = 'session-1') => ({ id, header: { cwd: '/test/project', secret: 'private' }, firstLiveSeq: 10 });
+const event = (type, turn, seq, reason, time = 1000) => ({ type, seq, time, data: { turn, reason, prompt: 'PRIVATE PROMPT', tool_input: 'PRIVATE TOOL' } });
+const hook = message => message.command.runtimeLifecycleHook;
+function projected() { const output = []; return { output, p: new LifecycleProjection(options(), x => output.push(x), 1000) }; }
+
+for (const [reason, result, reasonText] of [
+  [{ kind: 'completed' }, 'turnCompleted', 'completed'],
+  [{ kind: 'error', error: { message: 'PRIVATE ERROR' } }, 'turnFailed', 'error'],
+  [{ kind: 'blocked' }, 'turnFailed', 'blocked'],
+  [{ kind: 'max-tokens' }, 'turnFailed', 'max-tokens'],
+  [{ kind: 'aborted', reason: { kind: 'user' } }, 'turnInterrupted', 'aborted:user'],
+  [{ kind: 'aborted', reason: { kind: 'hook', reason: 'PRIVATE HOOK' } }, 'turnInterrupted', 'aborted:hook'],
+  [{ kind: 'interrupted' }, 'turnInterrupted', 'interrupted'],
+  [{ kind: 'vendor-private-kind' }, 'turnFailed', 'unknown'],
+]) {
+  test(`explicit reason ${reasonText}`, () => {
+    const { p, output } = projected(); p.observe(session(), event('turn/start', 2, 10)); p.observe(session(), event('turn/end', 2, 11, reason));
+    assert.equal(hook(output[1]).event, result); assert.equal(hook(output[1]).result_reason, reasonText);
+    assert.doesNotMatch(JSON.stringify(output), /PRIVATE|secret|prompt|tool_input|vendor-private/);
+  });
+}
+
+test('identity, per-session ordering, duplicate and older turn rejection', () => {
+  const { p, output } = projected();
+  p.observe(session(), event('turn/start', 2, 10)); p.observe(session('other'), event('turn/start', 2, 10));
+  p.observe(session(), event('turn/start', 2, 10)); p.observe(session(), event('turn/end', 1, 11, { kind: 'completed' }));
+  p.observe(session(), event('turn/end', 2, 12, { kind: 'completed' })); p.observe(session(), event('turn/end', 2, 12, { kind: 'completed' }));
+  assert.deepEqual(output.map(x => [hook(x).session_id, hook(x).event]), [['session-1', 'turnStarted'], ['other', 'turnStarted'], ['session-1', 'turnCompleted']]);
+  assert.equal(hook(output[0]).turn_id, '2'); assert.equal(hook(output[0]).profile_id, 'desktop');
+  assert.equal(hook(output[0]).app_conversation_id, 'session-1'); assert.equal(hook(output[0]).cwd, '/test/project');
+  assert.equal(hook(output[0]).navigation_socket_path, '/tmp/deepseek-navigation.sock');
+});
+
+test('old seed/start rejected; end without start restores silently and idle does nothing', () => {
+  const { p, output } = projected();
+  p.observe(session(), event('turn/start', 1, 9)); p.observe(session(), event('turn/start', 1, 10, null, 999));
+  p.observe(session(), event('turn/end', 1, 11, { kind: 'completed' })); p.observe(session(), event('agent/status', 2, 12, { kind: 'idle' }));
+  assert.equal(output.length, 1); assert.equal(hook(output[0]).source_observed_start, false);
+  const restarted = new LifecycleProjection(options(), x => output.push(x), 1000);
+  restarted.observe(session(), event('turn/end', 2, 13, { kind: 'completed' })); assert.equal(output.length, 2);
+  assert.equal(hook(output[1]).source_observed_start, false);
+  restarted.observe(session(), event('turn/start', 3, 14)); restarted.observe(session(), event('turn/end', 3, 15, { kind: 'completed' })); assert.equal(output.length, 4);
+  assert.equal(hook(output[3]).source_observed_start, true);
+});
+
+test('plugin reload restores the native observed turn without a fresh success receipt', () => {
+  const { p, output } = projected();
+  p.observe(session(), event('turn/start', 4, 10));
+  const reloaded = new LifecycleProjection(options(), x => output.push(x), 1001);
+  reloaded.observe(session(), event('turn/end', 4, 11, { kind: 'completed' }, 1002));
+  reloaded.observe(session(), event('turn/end', 4, 12, { kind: 'completed' }, 1003));
+  assert.deepEqual(output.map(x => [hook(x).event, hook(x).turn_id, hook(x).source_observed_start]),
+    [['turnStarted', '4', true], ['turnCompleted', '4', false]]);
+});
+
+test('disposal ends only observed session, never successful completion', () => {
+  const { p, output } = projected(); p.disposed(session()); p.observe(session(), event('turn/start', 2, 10)); p.disposed(session()); p.disposed(session());
+  assert.deepEqual(output.map(x => hook(x).event), ['turnStarted', 'sessionEnded']); assert.equal(p.sessions.size, 0);
+});
+
+test('projection contains sender throw; transport disconnected stays asynchronous and disposes', async () => {
+  const p = new LifecycleProjection(options(), () => { throw new Error('offline'); }, 1000);
+  assert.doesNotThrow(() => p.observe(session(), event('turn/start', 1, 10)));
+  const sender = new BridgeSender(options()); sender.enqueue({ test: 'metadata' }); assert.equal(sender.queue.length, 0);
+  await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(sender.socket, null); sender.dispose(); sender.enqueue({}); assert.equal(sender.queue.length, 0);
+});
+
+test('bridge sends newline envelope over isolated socket in event order', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'bridge.sock'); const lines = [];
+  const server = net.createServer(socket => { let text = ''; socket.on('data', chunk => { text += chunk; }); socket.on('end', () => { lines.push(JSON.parse(text)); socket.end(); }); });
+  server.listen(path); await once(server, 'listening'); const sender = new BridgeSender(options({ bridgeSocketPath: path }));
+  sender.enqueue({ turn: 1 }); sender.enqueue({ turn: 2 });
+  for (let i = 0; i < 100 && lines.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.deepEqual(lines, [{ turn: 1 }, { turn: 2 }]); sender.dispose(); await new Promise(resolve => server.close(resolve)); rmSync(dir, { recursive: true });
+});
+
+const request = (id = 'request-1') => ({ version: 1, action: 'openSession', request_id: id, session_id: 'exact-session', profile_id: 'desktop' });
+test('broker exact acknowledgement matching, profile isolation, timeout and disposal', async () => {
+  const broker = new NavigationBroker(options({ navigationTimeoutMs: 10 }));
+  assert.equal((await broker.request({ ...request(), profile_id: 'cli' })).reason, 'profileMismatch');
+  const result = broker.request(request()); const polled = broker.rpc('poll', {}).value.request; assert.deepEqual(polled, request());
+  assert.equal(broker.rpc('ack', { ...request(), session_id: 'wrong', status: 'dispatched' }).value.accepted, false);
+  assert.equal(broker.rpc('ack', { ...request(), status: 'dispatched' }).value.accepted, true);
+  assert.equal((await result).status, 'dispatched');
+  assert.equal((await broker.request(request('timeout'))).reason, 'clientUnavailable');
+  const disposed = broker.request(request('disposed')); broker.dispose(); assert.equal((await disposed).status, 'failed');
+});
+
+test('navigation source socket validates and cleans its own endpoint only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const broker = new NavigationBroker(options({ navigationSocketPath: path, navigationTimeoutMs: 50 })); assert.equal(await broker.listen(), true);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  const socket = net.createConnection(path); let wire = ''; socket.on('data', chunk => { wire += chunk; });
+  socket.end(JSON.stringify({ bad: true }) + '\n'); await once(socket, 'close'); assert.equal(JSON.parse(wire).reason, 'invalidRequest');
+  await broker.dispose(); assert.equal(existsSync(path), false); rmSync(dir, { recursive: true });
+});
+
+function clientPlugin() {
+  let plugin; vm.runInNewContext(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: entry => { assert.equal(entry.id, '@aisland/deepseek-harness-plugin'); plugin = entry.factory(); } } }, AbortController, setTimeout, clearTimeout }); return plugin;
+}
+for (const fails of [false, true]) {
+  test(`fake client ${fails ? 'failure' : 'exact ID dispatch'} receipt and resource cleanup`, async () => {
+    const calls = []; let cleanup; let resolveAck; const acked = new Promise(resolve => { resolveAck = resolve; });
+    clientPlugin().apply({ effect(fn) { cleanup = fn(); }, uiWorkspace: { openSession(id) { calls.push(id); if (fails) throw new Error('PRIVATE FAILURE'); } }, connection: { rpc: { async call(channel, endpoint, payload, signal) {
+      assert.equal(channel, '/aisland-deepseek'); assert.equal(signal.aborted, false);
+      if (endpoint === 'poll') return { ok: true, value: { request: request(), poll_interval_ms: 5000 } };
+      resolveAck(payload); return { ok: true, value: { accepted: true } };
+    } } } });
+    const ack = await acked; cleanup(); assert.deepEqual(calls, ['exact-session']); assert.equal(ack.status, fails ? 'failed' : 'dispatched');
+    assert.equal(ack.request_id, 'request-1'); assert.equal(ack.profile_id, 'desktop'); assert.doesNotMatch(JSON.stringify(ack), /PRIVATE/);
+  });
+}
+
+test('fake Cordis unload removes listeners, RPC route, socket and pending clients', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const listeners = new Map(); const cleanups = []; let unregistered = false;
+  const ctx = { on(name, listener) { listeners.set(name, listener); cleanups.push(() => listeners.delete(name)); }, effect(fn) { cleanups.push(fn()); }, connection: { rpc: { handle(channel) { assert.equal(channel, '/aisland-deepseek'); return async () => { unregistered = true; }; } } } };
+  const runtime = attachHost(ctx, { bridgeSocketPath: join(dir, 'missing.sock'), navigationSocketPath: join(dir, 'nav.sock') }); assert.equal(await runtime.broker.listen(), true);
+  listeners.get('session/event')(session(), event('turn/start', 2, 10, null, Date.now()));
+  for (const cleanup of cleanups.reverse()) await cleanup();
+  assert.equal(listeners.size, 0); assert.equal(unregistered, true); assert.equal(runtime.sender.closed, true); assert.equal(runtime.broker.pending.size, 0);
+  rmSync(dir, { recursive: true });
+});
+
+test('configuration precedence keeps test sockets separate from production', () => {
+  const resolved = resolveOptions({ bridgeSocketPath: '/test/config.sock' }, { OPEN_ISLAND_SOCKET_PATH: '/test/env.sock' });
+  assert.equal(resolved.bridgeSocketPath, '/test/config.sock'); assert.equal(resolved.navigationSocketPath, '/test/deepseek-navigation.sock');
+  assert.equal(resolveOptions({}, { OPEN_ISLAND_SOCKET_PATH: '/test/env.sock' }).bridgeSocketPath, '/test/env.sock');
+});
+
+test('navigation socket survives request half-close until correlated client acknowledgement', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const broker = new NavigationBroker(options({ navigationSocketPath: path, navigationTimeoutMs: 100 })); assert.equal(await broker.listen(), true);
+  const socket = net.createConnection(path); let wire = ''; socket.on('data', chunk => { wire += chunk; });
+  socket.end(JSON.stringify(request()) + '\n');
+  for (let i = 0; i < 20 && broker.pending.size === 0; i++) await new Promise(resolve => setTimeout(resolve, 2));
+  assert.equal(broker.rpc('poll', {}).value.request.session_id, 'exact-session');
+  broker.rpc('ack', { ...request(), status: 'dispatched' }); await once(socket, 'close');
+  assert.deepEqual(JSON.parse(wire), { version: 1, request_id: 'request-1', session_id: 'exact-session', profile_id: 'desktop', status: 'dispatched' });
+  await broker.dispose(); rmSync(dir, { recursive: true });
+});
+
+test('endpoint collision fails open and never removes the existing socket', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const owner = net.createServer(socket => socket.end()); owner.listen(path); await once(owner, 'listening'); chmodSync(path, 0o600); const inode = statSync(path).ino;
+  const broker = new NavigationBroker(options({ navigationSocketPath: path })); assert.equal(await broker.listen(), false); await broker.dispose();
+  assert.equal(statSync(path).ino, inode); await new Promise(resolve => owner.close(resolve)); rmSync(dir, { recursive: true });
+});
+
+async function crashedEndpoint(path, owned = true) {
+  const moduleURL = new URL('../core.mjs', import.meta.url).href;
+  const code = owned
+    ? `import { NavigationBroker, resolveOptions } from ${JSON.stringify(moduleURL)}; const b = new NavigationBroker(resolveOptions({navigationSocketPath:${JSON.stringify(path)}})); if (!await b.listen()) process.exit(2); process.send('ready');`
+    : `import net from 'node:net'; import {chmodSync} from 'node:fs'; const s=net.createServer();s.listen(${JSON.stringify(path)},()=>{chmodSync(${JSON.stringify(path)},0o600);process.send('ready')});`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  const ready = await Promise.race([once(child, 'message'), once(child, 'exit').then(() => { throw new Error('fixture exited before ready'); })]);
+  assert.equal(ready[0], 'ready'); child.kill('SIGKILL'); await once(child, 'exit');
+}
+
+test('owned crash socket recovers at the same path and source lifecycle continues', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  try {
+    await crashedEndpoint(path); const old = statSync(path).ino;
+    const broker = new NavigationBroker(options({ navigationSocketPath: path }));
+    const output = []; const projection = new LifecycleProjection(broker.options, message => output.push(message), 1000);
+    projection.observe(session(), event('turn/start', 2, 10));
+    assert.equal(await broker.listen(), true); assert.notEqual(statSync(path).ino, old);
+    projection.observe(session(), event('turn/end', 2, 11, { kind: 'completed' }));
+    assert.equal(hook(output[1]).event, 'turnCompleted'); assert.equal(hook(output[1]).navigation_socket_path, path);
+    assert.equal(readdirSync(dir).filter(name => name.startsWith('.ds-')).length, 1);
+    await broker.dispose(); assert.deepEqual(readdirSync(dir), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('legacy crash socket stays untouched; stable owned fallback and locator survive restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  try {
+    await crashedEndpoint(path, false); const legacy = statSync(path).ino;
+    await crashedEndpoint(path); // New plugin must preserve the legacy socket.
+    const locator = JSON.parse(readFileSync(path + '.aisland-current.json', 'utf8'));
+    assert.notEqual(locator.path, path); assert.equal(statSync(path).ino, legacy);
+    const broker = new NavigationBroker(options({ navigationSocketPath: path })); assert.equal(await broker.listen(), true);
+    assert.equal(broker.options.navigationSocketPath, locator.path); assert.equal(statSync(path).ino, legacy);
+    const proof = JSON.parse(readFileSync(locator.path + '.aisland-owner.json', 'utf8'));
+    assert.equal(proof.source, '@aisland/deepseek-harness-plugin'); assert.equal(proof.requested_path, path);
+    assert.equal(proof.source_pid, process.pid); assert.equal(proof.executable_path, process.execPath);
+    assert.doesNotMatch(JSON.stringify(proof), /session-1|PRIVATE|exact-session/);
+    await broker.dispose(); assert.deepEqual(readdirSync(dir), ['nav.sock']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('live owned endpoint collision preserves owner and sends an empty probe only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const owner = new NavigationBroker(options({ navigationSocketPath: path })); assert.equal(await owner.listen(), true);
+  const identity = statSync(path).ino; const receipt = readFileSync(path + '.aisland-owner.json', 'utf8');
+  const challenger = new NavigationBroker(options({ navigationSocketPath: path })); assert.equal(await challenger.listen(), false);
+  await challenger.dispose(); assert.equal(statSync(path).ino, identity); assert.equal(readFileSync(path + '.aisland-owner.json', 'utf8'), receipt); assert.equal(owner.pending.size, 0);
+  await owner.dispose(); rmSync(dir, { recursive: true });
+});
+
+test('regular, symlink, wrong profile and mismatched receipt are never deleted', async () => {
+  for (const fixture of ['regular', 'symlink', 'profile', 'inode', 'locator']) {
+    const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+    try {
+      if (fixture === 'regular') writeFileSync(path, 'foreign');
+      else if (fixture === 'symlink') { writeFileSync(join(dir, 'foreign'), 'foreign'); symlinkSync(join(dir, 'foreign'), path); }
+      else {
+        await crashedEndpoint(path);
+        const filename = path + (fixture === 'locator' ? '.aisland-current.json' : '.aisland-owner.json');
+        const proof = JSON.parse(readFileSync(filename, 'utf8')); if (fixture === 'profile') proof.profile_sha256 = 'wrong'; else proof.ino++;
+        writeFileSync(filename, JSON.stringify(proof));
+      }
+      const identity = lstatSync(path).ino; const broker = new NavigationBroker(options({ navigationSocketPath: path }));
+      assert.equal(await broker.listen(), false); await broker.dispose(); assert.equal(lstatSync(path).ino, identity);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test('stale socket identity changes during bounded probe are preserved', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock'); await crashedEndpoint(path);
+  const broker = new NavigationBroker(options({ navigationSocketPath: path }));
+  broker.probe = async () => { renameSync(path, path + '.old'); writeFileSync(path, 'foreign replacement'); return 'ECONNREFUSED'; };
+  assert.equal(await broker.listen(), false); await broker.dispose(); assert.equal(readFileSync(path, 'utf8'), 'foreign replacement');
+  rmSync(dir, { recursive: true });
+});
+
+test('dispose during listen cannot publish a late endpoint or leak its bind directory', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  for (const waitForBind of [false, true]) {
+    const broker = new NavigationBroker(options({ navigationSocketPath: path })); const starting = broker.listen();
+    if (waitForBind) await Promise.resolve();
+    await broker.dispose(); assert.equal(await starting, false); assert.deepEqual(readdirSync(dir), []);
+  }
+  rmSync(dir, { recursive: true });
+});
+
+test('dispose preserves replacement endpoint despite libuv automatic bind unlink', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-ds-')); const path = join(dir, 'nav.sock');
+  const broker = new NavigationBroker(options({ navigationSocketPath: path })); assert.equal(await broker.listen(), true);
+  renameSync(path, path + '.old'); writeFileSync(path, 'foreign replacement'); await broker.dispose();
+  assert.equal(readFileSync(path, 'utf8'), 'foreign replacement'); rmSync(dir, { recursive: true });
+});

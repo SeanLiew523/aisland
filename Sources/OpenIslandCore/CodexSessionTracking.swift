@@ -368,6 +368,12 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
         var sessionID: String
         var cwd: String
         var timestamp: Date?
+        var originator: String?
+
+        var isCodexDesktop: Bool {
+            guard let originator else { return false }
+            return ["codex desktop", "codex_work_desktop"].contains(originator.lowercased())
+        }
 
         var workspaceName: String {
             let workspace = URL(fileURLWithPath: cwd).lastPathComponent
@@ -414,7 +420,12 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
         self.maxFiles = maxFiles
     }
 
-    public func discoverRecentSessions(now: Date = .now) -> [CodexTrackedSessionRecord] {
+    /// Deliver each complete candidate before parsing later files. The returned
+    /// array retains the existing deduplicated ordering and scan semantics.
+    public func discoverRecentSessions(
+        now: Date = .now,
+        onSession: @Sendable (CodexTrackedSessionRecord) -> Void = { _ in }
+    ) -> [CodexTrackedSessionRecord] {
         // Re-entrancy guard: with a large active rollout a scan can outlast
         // the caller's 10s rediscover throttle, and overlapping scans parse
         // the same files on multiple threads at once.
@@ -503,6 +514,7 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
             }
 
             recordsByID[record.sessionID] = record
+            onSession(record)
         }
 
         return recordsByID.values.sorted { lhs, rhs in
@@ -641,6 +653,15 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
             currentTool: snapshot.currentTool,
             currentCommandPreview: snapshot.currentCommandPreview
         )
+        let jumpTarget = sessionMeta.isCodexDesktop
+            ? JumpTarget(
+                terminalApp: "Codex.app",
+                workspaceName: sessionMeta.workspaceName,
+                paneTitle: sessionMeta.sessionTitle,
+                workingDirectory: sessionMeta.cwd,
+                codexThreadID: sessionMeta.sessionID
+            )
+            : nil
 
         return CodexTrackedSessionRecord(
             sessionID: sessionMeta.sessionID,
@@ -650,6 +671,7 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
             summary: summary,
             phase: snapshot.phase,
             updatedAt: updatedAt,
+            jumpTarget: jumpTarget,
             codexMetadata: metadata
         )
     }
@@ -675,7 +697,8 @@ public final class CodexRolloutDiscovery: @unchecked Sendable {
             cwd: cwd,
             timestamp: codexRolloutParseTimestamp(
                 (payload["timestamp"] as? String) ?? (object["timestamp"] as? String)
-            )
+            ),
+            originator: payload["originator"] as? String
         )
     }
 

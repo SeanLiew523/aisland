@@ -6,6 +6,7 @@ public struct ClaudeHookInstallationStatus: Equatable, Sendable {
     public var manifestURL: URL
     public var hooksBinaryURL: URL?
     public var managedHooksPresent: Bool
+    public var isCurrent: Bool
     public var hasClaudeIslandHooks: Bool
     public var manifest: ClaudeHookInstallerManifest?
 
@@ -16,13 +17,15 @@ public struct ClaudeHookInstallationStatus: Equatable, Sendable {
         hooksBinaryURL: URL?,
         managedHooksPresent: Bool,
         hasClaudeIslandHooks: Bool,
-        manifest: ClaudeHookInstallerManifest?
+        manifest: ClaudeHookInstallerManifest?,
+        isCurrent: Bool = false
     ) {
         self.claudeDirectory = claudeDirectory
         self.settingsURL = settingsURL
         self.manifestURL = manifestURL
         self.hooksBinaryURL = hooksBinaryURL
         self.managedHooksPresent = managedHooksPresent
+        self.isCurrent = isCurrent
         self.hasClaudeIslandHooks = hasClaudeIslandHooks
         self.manifest = manifest
     }
@@ -78,6 +81,12 @@ public final class ClaudeHookInstallationManager: @unchecked Sendable, ClaudeFor
             eventSpecs: hookEvents
         )
 
+        let expected = ClaudeHookInstaller.hookCommand(for: managedHooksBinaryURL.path, source: hookSource)
+        let normalized = try ClaudeHookInstaller.installSettingsJSON(existingData: settingsData, hookCommand: expected, source: hookSource, eventSpecs: hookEvents)
+        let current = fileManager.isExecutableFile(atPath: managedHooksBinaryURL.path)
+            && manifest?.hookCommand == expected
+            && HookConfigurationComparison.sameJSON(settingsData, normalized.contents)
+
         return ClaudeHookInstallationStatus(
             claudeDirectory: claudeDirectory,
             settingsURL: settingsURL,
@@ -85,7 +94,8 @@ public final class ClaudeHookInstallationManager: @unchecked Sendable, ClaudeFor
             hooksBinaryURL: resolvedHooksBinaryURL,
             managedHooksPresent: uninstallMutation.managedHooksPresent,
             hasClaudeIslandHooks: uninstallMutation.hasClaudeIslandHooks,
-            manifest: manifest
+            manifest: manifest,
+            isCurrent: current
         )
     }
 

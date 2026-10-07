@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "name": "aisland-minimaxcode-passive",
+  "displayName": "AIsland MiniMaxCode Passive Bridge",
+  "version": "0.1.1",
+  "description": "Reports source session and turn metadata to the local AIsland bridge.",
+  "author": "AIsland",
+  "icon": "icon.png",
+  "category": "Code",
+  "exampleQueries": [],
+  "apps": [],
+  "mcpServers": [],
+  "skills": [],
+  "hooks": ["hooks/hooks.json"]
+}

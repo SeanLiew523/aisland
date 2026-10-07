@@ -24,11 +24,13 @@ cd "$repo_root"
 swift build -c debug --product OpenIslandApp
 swift build -c debug --product OpenIslandHooks
 swift build -c debug --product OpenIslandSetup
+swift build -c debug --product MiniMaxCodeSourceProbe
 
 build_root="$(swift build -c debug --show-bin-path)"
 app_binary="$build_root/OpenIslandApp"
 hooks_binary="$build_root/OpenIslandHooks"
 setup_binary="$build_root/OpenIslandSetup"
+probe_binary="$build_root/MiniMaxCodeSourceProbe"
 
 # Brand assets are generated artifacts that live in git. Rendering them on
 # every launch rewrote 14 tracked PNGs whenever the local Pillow encoded them
@@ -56,8 +58,9 @@ sleep 2
 command cp "$app_binary" "$bundle_binary"
 command cp "$hooks_binary" "$bundle_dir/Contents/Helpers/OpenIslandHooks"
 command cp "$setup_binary" "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+command cp "$probe_binary" "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 command cp "$brand_icon" "$bundle_dir/Contents/Resources/AIsland.icns"
-chmod +x "$bundle_binary" "$bundle_dir/Contents/Helpers/OpenIslandHooks" "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+chmod +x "$bundle_binary" "$bundle_dir/Contents/Helpers/OpenIslandHooks" "$bundle_dir/Contents/Helpers/OpenIslandSetup" "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 
 # Add rpath so the binary can find Sparkle.framework in Contents/Frameworks/.
 install_name_tool -add_rpath @loader_path/../Frameworks "$bundle_binary" 2>/dev/null || true

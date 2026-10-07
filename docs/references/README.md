@@ -14,3 +14,7 @@ This directory is reserved for durable external references that the repository w
 - summarize copyrighted material instead of copying it wholesale
 - link back to the original source whenever possible
 - use this directory for long-lived background material, not for temporary task notes
+
+## Current References
+
+- [AIsland v0.1.1 接入与视听引导调研](./aisland-v0.1.1-discovery.md): source capabilities, Dia/Google/Apple/Microsoft design evidence, original prototype cues, and remaining real-task/listening gaps

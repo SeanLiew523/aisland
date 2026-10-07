@@ -229,28 +229,28 @@ struct ClaudeHooksTests {
     }
 
     @Test
-    func claudeGhosttyLocatorUsedForSessionStartAndPromptButNotToolUse() {
+    func claudeGhosttyUnverifiedFocusedLocatorCannotPopulateID() {
         let locator: (String) -> (sessionID: String?, tty: String?, title: String?) = { _ in
             (sessionID: "ghostty-frontmost", tty: nil, title: "claude ~/tmp/worktree")
         }
         let env = ["TERM_PROGRAM": "ghostty"]
         let ttyProvider: () -> String? = { "/dev/ttys031" }
 
-        // SessionStart: locator IS used.
+        // A legacy focused-only locator cannot prove source binding.
         let atStart = ClaudeHookPayload(
             cwd: "/tmp/worktree", hookEventName: .sessionStart, sessionID: "s1"
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atStart.terminalSessionID == "ghostty-frontmost")
-        #expect(atStart.terminalTitle == "claude ~/tmp/worktree")
+        #expect(atStart.terminalSessionID == nil)
+        #expect(atStart.terminalTitle == nil)
 
-        // UserPromptSubmit: locator IS used (user just typed, terminal is focused).
+        // Submitting a prompt also requires the new verified binding provider.
         let atPrompt = ClaudeHookPayload(
             cwd: "/tmp/worktree", hookEventName: .userPromptSubmit, sessionID: "s1"
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atPrompt.terminalSessionID == "ghostty-frontmost")
-        #expect(atPrompt.terminalTitle == "claude ~/tmp/worktree")
+        #expect(atPrompt.terminalSessionID == nil)
+        #expect(atPrompt.terminalTitle == nil)
 
         // PreToolUse: locator NOT used, values cleared.
         let atTool = ClaudeHookPayload(
@@ -664,6 +664,72 @@ struct ClaudeHooksTests {
         if case let .activityUpdated(payload) = completedEvent {
             #expect(payload.summary == "Claude produced an away summary.")
         }
+    }
+
+    @Test(arguments: ["permission_prompt", "idle_prompt", "away_summary"], [false, true])
+    func claudeNotificationsCannotHideAnUnresolvedInteraction(
+        notificationType: String, isQuestion: Bool
+    ) async throws {
+        let socketURL = BridgeSocketLocation.uniqueTestURL()
+        let server = BridgeServer(socketURL: socketURL, monitorMiniMaxCode: false)
+        try server.start()
+        defer { server.stop() }
+        let observer = LocalBridgeClient(socketURL: socketURL)
+        let stream = try observer.connect()
+        defer { observer.disconnect() }
+        try await observer.send(.registerClient(role: .observer))
+
+        let sessionID = "pending-notification-\(notificationType)-\(isQuestion)"
+        let input: ClaudeHookJSONValue = isQuestion ? .object([
+            "questions": .array([.object([
+                "question": .string("Which environment?"),
+                "header": .string("Env"),
+                "options": .array([option(label: "Staging", description: "Use staging")]),
+            ])]),
+        ]) : .object(["command": .string("printf verification")])
+        let payload = ClaudeHookPayload(
+            cwd: "/tmp/worktree", hookEventName: .permissionRequest,
+            sessionID: sessionID, toolName: isQuestion ? "AskUserQuestion" : "Bash",
+            toolInput: input
+        )
+        async let responseTask = sendOnGCDThread(.processClaudeHook(payload), socketURL: socketURL)
+        var iterator = stream.makeAsyncIterator()
+        let request = try await nextMatchingEvent(from: &iterator, maxEvents: 8) { event in
+            switch event {
+            case .permissionRequested, .questionAsked: true
+            default: false
+            }
+        }
+        var visibleState = SessionState(sessions: [AgentSession(
+            id: sessionID, title: "Probe", tool: .claudeCode,
+            phase: .completed, summary: "Previous turn", updatedAt: .now
+        )])
+        let previousSnapshot = visibleState
+        visibleState.apply(request)
+        // A delayed AppModel snapshot may still describe the previous turn.
+        // The connected blocking hook, rather than that snapshot, owns the action.
+        server.updateStateSnapshot(previousSnapshot)
+        _ = try BridgeCommandClient(socketURL: socketURL).send(.processClaudeHook(
+            ClaudeHookPayload(
+                cwd: "/tmp/worktree", hookEventName: .notification,
+                sessionID: sessionID, message: "Claude needs your permission",
+                notificationType: notificationType
+            )
+        ))
+        try await observer.send(.resolvePermission(sessionID: sessionID, resolution: .allowOnce()))
+        let response = try await responseTask
+        guard case .some(.claudeHookDirective(.permissionRequest(.allow))) = response else {
+            Issue.record("The blocking source did not receive approval")
+            return
+        }
+        let nextActivity = try await nextMatchingEvent(from: &iterator, maxEvents: 8) {
+            if case .activityUpdated = $0 { true } else { false }
+        }
+        if case let .activityUpdated(activity) = nextActivity {
+            #expect(activity.phase == .running)
+            #expect(activity.summary != "Claude needs your permission")
+        }
+        #expect(visibleState.session(id: sessionID)?.phase == (isQuestion ? .waitingForAnswer : .waitingForApproval))
     }
 
     @Test

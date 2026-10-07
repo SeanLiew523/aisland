@@ -1022,7 +1022,8 @@ public extension ClaudeHookPayload {
             environment: environment,
             currentTTYProvider: { currentTTY() },
             terminalLocatorProvider: { terminalLocator(for: $0) },
-            warpPaneResolver: Self.defaultWarpPaneResolver
+            warpPaneResolver: Self.defaultWarpPaneResolver,
+            ghosttyBindingProvider: GhosttySourceBindingStore.production
         )
     }
 
@@ -1048,7 +1049,8 @@ public extension ClaudeHookPayload {
         environment: [String: String],
         currentTTYProvider: () -> String?,
         terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
-        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver
+        warpPaneResolver: (String) -> String? = Self.defaultWarpPaneResolver,
+        ghosttyBindingProvider: GhosttySourceBindingProvider = { _, _, _, _, _ in nil }
     ) -> ClaudeHookPayload {
         var payload = self
 
@@ -1080,7 +1082,7 @@ public extension ClaudeHookPayload {
             }
         }
 
-        if payload.terminalTTY == nil {
+        if payload.terminalTTY == nil && !isGhosttyTerminalApp(payload.terminalApp) {
             payload.terminalTTY = currentTTYProvider()
         }
 
@@ -1090,19 +1092,19 @@ public extension ClaudeHookPayload {
             // no AppleScript locator is available, so skip entirely.
             useLocator = false
         } else if let terminalApp = payload.terminalApp, isGhosttyTerminalApp(terminalApp) {
-            // Ghostty's AppleScript returns the *focused* terminal which is
-            // only reliable when the user just interacted with the terminal.
-            // SessionStart and UserPromptSubmit are safe because the user's
-            // terminal is guaranteed to be focused at those moments.  Later
-            // hooks (tool use, etc.) may fire after the user switched tabs,
-            // so clear stale values and skip the locator.
-            if payload.hookEventName == .sessionStart || payload.hookEventName == .userPromptSubmit {
-                useLocator = true
-            } else {
-                payload.terminalSessionID = nil
-                payload.terminalTitle = nil
-                useLocator = false
-            }
+            // Only the real source TTY and a verified receipt identify this
+            // process. Payload IDs and the currently focused pane are not
+            // trustworthy evidence on background hooks.
+            payload.terminalTTY = currentTTYProvider()
+            let sourceEvent: GhosttySourceEvent = payload.hookEventName == .sessionStart
+                && payload.source != .compact && payload.source != .clear
+                ? .startup : payload.hookEventName == .userPromptSubmit ? .userSubmit : .background
+            let binding = ghosttyBindingProvider(
+                "claude", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
+            )
+            payload.terminalSessionID = binding?.sessionID
+            payload.terminalTitle = binding?.title
+            useLocator = false
         } else {
             useLocator = shouldUseFocusedTerminalLocator(for: payload.terminalApp ?? "")
         }
@@ -1385,26 +1387,7 @@ public extension ClaudeHookPayload {
     }
 
     private func currentTTY() -> String? {
-        if let tty = commandOutput(executablePath: "/usr/bin/tty", arguments: []),
-           !tty.contains("not a tty") {
-            return tty
-        }
-
-        return parentProcessTTY()
-    }
-
-    private func parentProcessTTY() -> String? {
-        let ppid = getppid()
-        guard let raw = commandOutput(executablePath: "/bin/ps", arguments: ["-p", "\(ppid)", "-o", "tty="]) else {
-            return nil
-        }
-
-        let tty = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tty.isEmpty, tty != "??", tty != "-" else {
-            return nil
-        }
-
-        return tty.hasPrefix("/dev/") ? tty : "/dev/\(tty)"
+        RuntimeTTYProbe.currentTTY()
     }
 
     private func terminalLocator(for terminalApp: String) -> (sessionID: String?, tty: String?, title: String?) {
@@ -1432,19 +1415,9 @@ public extension ClaudeHookPayload {
         }
 
         if normalized.contains("ghostty") {
-            let values = osascriptValues(script: """
-            tell application "Ghostty"
-                if not (it is running) then return ""
-                tell focused terminal of selected tab of front window
-                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
-                end tell
-            end tell
-            """)
-            return (
-                sessionID: values[safe: 0],
-                tty: nil,
-                title: values[safe: 2]
-            )
+            // Ghostty requires the verified source binding, never this
+            // legacy focused-only locator.
+            return (nil, nil, nil)
         }
 
         if normalized.contains("terminal") {

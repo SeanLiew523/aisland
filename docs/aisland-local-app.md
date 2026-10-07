@@ -17,14 +17,43 @@ The PNG, iconset and ICNS are committed. Routine packages use these exact assets
 
 ## Build and install
 
+Build an ordinary local app without installing or launching it:
+
+```sh
+zsh scripts/build-aisland-app.sh --version 0.1.1 --build-number 47 \
+  --output output/normal-runtime-b47/AIsland.app
+```
+
+Add `--validate-only` to inspect the version, clean source SHA, output and runtime
+mode without compiling, signing, creating output directories or installing.
+The v0.1.1 development-line default is `0.1.1`; `OPEN_ISLAND_VERSION` overrides
+that default. Build number defaults to the Git commit count, or
+`OPEN_ISLAND_BUILD_NUMBER` when supplied. Explicit flags take precedence.
+There is no hardcoded build 1. Existing output bundles are rejected rather than
+overwritten; choose a fresh output path for each round. All build output must
+remain under this checkout's `output/` directory, including after resolving
+symlinks.
+
+The source tree must be clean. Source commit and tracked input timestamps are
+checked again after compilation and signing; a changed or reverted edit rejects
+publication. The final plist records `AIslandSourceCommit`, exact version/build
+and `en`/`zh-Hans`/`zh-Hant` localizations. This is the ordinary
+`dev.aisland.app` runtime, with no runtime-acceptance, source-setup or updater
+fixture markers. Starting it uses normal preferences, discovery and hooks;
+building it does not start those services.
+
+Installation remains an explicit separate option:
+
 ```sh
 zsh scripts/build-aisland-app.sh --install
 open -a "$HOME/Applications/AIsland.app"
 ```
 
-The local installer creates a debug bundle from `OpenIslandApp`, `OpenIslandHooks`
-and `OpenIslandSetup`. It embeds Sparkle, localized resources and license notices,
-uses an existing local signing identity when available, and verifies the bundle.
+The local installer creates a debug bundle from `OpenIslandApp`, `OpenIslandHooks`,
+`OpenIslandSetup` and `MiniMaxCodeSourceProbe`. It embeds Sparkle, localized
+resources and license notices. It requires the existing `Open Island Dev Local`
+signing identity (or explicit `OPEN_ISLAND_SIGN_IDENTITY`) and verifies the
+bundle; it never creates a key or silently falls back to ad-hoc signing.
 It refuses to replace a different bundle or a running AIsland. Previous AIsland
 builds are kept under ignored `output/aisland/backups/`.
 

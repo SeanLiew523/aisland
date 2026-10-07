@@ -23,6 +23,12 @@ if [[ "${OPEN_ISLAND_HARDENED_SIGNING:-true}" != "true" ]]; then
     signing_runtime_args=()
 fi
 
+# Enabled updates require an explicitly supplied AIsland public trust anchor.
+# No signing key is generated or read by packaging.
+if [[ "${OPEN_ISLAND_DISABLE_UPDATES:-true}" != "true" ]]; then
+    python3 "$repo_root/scripts/verify-update-configuration.py" --environment
+fi
+
 brand_script="$repo_root/scripts/generate_brand_icons.py"
 dmg_bg_script="$repo_root/scripts/generate_dmg_background.py"
 entitlements_path="$repo_root/config/packaging/OpenIslandApp.entitlements"
@@ -33,7 +39,7 @@ if [[ "${OPEN_ISLAND_UNIVERSAL:-false}" == "true" ]]; then
     # Separate SwiftPM builds work with both full Xcode and Command Line Tools.
     # A multi-architecture SwiftPM invocation requires Xcode's xcbuild.
     for arch in arm64 x86_64; do
-        for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+        for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
             swift build -c release --arch "$arch" --product "$product"
         done
     done
@@ -41,20 +47,22 @@ if [[ "${OPEN_ISLAND_UNIVERSAL:-false}" == "true" ]]; then
     intel_bin_dir="$(swift build -c release --arch x86_64 --show-bin-path)"
     universal_bin_dir="$package_root/universal-binaries"
     mkdir -p "$universal_bin_dir"
-    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
         lipo -create "$build_bin_dir/$product" "$intel_bin_dir/$product" -output "$universal_bin_dir/$product"
     done
     app_binary="$universal_bin_dir/OpenIslandApp"
     hooks_binary="$universal_bin_dir/OpenIslandHooks"
     setup_binary="$universal_bin_dir/OpenIslandSetup"
+    probe_binary="$universal_bin_dir/MiniMaxCodeSourceProbe"
 else
-    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup; do
+    for product in OpenIslandApp OpenIslandHooks OpenIslandSetup MiniMaxCodeSourceProbe; do
         swift build -c release --product "$product"
     done
     build_bin_dir="$(swift build -c release --show-bin-path)"
     app_binary="$build_bin_dir/OpenIslandApp"
     hooks_binary="$build_bin_dir/OpenIslandHooks"
     setup_binary="$build_bin_dir/OpenIslandSetup"
+    probe_binary="$build_bin_dir/MiniMaxCodeSourceProbe"
 fi
 brand_icon="$repo_root/Assets/Brand/AIsland/AIsland.icns"
 
@@ -82,6 +90,7 @@ mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Helpers" "$bundle_di
 cp "$app_binary" "$bundle_dir/Contents/MacOS/OpenIslandApp"
 cp "$hooks_binary" "$bundle_dir/Contents/Helpers/OpenIslandHooks"
 cp "$setup_binary" "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+cp "$probe_binary" "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 cp "$brand_icon" "$bundle_dir/Contents/Resources/AIsland.icns"
 cp "$repo_root/LICENSE" "$bundle_dir/Contents/Resources/LICENSE"
 cp "$repo_root/docs/licenses/bloub-MIT.txt" "$bundle_dir/Contents/Resources/bloub-MIT.txt"
@@ -107,7 +116,8 @@ fi
 chmod +x \
     "$bundle_dir/Contents/MacOS/OpenIslandApp" \
     "$bundle_dir/Contents/Helpers/OpenIslandHooks" \
-    "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+    "$bundle_dir/Contents/Helpers/OpenIslandSetup" \
+    "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 
 # Add rpath so the binary can find Sparkle.framework in Contents/Frameworks/.
 install_name_tool -add_rpath @loader_path/../Frameworks "$bundle_dir/Contents/MacOS/OpenIslandApp" 2>/dev/null || true
@@ -119,6 +129,8 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>en</string><string>zh-Hans</string><string>zh-Hant</string></array>
     <key>CFBundleDisplayName</key>
     <string>$app_name</string>
     <key>CFBundleExecutable</key>
@@ -150,9 +162,9 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
     <key>AIslandSourceCommit</key>
     <string>$(git rev-parse HEAD)</string>
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/SeanLiew523/aisland/main/appcast.xml</string>
+    <string>https://github.com/SeanLiew523/aisland/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>${OPEN_ISLAND_EDDSA_PUBLIC_KEY:-3IF8txq9RRNanzE2FNhyGRcwhslTucCcJHpTkpxcgBQ=}</string>
+    <string>${OPEN_ISLAND_EDDSA_PUBLIC_KEY:-}</string>
 </dict>
 </plist>
 EOF
@@ -161,6 +173,13 @@ if [[ "${OPEN_ISLAND_DISABLE_UPDATES:-true}" == "true" ]]; then
     /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$bundle_dir/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$bundle_dir/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Add :OpenIslandDisableUpdates bool true" "$bundle_dir/Contents/Info.plist"
+else
+    /usr/libexec/PlistBuddy -c "Add :OpenIslandDisableUpdates bool false" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :AIslandUpdateSigningIdentity string aisland-ed25519-v1" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SURequireSignedFeed bool true" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUVerifyUpdateBeforeExtraction bool true" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool false" "$bundle_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUAutomaticallyUpdate bool false" "$bundle_dir/Contents/Info.plist"
 fi
 
 plutil -lint "$bundle_dir/Contents/Info.plist" >/dev/null
@@ -171,6 +190,7 @@ for required in \
     "Contents/MacOS/OpenIslandApp" \
     "Contents/Helpers/OpenIslandHooks" \
     "Contents/Helpers/OpenIslandSetup" \
+    "Contents/Helpers/MiniMaxCodeSourceProbe" \
     "Contents/Resources/AIsland.icns" \
     "Contents/Resources/LICENSE" \
     "Contents/Resources/bloub-MIT.txt" \
@@ -191,6 +211,7 @@ echo "Bundle structure verified."
 # --- Smoke-test the app outside the repo to catch Bundle.module fallback hacks ---
 # SPM's generated resource accessor has a hardcoded fallback to the local .build/
 # directory. Running from /tmp ensures the app works without that crutch.
+if [[ "${OPEN_ISLAND_PACKAGE_SMOKE:-true}" == "true" ]]; then
 smoke_dir="$(mktemp -d)/smoke-test"
 mkdir -p "$smoke_dir"
 cp -R "$bundle_dir" "$smoke_dir/"
@@ -221,6 +242,8 @@ else
     echo "WARNING: smoke test skipped — binary not found at $smoke_binary" >&2
 fi
 
+fi
+
 sparkle_fw="$bundle_dir/Contents/Frameworks/Sparkle.framework"
 
 if [[ -n "$signing_identity" ]]; then
@@ -241,6 +264,8 @@ if [[ -n "$signing_identity" ]]; then
         "$bundle_dir/Contents/Helpers/OpenIslandHooks"
     codesign --force "${signing_runtime_args[@]}" --sign "$signing_identity" \
         "$bundle_dir/Contents/Helpers/OpenIslandSetup"
+    codesign --force "${signing_runtime_args[@]}" --sign "$signing_identity" \
+        "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe"
 
     codesign \
         --force \
@@ -260,6 +285,7 @@ else
     fi
     codesign --force --sign - "$bundle_dir/Contents/Helpers/OpenIslandHooks" 2>/dev/null || true
     codesign --force --sign - "$bundle_dir/Contents/Helpers/OpenIslandSetup" 2>/dev/null || true
+    codesign --force --sign - "$bundle_dir/Contents/Helpers/MiniMaxCodeSourceProbe" 2>/dev/null || true
     codesign --force --sign - "$bundle_dir" 2>/dev/null || true
 fi
 

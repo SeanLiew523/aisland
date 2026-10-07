@@ -20,6 +20,12 @@ Blocking hook sources receive a `BridgeResponse` through `OpenIslandHooks` stdou
 
 **Fail-open principle**: if the bridge is unavailable, managed hook processes exit without writing to stdout and Pi-family extensions ignore socket errors, so the agent continues running unchanged.
 
+Ordinary app startup locates the callback helper inside the current app bundle and awaits deployment of its managed copy before inspecting hook status, migrating installation intent, or configuring detected sources. Only an executable deployed copy with matching bytes is admitted. Normal source commands use the durable `ManagedHooksBinary.defaultURL()` destination, including Hermes commands and consent identity, rather than the app bundle path. A missing or failed helper stops automatic source configuration. Startup readiness is reported once; completing first-run onboarding remains a separate user action.
+
+Historical session discovery runs independently and cannot replace the admitted helper or trigger startup setup again. Late startup results add historical sessions while preserving every existing identity's current state and navigation metadata, including matching transcript aliases. Cache pruning uses the final merged current state instead of writing the earlier scan snapshot back over newly arrived sessions. Runtime acceptance skips ordinary helper lookup, deployment, source reads, and configuration; scoped source-setup acceptance uses only its isolated wrapper and admitted sources.
+
+Ordinary live process monitoring starts once after successful bridge startup, independently of history discovery and source setup. This lets an already-running Codex App connect through the existing app-server path while historical scans are pending. Runtime acceptance and launches with runtime-state loading or bridge startup disabled do not start ordinary monitoring; applying late history only reconciles the restored attachments.
+
 ## Skip Hooks For Delegated Control
 
 Set `OPEN_ISLAND_SKIP_HOOKS=1` on a child agent process when another local controller intentionally owns permission handling for that run. The hook CLI exits immediately without reading or forwarding the payload, so the agent continues without AIsland UI intervention.
@@ -29,6 +35,18 @@ Set `OPEN_ISLAND_SKIP_HOOKS=1` on a child agent process when another local contr
 This is meant for per-process launches. Do not set it globally unless you want AIsland hooks disabled for every agent started from that environment.
 
 **Entry point**: [`Sources/OpenIslandHooks/main.swift`](../Sources/OpenIslandHooks/main.swift)
+
+---
+
+## v0.1.1 Runtime Lifecycle Sources (acceptance pending)
+
+Hermes CLI uses `OpenIslandHooks --source hermes --profile-id <profile-directory>`. Its managed shell hooks are `pre_llm_call` and `on_session_end`; the latter carries explicit completed/failed/interrupted flags and a turn identity. `post_llm_call` is not a completion signal. Hermes manages its own command consent, which AIsland never auto-approves. The installer only owns its exact entries and manifest; unrelated config and consent remain intact.
+
+DeepSeek Harness Desktop uses the [official-profile source plugin](../Integrations/DeepSeek/README.md), with a server event projection and a client navigation bridge. Only future `turn/start` and explicit `turn/end` reasons are projected. `idle`, process silence and navigation dispatch are not completion evidence. Public `openSession(ID)` returns void, so dispatch is separately accepted from visible selection and frontmost activation.
+
+Both use `processRuntimeLifecycleHook` with `runtimeLifecycleHook` over the existing NDJSON bridge. Source/profile/session namespace, turn identity, sequence and timestamp prevent cross-task completion, stale events and replay. Only a matching start observed in the current native run and not explicitly unobserved by the source may notify successful completion. Unsuccessful endings and restored endings update state silently; companion success notifications obey the same distinction. `source_observed_start:false` repairs a plugin-reload ending without creating a fresh alert.
+
+Payloads carry only identity, status and navigation metadata; no prompt, tool input, history, error body or credential is projected. Exact contract and restoration behavior are in the [Hermes/native implementation record](exec-plans/active/v0.1.1-hermes-implementation.md). Source-specific reason enums are pinned there and in the plugin. Real native consent, source loading, state, sound and navigation remain pending acceptance.
 
 ---
 
@@ -267,7 +285,8 @@ ZCode consumes Claude-format payloads but differs from Claude Code in configurat
 - ZCode supports exactly seven events; the managed install registers only these: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Stop`.
 - `PermissionRequest` supports the interactive allow/deny directive (24 h timeout); matchers are case-sensitive regexes against tool names (`.*` installs as match-all).
 - Agents run inside the ZCode desktop app (`dev.zcode.app`); the hook stamps `terminal_app: "ZCode.app"` from the `ZCODE_*` runtime env, session liveness follows the running app, and jump-back raises the existing app window before selecting the corresponding conversation.
-- ZCode does not expose a public per-conversation URL. AIsland therefore carries the hook's stable `session_id`, resolves it read-only through `~/.zcode/v2/tasks-index.sqlite`, presses the exact conversation item in ZCode's accessibility tree, and verifies the resulting page heading. It expands the matching project and reveals additional conversation pages when needed. If the task index or accessibility surface is unavailable, jump-back degrades to focusing the project window, opening `zcode://workspace/open?path=<git root>`, or activating the app.
+- ZCode does not expose a public per-conversation URL. AIsland therefore carries the hook's stable `session_id`, resolves it read-only through `~/.zcode/v2/tasks-index.sqlite`, presses the exact conversation item in ZCode's accessibility tree, and verifies both its selected sidebar state and the resulting page heading. It expands the matching project and reveals additional conversation pages when needed. Standalone tasks have a workspace directory but no project section; for these, AIsland locates the sidebar item outside project sections only when the index identifies one task with that title and the visible item is unambiguous. If the task index or accessibility surface is unavailable, or a standalone title is ambiguous, jump-back degrades to focusing the project window, opening `zcode://workspace/open?path=<git root>`, or activating the app.
+- For an already-running ZCode app, jump-back requests LaunchServices activation before selecting the task and confirms ZCode is the frontmost app before reporting success. This also covers a visible, non-minimized ZCode window behind another app; an AX-selected conversation in a background window is not a completed jump.
 
 ## WorkBuddy Hooks (`--source workbuddy`)
 
@@ -342,7 +361,7 @@ AIsland installs one bundled extension per runtime:
 - Pi: `~/.pi/agent/extensions/open-island.ts`
 - Oh My Pi: `~/.omp/agent/extensions/open-island.ts`
 
-The setup UI installs, refreshes, reveals, and uninstalls each extension independently. The installer writes only `open-island.ts` plus its AIsland ownership manifest; uninstall leaves other user extensions untouched.
+The setup UI installs, refreshes, reveals, and uninstalls each extension independently. Current status can compare the installed bytes with the expected bundled template rendered for that agent and socket, so a previous version-4 receipt does not hide a template update. Version-3 migration additionally admits only the exact reviewed `7b2107d` production Pi/OMP renderings, with matching receipt agent/path and backups before replacement. The installer writes only `open-island.ts` plus its AIsland ownership manifest; uninstall leaves other user extensions untouched.
 
 ### Event coverage
 
@@ -356,7 +375,9 @@ The setup UI installs, refreshes, reveals, and uninstalls each extension indepen
 | `Heartbeat` | 15-second session timer | 15-second session timer | Refreshes only per-session liveness; it does not change turn phase, summary, tool, or message metadata |
 | `SessionEnd` | `session_shutdown` | `session_shutdown` | Ends the tracked session immediately; reload shutdowns stop the timer without ending the session |
 
-Jump-back metadata (terminal app, terminal session ID, TTY) is read from the agent process environment at event time; the extension does not forward terminal variables into child shell commands. When a prompt starts it sets `OPEN_ISLAND_ACTIVE=1` in the agent process environment, so commands the agent spawns can tell that AIsland is tracking the session. If the socket is unavailable, connection errors are ignored and agent execution continues. Pi and Oh My Pi liveness is keyed by `session_id`: heartbeat keeps or restores that specific session, a 45-second heartbeat timeout hides it after an abnormal exit, and generic process polling does not keep Pi/OMP sessions alive.
+Jump-back metadata uses the source environment and a bounded TTY lookup. For Ghostty, Pi/OMP never treat `TERM_SESSION_ID` as a surface ID. A UI `session_start` may bind the uniquely matching working directory; otherwise the first `input` event with `source == "interactive"` and `ctx.hasUI` captures the public Ghostty surface ID/title. Capture requires Ghostty to be frontmost, the source working directory to match, an unambiguous ID, and unchanged focus across the read-only snapshot. Interactive input distinguishes separate TUI processes sharing one directory. RPC/extension input and `before_agent_start` never capture focus; tool, completion and heartbeat events retain the admitted per-session binding. Missing permission or source evidence leaves the ID absent. No terminal content or input text is read by the locator, and terminal titles are never changed.
+
+Ghostty navigation requires a source-owned surface ID. Reconciliation and clicks never invent an ID from a working directory or ordinary title, even when the directory has one page. A missing or invalid ID refuses automatic focus and waits for a subsequent trusted source event to supply the binding; this does not signal that the source exited. Attachment discovery may associate an unbound source with a title containing its complete canonical native UUID as a standalone token, only when the source and page match uniquely; prefixes and substrings are not evidence, and this cannot replace an existing recorded surface ID. Shared-directory ambiguity remains rejected. All paths check that the observed focused ID equals the resolved target before reporting success. See [Ghostty's public object model](https://ghostty.org/docs/features/applescript); Ghostty 1.3.1 exposes ID, name and working directory, without a TTY/PID property. The extension does not forward terminal variables into child shell commands. When a prompt starts it sets `OPEN_ISLAND_ACTIVE=1` in the agent process environment, so commands the agent spawns can tell that AIsland is tracking the session. If the socket is unavailable, connection errors are ignored and agent execution continues. Pi and Oh My Pi liveness is keyed by `session_id`: heartbeat keeps or restores that specific session, a 45-second heartbeat timeout hides it after an abnormal exit, and generic process polling does not keep Pi/OMP sessions alive.
 
 ### Current limitations
 
@@ -385,6 +406,8 @@ Jump-back metadata (terminal app, terminal session ID, TTY) is read from the age
 **Source**: [`Sources/OpenIslandCore/GrokHooks.swift`](../Sources/OpenIslandCore/GrokHooks.swift)
 
 Grok Build (Grok CLI / Grok TUI) discovers hooks from `~/.grok/hooks/*.json`. AIsland writes a dedicated managed file at `~/.grok/hooks/open-island.json`.
+
+Grok also loads Claude and Cursor hook configurations by default. Their AIsland commands quietly exit when the stdin envelope has Grok's native camelCase identity plus consistent Claude snake_case aliases, and the runner-injected `GROK_HOOK_EVENT`, `GROK_SESSION_ID`, and `GROK_WORKSPACE_ROOT` all match that identity. This check runs before terminal discovery or sending a bridge command; only `--source grok` produces the Grok lifecycle, activity and notifications. Native Claude/Cursor callbacks continue normally, including child agents inheriting Grok environment variables: markers alone do not suppress them. Missing or inconsistent evidence preserves the declared source. No user hook configuration is changed. This admission rule follows the installed Grok 1.0.46 documentation and the official [envelope serializer](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/event.rs) and [command runner](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/runner/command.rs). Compatibility commands do not act as a fallback if the native AIsland Grok hook is absent.
 
 ### Events (managed install)
 
@@ -418,6 +441,7 @@ Managed status is **healthy only when every event above** is present with an AIs
 - Stdin JSON uses **camelCase** keys (`sessionId`, `hookEventName`, `toolName`, `toolResult`).
 - `hookEventName` may arrive as PascalCase (`PreToolUse`), snake_case (`pre_tool_use`) or camelCase (`preToolUse`); all are accepted.
 - Envelopes may carry `promptId`; it is decoded as `promptID` but not acted on yet (reserved for ignoring stale-prompt reports).
+- `UserPromptSubmit` also fires observe-only for auto-wake turns (task/subagent completion and scheduler) and subagent sessions. Its event name is not sufficient evidence of interactive user input. Ghostty source admission uses the unique-directory capture policy for both `SessionStart` and `UserPromptSubmit`, verifies foreground/focus stability, and never overwrites an admitted ID. Multiple unbound pages in the same directory remain unresolved until stronger source evidence becomes available. See the official [UserPromptSubmit contract](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md#userpromptsubmit-decision-control).
 - `StopCancelled` carries `reason` (`user_interrupt`, `permission_rejected`, `permission_cancelled`, `max_turns`, `no_progress`, `unknown`), `cancelledBy` (`user` / `runtime` / `unknown`) and optional `cancelTrigger` / `reasonDetails` / `lastAssistantMessage`.
 - PreToolUse decision format (not used by the managed install yet): `{"decision":"allow"}` / `{"decision":"deny","reason":"..."}`.
 - Sessions also land under `~/.grok/sessions/<url-encoded-cwd>/<session-id>/` for offline discovery (not yet scanned by AIsland).
@@ -449,7 +473,20 @@ The hook process infers the terminal type from environment variables at runtime:
 | `TERM_PROGRAM=Apple_Terminal` | `Terminal` |
 | `TERM_PROGRAM=WezTerm` | `WezTerm` |
 
-For iTerm, Terminal, and Ghostty the process additionally runs an AppleScript query to obtain the session ID, TTY, and window title — used to power the "jump back to terminal" feature. The `cmux` terminal uses `CMUX_SURFACE_ID` instead of AppleScript.
+For iTerm and Terminal, existing metadata queries supply session ID/TTY/title.
+Ghostty uses a stable private binding keyed by source agent, native session ID
+and real callback TTY. Source startup can bind an unambiguous directory;
+Claude/Codex `UserPromptSubmit` and Pi/OMP interactive input can bind the
+stable focused surface after verifying foreground and directory evidence.
+Grok `UserPromptSubmit` also runs for automatic wakeups and subagent turns, so
+it only reuses an existing binding or captures a uniquely matching directory;
+an unbound Grok source sharing a directory with another page remains unresolved.
+Tools, stops, heartbeats and notifications reuse that binding and never query
+the current focused page. Gemini `BeforeAgent` does not establish interactive
+input; without a startup binding, same-directory multi-page selection remains
+unresolved. Generic inherited `TERM_SESSION_ID` is not a Ghostty surface ID.
+Ordinary reconciliation and jump-back reject directory/ordinary-title fallback
+and explicit missing-ID redirection. The `cmux` terminal uses `CMUX_SURFACE_ID`.
 
 ---
 
@@ -469,3 +506,11 @@ For iTerm, Terminal, and Ghostty the process additionally runs an AppleScript qu
 | [`Sources/OpenIslandApp/Resources/open-island-pi.ts`](../Sources/OpenIslandApp/Resources/open-island-pi.ts) | Shared Pi/OMP runtime extension |
 | [`Sources/OpenIslandCore/BridgeServer.swift`](../Sources/OpenIslandCore/BridgeServer.swift) | Unix socket server — handles incoming hook payloads |
 | [`Sources/OpenIslandCore/BridgeTransport.swift`](../Sources/OpenIslandCore/BridgeTransport.swift) | Protocol codec and envelope types |
+
+### Opt-in Ghostty support diagnostics
+
+An existing, user-owned empty regular file `.ghostty-diagnostics-enabled` with mode `0600` in the OpenIsland support directory enables metadata diagnostics. Removing that marker stops recording. Neither the app nor hooks create it. The private `ghostty-diagnostics.jsonl` is capped at 256 KiB; unsafe markers/logs, symlinks, a busy diagnostic lock, or a full log cause recording to be skipped. A leftover `.ghostty-diagnostics.lock` after a crash also disables writes until the operator removes it.
+
+Records use fixed stage/reason/agent/event categories, booleans and bounded counts. Native and surface identifiers use lowercase SHA-256 of their UTF-8 bytes; Pi/OMP hash the emitted prefixed native session ID. No working directory, title, TTY value, prompt, arguments, environment values or stderr are recorded. Source binding traces distinguish missing TTY, event gates, receipt reuse, directory ambiguity and locator errors; click traces distinguish start, success and approved failure categories. This trace does not change source admission, terminal focus policy or product UI, and is not evidence of successful real navigation until the user checks the selected source.
+
+CLI callback TTY detection is shared by Claude-family, Codex, Gemini, Grok and Hermes. It examines the callback process and at most seven ancestors, querying only PID, PPID and controlling TTY. Each query verifies the returned PID; absent processes, malformed rows, cycles and the init boundary stop the search. Lookups have a 1.5-second aggregate budget and at most 0.2 seconds per query, plus a bounded 20 ms output-drain wait and process-launch overhead. No stdin, process arguments or process environment are inspected by the probe. Inherited `TTY` and payload TTY values do not identify a Ghostty source: Ghostty continues to require the observed source TTY, native identity and existing source-binding admission/receipt checks. Finding a TTY alone never creates a surface ID or permits a directory-based jump.

@@ -21,6 +21,7 @@ let package = Package(
             name: "OpenIslandSetup",
             targets: ["OpenIslandSetup"]
         ),
+        .executable(name: "MiniMaxCodeSourceProbe", targets: ["MiniMaxCodeSourceProbe"]),
         .executable(
             name: "OpenIslandApp",
             targets: ["OpenIslandApp"]
@@ -43,6 +44,12 @@ let package = Package(
             dependencies: ["OpenIslandCore"]
         ),
         .executableTarget(
+            name: "MiniMaxCodeSourceProbe",
+            path: "Integrations/MiniMaxCode/scripts",
+            exclude: ["core.mjs", "hook.mjs", "install.mjs", "source.mjs"],
+            sources: ["source-probe.swift"]
+        ),
+        .executableTarget(
             name: "OpenIslandApp",
             dependencies: [
                 "OpenIslandCore",
@@ -51,6 +58,7 @@ let package = Package(
             ],
             resources: [
                 .process("Resources"),
+                .copy("AgentIntegrationPackages"),
             ]
         ),
         .testTarget(

@@ -712,6 +712,25 @@ struct AppModelSessionListTests {
         #expect(model.islandSurface == .sessionList(actionableSessionID: "background-session"))
     }
 
+    @Test func foregroundCompletionCannotCancelSlowerBackgroundCompletionProbe() async throws {
+        let now = Date.now
+        let model = AppModel(isNotificationSessionAlreadyFrontmost: { session in
+            if session.id == "background-ghostty" { try? await Task.sleep(for: .milliseconds(60)); return false }
+            return true
+        })
+        model.notchStatus = .closed
+        model.state = SessionState(sessions: ["background-ghostty", "foreground-peer"].map { id in
+            AgentSession(id: id, title: id, tool: .ohMyPi, origin: .live,
+                attachmentState: .attached, phase: .running, summary: "Running", updatedAt: now)
+        })
+        model.applyTrackedEvent(.sessionCompleted(.init(sessionID: "background-ghostty", summary: "Completed", timestamp: now)), ingress: .bridge)
+        model.applyTrackedEvent(.sessionCompleted(.init(sessionID: "foreground-peer", summary: "Completed", timestamp: now)), ingress: .bridge)
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(model.notchStatus == .opened)
+        #expect(model.notchOpenReason == .notification)
+        #expect(model.islandSurface == .sessionList(actionableSessionID: "background-ghostty"))
+    }
+
     @Test
     func hoverOpenedSessionListAutoCollapsesOnPointerExit() {
         let model = AppModel()
@@ -1038,6 +1057,129 @@ struct AppModelSessionListTests {
             environmentContext?.codexMetadata?.initialUserPrompt
                 == "Replace the injected environment context."
         )
+    }
+
+    @Test
+    func mergeDiscoveredCodexSessionsUpgradesUnknownDesktopJumpTarget() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let model = AppModel()
+        model.state = SessionState(sessions: [
+            AgentSession(
+                id: "desktop-session",
+                title: "Codex · project",
+                tool: .codex,
+                origin: .live,
+                attachmentState: .attached,
+                phase: .running,
+                summary: "Hook session",
+                updatedAt: now,
+                jumpTarget: JumpTarget(
+                    terminalApp: "Unknown",
+                    workspaceName: "project",
+                    paneTitle: "Codex desktop",
+                    workingDirectory: "/Users/u/project"
+                )
+            ),
+        ])
+
+        var discovered = AgentSession(
+            id: "desktop-session",
+            title: "Codex · project",
+            tool: .codex,
+            origin: .live,
+            attachmentState: .stale,
+            phase: .running,
+            summary: "Rollout session",
+            updatedAt: now,
+            jumpTarget: JumpTarget(
+                terminalApp: "Codex.app",
+                workspaceName: "project",
+                paneTitle: "Codex · project",
+                workingDirectory: "/Users/u/project",
+                codexThreadID: "desktop-session"
+            )
+        )
+        discovered.isCodexAppSession = true
+        discovered.isProcessAlive = true
+
+        let merged = model.discovery.mergeDiscoveredSessions([discovered])
+
+        #expect(merged.first?.jumpTarget?.terminalApp == "Codex.app")
+        #expect(merged.first?.jumpTarget?.codexThreadID == "desktop-session")
+        #expect(merged.first?.isCodexAppSession == true)
+        #expect(merged.first?.isProcessAlive == true)
+    }
+
+    @Test
+    func codexAppRediscoveryExcludesCLIRecordsWithNewTranscriptPaths() {
+        let model = AppModel()
+        let cliRecord = CodexTrackedSessionRecord(
+            sessionID: "cli-session",
+            title: "Codex · project",
+            summary: "CLI rollout",
+            phase: .running,
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            codexMetadata: CodexSessionMetadata(transcriptPath: "/tmp/new-cli-rollout.jsonl")
+        )
+
+        let selected = model.discovery.codexAppRediscoveryRecords(
+            from: [cliRecord],
+            existingSessions: []
+        )
+
+        #expect(selected.isEmpty)
+    }
+
+    @Test
+    func codexAppRediscoveryReconcilesAlreadyIdentifiedDesktopSessions() {
+        let model = AppModel()
+        let now = Date(timeIntervalSince1970: 2_000)
+        let existing = AgentSession(
+            id: "desktop-session",
+            title: "Codex · project",
+            tool: .codex,
+            origin: .live,
+            attachmentState: .attached,
+            phase: .running,
+            summary: "Earlier rollout metadata",
+            updatedAt: now,
+            jumpTarget: JumpTarget(
+                terminalApp: "Codex.app",
+                workspaceName: "project",
+                paneTitle: "Codex · project",
+                workingDirectory: "/Users/u/project",
+                codexThreadID: "desktop-session"
+            ),
+            codexMetadata: CodexSessionMetadata(
+                transcriptPath: "/tmp/desktop-rollout.jsonl",
+                lastAssistantMessage: "Earlier response"
+            )
+        )
+        let updatedRecord = CodexTrackedSessionRecord(
+            sessionID: "desktop-session",
+            title: "Codex · project",
+            origin: .live,
+            attachmentState: .stale,
+            summary: "Updated rollout metadata",
+            phase: .running,
+            updatedAt: now.addingTimeInterval(10),
+            jumpTarget: existing.jumpTarget,
+            codexMetadata: CodexSessionMetadata(
+                transcriptPath: "/tmp/desktop-rollout.jsonl",
+                lastAssistantMessage: "Latest response"
+            )
+        )
+        model.state = SessionState(sessions: [existing])
+
+        let selected = model.discovery.codexAppRediscoveryRecords(
+            from: [updatedRecord],
+            existingSessions: [existing]
+        )
+        let merged = model.discovery.mergeDiscoveredSessions(selected.map(\.session))
+
+        #expect(selected.map(\.sessionID) == ["desktop-session"])
+        #expect(merged.first?.summary == "Updated rollout metadata")
+        #expect(merged.first?.codexMetadata?.lastAssistantMessage == "Latest response")
     }
 
     @Test

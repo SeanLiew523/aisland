@@ -128,14 +128,14 @@
 "settings.sound.selectSound" = "選擇音效";
 
 /* Settings - Setup */
-"settings.tab.setup" = "安裝引導";
+"settings.tab.setup" = "接入引導";
 "setup.section.binary" = "Hook 二進位檔";
 "setup.claudeConfigDir.section" = "Claude 設定目錄";
 "setup.claudeConfigDir.title" = "設定目錄";
 "setup.claudeConfigDir.choose" = "選擇…";
 "setup.claudeConfigDir.reset" = "重設";
 "setup.claudeConfigDir.footer" = "適用於透過 CLAUDE_CONFIG_DIR 使用自訂設定路徑啟動 Claude Code 的使用者。如無需要請保持預設。";
-"setup.section.hooks" = "CLI Hooks";
+"setup.section.hooks" = "AIsland 事件接入";
 "setup.section.usage" = "用量橋接";
 "setup.section.permissions" = "權限";
 "setup.binaryReady" = "就緒";
@@ -143,14 +143,14 @@
 "setup.hookReady" = "Hooks 已安裝";
 "setup.hookMissing" = "Hooks 未安裝";
 "setup.usageBridge" = "Claude 用量橋接";
-"setup.usageBridgeReady" = "已安裝";
+"setup.usageBridgeReady" = "用量接入已設定";
 "setup.usageBridgeDesc" = "在本機追蹤 Claude API 用量";
 "setup.optional" = "選用";
 "setup.permissionsTitle" = "輔助使用";
 "setup.permissionsDesc" = "AIsland 可能需要輔助使用權限來偵測終端機視窗。請在「系統設定 → 隱私權與安全性 → 輔助使用」中授權。";
-"setup.installAll" = "全部安裝";
+"setup.installAll" = "重新偵測並接入已安裝 Agent";
 "setup.banner.noHooks.title" = "開始使用 AIsland";
-"setup.banner.noHooks.message" = "在下方為你使用的 Agent 安裝 hook，AIsland 就會開始監聽對應工作階段。";
+"setup.banner.noHooks.message" = "在下方選擇你使用的 Agent，設定它的 AIsland 事件接入。";
 "setup.revealConfigLocation" = "在 Finder 中顯示設定";
 "setup.section.diagnostics" = "Hooks 診斷";
 "setup.diagnostics.notRun" = "尚未執行健康檢查。";
@@ -170,6 +170,9 @@
 "island.quit.confirmTitle" = "結束 AIsland？";
 "island.quit.confirmAction" = "結束";
 "island.quit.confirmMessage" = "確定要結束嗎？";
+"island.accessibility.openPanel" = "展開 AIsland 工作階段";
+"island.accessibility.openSession" = "開啟工作階段：%@";
+"island.accessibility.sessionCount" = "%lld 個工作階段";
 
 /* Settings - Update */
 "settings.update.available" = "v%@ 可更新 — 點擊更新";
@@ -225,3 +228,71 @@
 
 /* Window Titles */
 "window.settings" = "AIsland 設定";
+
+"settings.general.replayWelcome" = "重播歡迎引導";
+
+// GitHub stable releases and signed Sparkle updates
+"settings.update.latestVersion" = "最新版本：%@";
+"settings.update.checking" = "正在查詢 GitHub 最新穩定版本…";
+"settings.update.ready" = "下載完成並驗證後，將自動安裝並重新啟動 AIsland。";
+"settings.update.downloadInstall" = "下載、安裝並重新啟動";
+"settings.update.downloading" = "正在下載更新…";
+"settings.update.extracting" = "正在驗證並準備安裝…";
+"settings.update.installing" = "正在安裝更新並重新啟動 AIsland…";
+"settings.update.installed" = "更新已安裝。";
+"settings.update.upToDate" = "目前已是最新穩定版本。";
+"settings.update.cancel" = "取消";
+"settings.update.retryRelaunch" = "重試重新啟動";
+"settings.update.releaseNotes" = "版本說明";
+"settings.update.noRelease" = "GitHub 尚未發佈穩定版本。";
+"settings.update.rateLimited" = "GitHub 請求達到限制，請稍後重試。";
+"settings.update.invalidRelease" = "GitHub 返回的穩定版本資訊無效。";
+"settings.update.networkFailed" = "無法查詢 GitHub，請檢查網路後重試。";
+"settings.update.invalidCurrentVersion" = "目前構建缺少有效版本號，無法自動安裝更新。";
+"settings.update.signingNotConfigured" = "發現新版，但目前構建尚未配置 AIsland 更新簽章，無法自動安裝。";
+"settings.update.missingFeed" = "該版本尚未提供簽章更新清單，無法自動安裝。";
+"settings.update.invalidFeed" = "簽章更新清單與 GitHub 版本資產不一致，已停止更新。";
+"settings.update.unavailableForSystem" = "該版本沒有適用於目前構建或 macOS 的新版更新。";
+"settings.update.installFailed" = "更新失敗，無法驗證、下載或安裝該更新，請重試。";
+
+/* Agent connection setup */
+"setup.connection.explanation" = "請先自行安裝對應 Agent。這裡設定的是 AIsland 接入：向 Agent 的設定中加入事件回呼或外掛。";
+"setup.connection.configurationOnly" = "「已設定」僅表示偵測到接入檔案。請在 Agent 中執行一個回合，確認 AIsland 是否收到事件。";
+"setup.connection.configure" = "設定 AIsland 接入";
+"setup.connection.update" = "更新 AIsland 接入";
+"setup.connection.remove" = "移除接入";
+"setup.connection.configured" = "接入已設定";
+"setup.connection.notConfigured" = "尚未設定 AIsland 接入。";
+"setup.connection.unknown" = "尚未讀取接入設定狀態。";
+"setup.connection.missingHelper" = "目前 AIsland 找不到本機接入程式，請使用包含接入元件的完整應用程式。";
+"setup.connection.isolated" = "目前驗收建置已停用 Agent 設定與來源讀取，請在一般應用程式中設定接入。";
+"setup.connection.configureAllExplanation" = "重新偵測已安裝來源，設定缺少的 AIsland 事件接入，保留你主動移除的接入。";
+"setup.connection.hermesExplanation" = "向所選 Hermes profile 加入 AIsland 回合回呼，不安裝 Hermes。設定後重新啟動 Hermes，並在 Hermes 自己的提示中授權兩條 AIsland hook；審批仍留在 Hermes。";
+
+"setup.connection.automatic" = "自動為已安裝的 Agent 設定事件接入；你主動移除的接入會保持關閉。新安裝 Agent 後，可在這裡重新偵測或重啟 AIsland。";
+
+"setup.connection.sourceMissing" = "未偵測到 Agent 安裝。請先安裝 Agent，再重新偵測。";
+
+"setup.desktop.stopAutomatic" = "關閉自動設定";
+
+"setup.desktop.optedOut" = "已關閉自動設定。現有來源插件仍由來源應用控制。";
+
+"setup.desktop.waitingForSourceExit" = "請完成來源中的任務、正常退出桌面應用，再重新偵測完成設定。AIsland 不會關閉來源任務。";
+
+"setup.desktop.waitingForProfile" = "請先開啟來源一次，以辨識正在使用的 profile。MiniMaxCode 也可選擇其設定中目前使用的資料目錄。";
+
+"setup.desktop.waitingForActivation" = "事件元件已設定。請在來源應用中啟用 AIsland 插件，再正常發起下一次任務；本次執行尚未驗證收到事件。";
+
+"setup.desktop.configuredFiles" = "事件元件已設定，等待來源載入。";
+
+"setup.desktop.eventReceived" = "本次 AIsland 執行已收到此來源的任務事件。";
+
+"setup.desktop.checking" = "正在偵測來源安裝及事件元件…";
+
+"setup.desktop.checkAgain" = "重新偵測並完成設定";
+
+"setup.desktop.chooseDataDirectory" = "選擇正在使用的資料目錄…";
+
+"setup.desktop.openSource" = "開啟來源應用";
+
+"setup.connection.sourceSetupScope" = "此獨立驗收僅自動配置建構清單中的來源；其他來源配置保持原樣，手動安裝和切換 profile 已停用。";

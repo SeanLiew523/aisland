@@ -135,7 +135,7 @@ struct TerminalJumpTargetResolver {
 
     // MARK: - Ghostty matching
 
-    private func matchGhosttySnapshots(
+    func matchGhosttySnapshots(
         _ snapshots: [GhosttyTerminalSnapshot],
         to sessions: [AgentSession],
         activeProcesses: [ActiveProcessSnapshot]
@@ -143,9 +143,10 @@ struct TerminalJumpTargetResolver {
         var assignments: [String: GhosttyTerminalSnapshot] = [:]
         var claimedSessionIDs: Set<String> = []
         var claimedSnapshotIDs: Set<String> = []
+        let snapshotCounts = Dictionary(grouping: snapshots, by: \.sessionID).mapValues(\.count)
 
         // Pass 1: exact session ID match via terminal session ID.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
+        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) && snapshotCounts[snapshot.sessionID] == 1 {
             if let session = sessions.first(where: {
                 !claimedSessionIDs.contains($0.id)
                     && nonEmptyValue($0.jumpTarget?.terminalSessionID) == snapshot.sessionID
@@ -156,31 +157,8 @@ struct TerminalJumpTargetResolver {
             }
         }
 
-        // Pass 2: working directory match.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            let snapshotCWD = normalizedPathForMatching(snapshot.workingDirectory)
-            if let session = sessions.first(where: {
-                !claimedSessionIDs.contains($0.id)
-                    && snapshotCWD != nil
-                    && normalizedPathForMatching($0.jumpTarget?.workingDirectory) == snapshotCWD
-            }) {
-                assignments[session.id] = snapshot
-                claimedSessionIDs.insert(session.id)
-                claimedSnapshotIDs.insert(snapshot.sessionID)
-            }
-        }
-
-        // Pass 3: pane title match.
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            if let session = sessions.first(where: {
-                !claimedSessionIDs.contains($0.id)
-                    && nonEmptyValue($0.jumpTarget?.paneTitle).map { snapshot.title.contains($0) } == true
-            }) {
-                assignments[session.id] = snapshot
-                claimedSessionIDs.insert(session.id)
-                claimedSnapshotIDs.insert(snapshot.sessionID)
-            }
-        }
+        // Working directory and ordinary title are not source identity.
+        // An unbound source must wait for a trusted source-owned surface ID.
 
         return assignments
     }

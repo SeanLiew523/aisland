@@ -82,7 +82,7 @@ enum SettingsSection: String, CaseIterable {
     }
 
     var tabs: [SettingsTab] {
-        SettingsTab.allCases.filter { $0.section == self }
+        SettingsTab.allCases.filter { $0.section == self && $0 != .watch }
     }
 }
 
@@ -158,7 +158,7 @@ struct SettingsView: View {
 
             if model.updateChecker.hasUpdate, let version = model.updateChecker.latestVersion {
                 UpdateBanner(version: version, lang: lang) {
-                    model.updateChecker.checkForUpdates()
+                    model.updateChecker.downloadAndInstall()
                 }
                 .padding(.top, 8)
                 .padding(.trailing, 16)
@@ -205,6 +205,7 @@ struct GeneralSettingsPane: View {
                     Text(lang.t("settings.general.languageChinese")).tag(LanguageManager.AppLanguage.zhHans)
                     Text(lang.t("settings.general.languageTraditionalChinese")).tag(LanguageManager.AppLanguage.zhHant)
                 }
+                Button(lang.t("settings.general.replayWelcome")) { model.replayWelcome?() }
             }
 
             Section(lang.t("settings.general.behavior")) {
@@ -275,11 +276,21 @@ struct DisplaySettingsPane: View {
 
 struct SoundSettingsPane: View {
     var model: AppModel
+    @State private var selections: [NotificationSoundCategory: NotificationSoundSelection] = [:]
+    @State private var fallbacks: Set<NotificationSoundCategory> = []
+    @State private var messages: [NotificationSoundCategory: String] = [:]
+    @State private var playbackMode: NotificationSoundPlaybackMode = .shortFade
 
     private var lang: LanguageManager { model.lang }
+    private var store: NotificationSoundStore { NotificationSoundService.store }
+    private var availableSounds: [String] { NotificationSoundService.availableSounds() }
 
-    private var availableSounds: [String] {
-        NotificationSoundService.availableSounds()
+    private func text(_ en: String, _ zh: String, _ hant: String) -> String {
+        switch lang.language.resolvedCode {
+        case "zh-Hans": zh
+        case "zh-Hant": hant
+        default: en
+        }
     }
 
     var body: some View {
@@ -287,34 +298,133 @@ struct SoundSettingsPane: View {
             Section(lang.t("settings.sound.notifications")) {
                 Toggle(lang.t("settings.sound.mute"), isOn: Binding(
                     get: { model.isSoundMuted },
-                    set: { _ in model.toggleSoundMuted() }
+                    set: { _ in model.toggleSoundMuted(); NotificationSoundService.setMuted(model.isSoundMuted) }
                 ))
+                Picker(text("Automatic playback", "自动提示长度", "自動提示長度"), selection: $playbackMode) {
+                    Text(text("Up to 5 seconds, fade out", "最多 5 秒，淡出结束", "最多 5 秒，淡出結束"))
+                        .tag(NotificationSoundPlaybackMode.shortFade)
+                    Text(text("Full audio", "完整播放", "完整播放")).tag(NotificationSoundPlaybackMode.full)
+                }
+                Text(text("New alerts replace the current sound.",
+                          "新提示会替换正在播放的声音。",
+                          "新提示會替換正在播放的聲音。"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-
-            Section(lang.t("settings.sound.selectSound")) {
-                List(availableSounds, id: \.self) { name in
-                    Button {
-                        model.selectedSoundName = name
-                        NotificationSoundService.play(name)
-                    } label: {
-                        HStack {
-                            Text(name)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if name == model.selectedSoundName {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
-                                    .fontWeight(.semibold)
+            ForEach(NotificationSoundCategory.allCases, id: \.self) { category in
+                Section(categoryTitle(category)) {
+                    Picker(text("Sound", "声音", "聲音"), selection: sourceBinding(category)) {
+                        ForEach(availableSounds, id: \.self) { name in
+                            Text(name).tag("system:" + name)
+                        }
+                        Text(text("Custom MP3…", "自定义 MP3…", "自訂 MP3…")).tag("custom")
+                    }
+                    if case .custom(let asset) = selections[category] {
+                        Text(asset.displayName).lineLimit(1).truncationMode(.middle)
+                        Text(text("Managed copy · ", "已保存本地副本 · ", "已儲存本機副本 · ")
+                             + String(format: "%.1f s", asset.duration))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button(text("Preview full audio", "完整试听", "完整試聽")) {
+                            refresh()
+                            if !NotificationSoundService.preview(category: category) {
+                                messages[category] = text("Playback failed. Check your audio output.", "播放失败，请检查音频输出。", "播放失敗，請檢查音訊輸出。")
                             }
                         }
-                        .contentShape(Rectangle())
+                        Button(text("Import / Replace MP3", "导入 / 替换 MP3", "匯入 / 替換 MP3")) { importMP3(category) }
+                        Button(text("Restore default", "恢复默认", "恢復預設")) {
+                            NotificationSoundService.stop()
+                            store.restoreDefault(for: category)
+                            messages[category] = nil
+                            refresh()
+                        }
                     }
-                    .buttonStyle(.plain)
+                    if fallbacks.contains(category) {
+                        Text(text("The managed MP3 is missing or unreadable. Alerts and previews use Bottle until you replace it or restore the default.",
+                                  "本地 MP3 已丢失或无法读取。提示和试听暂用 Bottle；请替换文件或恢复默认。",
+                                  "本機 MP3 已遺失或無法讀取。提示和試聽暫用 Bottle；請替換檔案或恢復預設。"))
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if let message = messages[category] {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+            }
+            Section {
+                Button(text("Stop playback", "停止播放", "停止播放")) { NotificationSoundService.stop() }
+                Text(text("Manual previews play the full sound even when automatic alerts are muted. MP3 files are limited to 20 MB.",
+                          "主动试听始终完整播放，不受自动提示静音影响。MP3 文件最大 20 MB。",
+                          "主動試聽始終完整播放，不受自動提示靜音影響。MP3 檔案最大 20 MB。"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .navigationTitle(lang.t("settings.tab.sound"))
+        .onAppear { refresh(); playbackMode = store.playbackMode }
+        .onChange(of: playbackMode) { _, mode in NotificationSoundService.stop(); store.playbackMode = mode }
+        .onChange(of: model.isSoundMuted) { _, muted in NotificationSoundService.setMuted(muted) }
+        .onDisappear { NotificationSoundService.stop() }
+    }
+
+    private func categoryTitle(_ category: NotificationSoundCategory) -> String {
+        switch category {
+        case .completed: text("Task completed", "任务完成", "任務完成")
+        case .approval: text("Waiting for approval", "等待审批", "等待審批")
+        case .answer: text("Waiting for an answer", "等待回答", "等待回答")
+        }
+    }
+
+    private func sourceBinding(_ category: NotificationSoundCategory) -> Binding<String> {
+        Binding(get: {
+            if case .system(let name) = selections[category] { return "system:" + name }
+            if case .custom = selections[category] { return "custom" }
+            return "system:" + NotificationSoundService.defaultSoundName
+        }, set: { source in
+            if source == "custom" { importMP3(category) }
+            else if source.hasPrefix("system:") {
+                NotificationSoundService.stop()
+                store.selectSystem(String(source.dropFirst(7)), for: category)
+                messages[category] = nil
+                refresh()
+            }
+        })
+    }
+
+    private func refresh() {
+        for category in NotificationSoundCategory.allCases {
+            selections[category] = store.selection(for: category)
+            if store.resolve(category).usedFallback { fallbacks.insert(category) }
+            else { fallbacks.remove(category) }
+        }
+    }
+
+    private func importMP3(_ category: NotificationSoundCategory) {
+        NotificationSoundService.stop()
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.mp3]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = text("Import MP3", "导入 MP3", "匯入 MP3")
+        guard panel.runModal() == .OK, let url = panel.url else {
+            messages[category] = text("Import cancelled. Your selection is unchanged.", "已取消导入，原有选择保持不变。", "已取消匯入，原有選擇保持不變。")
+            return
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try store.importMP3(from: url, for: category)
+            messages[category] = text("Imported. You can move or delete the original file.", "已导入；移动或删除原始文件不影响声音。", "已匯入；移動或刪除原始檔案不影響聲音。")
+        } catch {
+            let reason: String
+            switch error as? NotificationSoundImportError {
+            case .notMP3: reason = text("Choose a real MP3 file.", "请选择真实 MP3 文件。", "請選擇真正的 MP3 檔案。")
+            case .tooLarge: reason = text("The file exceeds 20 MB.", "文件超过 20 MB。", "檔案超過 20 MB。")
+            case .invalidAudio: reason = text("The file cannot be decoded or has no audio.", "文件无法解码或没有有效音频。", "檔案無法解碼或沒有有效音訊。")
+            default: reason = text("The file or managed directory is inaccessible.", "无法访问文件或本地声音目录。", "無法存取檔案或本機聲音目錄。")
+            }
+            messages[category] = reason + text(" Your previous selection is unchanged.", "原有选择保持不变。", "原有選擇保持不變。")
+        }
+        refresh()
     }
 }
 
@@ -363,6 +473,8 @@ struct AboutSettingsPane: View {
                     .disabled(!model.updateChecker.canCheckForUpdates)
                     .opacity(model.updateChecker.canCheckForUpdates ? 1 : 0.55)
                     .accessibilityIdentifier("settings.about.checkForUpdates")
+
+                    UpdateSettingsStatus(checker: model.updateChecker, lang: lang)
                 }
 
                 Section {
@@ -436,6 +548,25 @@ struct SetupSettingsPane: View {
 
     var body: some View {
         Form {
+            Section {
+                Text(lang.t("setup.connection.explanation"))
+                    .font(.callout)
+                Text(lang.t("setup.connection.automatic"))
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.hooks.automaticConnectionErrors.keys.sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { agent in
+                    Text("\(agent.rawValue): \(model.hooks.automaticConnectionErrors[agent] ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(lang.t("setup.connection.configurationOnly"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let reason = model.hooks.setupBlockReason(requiresBinary: false) {
+                    Text(lang.t(reason.rawValue))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if !model.hasAnyInstalledAgent {
                 emptyStateBanner
             }
@@ -445,7 +576,9 @@ struct SetupSettingsPane: View {
             Section(lang.t("setup.section.hooks")) {
                 hookRow(
                     name: "Claude Code",
+                    agent: .claudeCode,
                     installed: model.claudeHooksInstalled,
+                    configurationKnown: model.claudeHookStatus != nil,
                     busy: model.isClaudeHookSetupBusy,
                     configLocationURL: model.claudeHookStatus?.settingsURL,
                     installAction: { model.installClaudeHooks() },
@@ -462,7 +595,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Codex",
+                    agent: .codex,
                     installed: model.codexHooksInstalled,
+                    configurationKnown: model.codexHookStatus != nil,
                     busy: model.isCodexSetupBusy,
                     configLocationURL: codexHookConfigURL,
                     installAction: { model.installCodexHooks() },
@@ -479,7 +614,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "OpenCode",
+                    agent: .openCode,
                     installed: model.openCodePluginInstalled,
+                    configurationKnown: model.openCodePluginStatus != nil,
                     busy: model.isOpenCodeSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.openCodePluginStatus?.configURL,
@@ -497,7 +634,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Qoder",
+                    agent: .qoder,
                     installed: model.qoderHooksInstalled,
+                    configurationKnown: model.qoderHookStatus != nil,
                     busy: model.isQoderHookSetupBusy,
                     configLocationURL: model.qoderHookStatus?.settingsURL,
                     installAction: { model.installQoderHooks() },
@@ -514,7 +653,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Qwen Code",
+                    agent: .qwenCode,
                     installed: model.qwenCodeHooksInstalled,
+                    configurationKnown: model.qwenCodeHookStatus != nil,
                     busy: model.isQwenCodeHookSetupBusy,
                     configLocationURL: model.qwenCodeHookStatus?.settingsURL,
                     installAction: { model.installQwenCodeHooks() },
@@ -531,7 +672,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Factory",
+                    agent: .factory,
                     installed: model.factoryHooksInstalled,
+                    configurationKnown: model.factoryHookStatus != nil,
                     busy: model.isFactoryHookSetupBusy,
                     configLocationURL: model.factoryHookStatus?.settingsURL,
                     installAction: { model.installFactoryHooks() },
@@ -548,7 +691,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "CodeBuddy",
+                    agent: .codebuddy,
                     installed: model.codebuddyHooksInstalled,
+                    configurationKnown: model.codebuddyHookStatus != nil,
                     busy: model.isCodebuddyHookSetupBusy,
                     configLocationURL: model.codebuddyHookStatus?.settingsURL,
                     installAction: { model.installCodebuddyHooks() },
@@ -565,7 +710,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "ZCode",
+                    agent: .zcode,
                     installed: model.zcodeHooksInstalled,
+                    configurationKnown: model.zcodeHookStatus != nil,
                     busy: model.isZcodeHookSetupBusy,
                     configLocationURL: model.zcodeHookStatus?.settingsURL,
                     installAction: { model.installZcodeHooks() },
@@ -582,7 +729,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "WorkBuddy",
+                    agent: .workbuddy,
                     installed: model.workbuddyHooksInstalled,
+                    configurationKnown: model.workbuddyHookStatus != nil,
                     busy: model.isWorkbuddyHookSetupBusy,
                     configLocationURL: model.workbuddyHookStatus?.settingsURL,
                     installAction: { model.installWorkbuddyHooks() },
@@ -599,7 +748,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Cursor",
+                    agent: .cursor,
                     installed: model.cursorHooksInstalled,
+                    configurationKnown: model.cursorHookStatus != nil,
                     busy: model.isCursorHookSetupBusy,
                     requiresBinary: true,
                     configLocationURL: model.cursorHookStatus?.hooksURL,
@@ -617,7 +768,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Gemini CLI",
+                    agent: .gemini,
                     installed: model.geminiHooksInstalled,
+                    configurationKnown: model.geminiHookStatus != nil,
                     busy: model.isGeminiHookSetupBusy,
                     configLocationURL: geminiHookConfigURL,
                     installAction: { model.installGeminiHooks() },
@@ -634,7 +787,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Kimi CLI",
+                    agent: .kimi,
                     installed: model.kimiHooksInstalled,
+                    configurationKnown: model.kimiHookStatus != nil,
                     busy: model.isKimiHookSetupBusy,
                     configLocationURL: model.kimiHookStatus?.configURL,
                     installAction: { model.installKimiHooks() },
@@ -651,7 +806,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Grok Build",
+                    agent: .grok,
                     installed: model.grokHooksInstalled,
+                    configurationKnown: model.grokHookStatus != nil,
                     busy: model.isGrokHookSetupBusy,
                     requiresBinary: true,
                     configLocationURL: model.grokHookStatus?.hooksURL,
@@ -667,9 +824,24 @@ struct SetupSettingsPane: View {
                     Text("This will remove AIsland hooks from ~/.grok/hooks/open-island.json.")
                 }
 
+                desktopConnectionRow(agent: .deepSeekDesktop, name: "DeepSeek Harness Desktop")
+                desktopConnectionRow(agent: .miniMaxCodeDesktop, name: "MiniMaxCode Desktop")
+
+                HermesHookSettingsRow(hooksBinaryURL: model.hooksBinaryURL, lang: lang, setupDisabled: model.hooks.isRuntimeAcceptance, setupDisabledExplanationKey: model.hooks.sourceSetupAcceptance == nil ? "setup.connection.isolated" : "setup.connection.sourceSetupScope", sourceDetected: model.hooks.detectedInstallations[.hermes] != nil, automaticStatus: model.hooks.hermesHookStatus, receivedSessionEventProfiles: model.hooks.hermesSessionEventProfiles) { status, intent in
+                    model.hooks.hermesHookStatus = status
+                    model.hooks.intentStore.setIntent(intent, for: .hermes)
+                }
+                .disabled(model.hooks.isAutomaticConnectionBusy)
+                if model.hooks.sourceSetupAcceptance?.agents.contains(.hermes) == true {
+                    Button(lang.t("setup.desktop.stopAutomatic")) { model.hooks.cancelSourceSetupHermes() }
+                        .disabled(model.hooks.isAutomaticConnectionBusy || model.hooks.intentStore.intent(for: .hermes) == .uninstalled)
+                }
+
                 hookRow(
                     name: "Pi",
+                    agent: .pi,
                     installed: model.piExtensionInstalled,
+                    configurationKnown: model.piExtensionStatus != nil,
                     busy: model.isPiSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.piExtensionStatus?.extensionURL,
@@ -687,7 +859,9 @@ struct SetupSettingsPane: View {
 
                 hookRow(
                     name: "Oh My Pi",
+                    agent: .ohMyPi,
                     installed: model.ohMyPiExtensionInstalled,
+                    configurationKnown: model.ohMyPiExtensionStatus != nil,
                     busy: model.isOhMyPiSetupBusy,
                     requiresBinary: false,
                     configLocationURL: model.ohMyPiExtensionStatus?.extensionURL,
@@ -715,15 +889,17 @@ struct SetupSettingsPane: View {
                             Text(lang.t("setup.usageBridgeReady"))
                                 .foregroundStyle(.secondary)
                         }
-                        Button(lang.t("settings.general.uninstall")) {
+                        Button(lang.t("setup.connection.remove")) {
                             confirmingUninstallClaudeUsage = true
                         }
+                        .disabled(model.hooks.isRuntimeAcceptance)
                     } else if model.isClaudeUsageSetupBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Button(lang.t("settings.general.install")) {
+                        Button(lang.t("setup.connection.configure")) {
                             model.installClaudeUsageBridge()
                         }
+                        .disabled(model.hooks.isRuntimeAcceptance)
                     }
                 }
                 .alert(lang.t("settings.general.uninstallConfirmTitle"), isPresented: $confirmingUninstallClaudeUsage) {
@@ -765,29 +941,16 @@ struct SetupSettingsPane: View {
 
             hookDiagnosticsSection
 
-            RemoteConnectionSection(model: model)
 
             Section {
                 Button(lang.t("setup.installAll")) {
-                    if !model.claudeHooksInstalled { model.installClaudeHooks() }
-                    if !model.codexHooksInstalled { model.installCodexHooks() }
-                    if !model.openCodePluginInstalled { model.installOpenCodePlugin() }
-                    if !model.qoderHooksInstalled { model.installQoderHooks() }
-                    if !model.qwenCodeHooksInstalled { model.installQwenCodeHooks() }
-                    if !model.factoryHooksInstalled { model.installFactoryHooks() }
-                    if !model.codebuddyHooksInstalled { model.installCodebuddyHooks() }
-                    if !model.zcodeHooksInstalled { model.installZcodeHooks() }
-                    if !model.workbuddyHooksInstalled { model.installWorkbuddyHooks() }
-                    if !model.cursorHooksInstalled { model.installCursorHooks() }
-                    if !model.geminiHooksInstalled { model.installGeminiHooks() }
-                    if !model.kimiHooksInstalled { model.installKimiHooks() }
-                    if !model.grokHooksInstalled { model.installGrokHooks() }
-                    if !model.piExtensionInstalled { model.installPiExtension() }
-                    if !model.ohMyPiExtensionInstalled { model.installOhMyPiExtension() }
-                    if !model.claudeUsageInstalled { model.installClaudeUsageBridge() }
+                    Task { await model.hooks.configureDetectedSources() }
                 }
-                .disabled(model.hooksBinaryURL == nil || allReady)
+                .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy)
                 .frame(maxWidth: .infinity, alignment: .center)
+                Text(lang.t("setup.connection.configureAllExplanation"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -994,49 +1157,104 @@ struct SetupSettingsPane: View {
     @ViewBuilder
     private func hookRow(
         name: String,
+        agent: AgentIdentifier,
         installed: Bool,
+        configurationKnown: Bool,
         busy: Bool,
         requiresBinary: Bool = true,
         configLocationURL: URL? = nil,
         installAction: @escaping () -> Void,
         uninstallAction: @escaping () -> Void
     ) -> some View {
-        HStack {
-            Label(name, systemImage: "terminal")
-            Spacer()
-            if installed {
-                HStack(spacing: 8) {
-                    if let configLocationURL {
-                        Button {
-                            revealInFinder(configLocationURL)
-                        } label: {
-                            Image(systemName: "arrow.up.forward.square")
+        let blocked = model.hooks.setupBlockReason(requiresBinary: requiresBinary)
+        let sourceDetected = model.hooks.detectedInstallations[agent] != nil
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label(name, systemImage: "terminal")
+                Spacer()
+                if installed {
+                    HStack(spacing: 8) {
+                        if let configLocationURL {
+                            Button {
+                                revealInFinder(configLocationURL)
+                            } label: {
+                                Image(systemName: "arrow.up.forward.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(lang.t("setup.revealConfigLocation"))
+                        }
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(lang.t("setup.connection.configured"))
                                 .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .help(lang.t("setup.revealConfigLocation"))
+                        Button(lang.t("setup.connection.remove")) {
+                            uninstallAction()
+                        }
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .disabled(model.hooks.isRuntimeAcceptance || model.hooks.isAutomaticConnectionBusy)
                     }
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text(lang.t("settings.general.activated"))
-                            .foregroundStyle(.secondary)
+                } else if busy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(lang.t("setup.connection.configure")) {
+                        installAction()
                     }
-                    Button(lang.t("settings.general.uninstall")) {
-                        uninstallAction()
-                    }
-                    .foregroundStyle(.red)
+                    .disabled(blocked != nil || !sourceDetected || model.hooks.isAutomaticConnectionBusy)
+                }
+            }
+            if let blocked {
+                Text(lang.t(blocked.rawValue))
                     .font(.caption)
-                }
-            } else if busy {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(lang.t("settings.general.install")) {
-                    installAction()
-                }
-                .disabled(requiresBinary && model.hooksBinaryURL == nil)
+                    .foregroundStyle(.secondary)
+            } else if !sourceDetected {
+                Text(lang.t("setup.connection.sourceMissing"))
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !installed && !busy {
+                Text(lang.t(configurationKnown ? "setup.connection.notConfigured" : "setup.connection.unknown"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func desktopConnectionRow(agent: AgentIdentifier, name: String) -> some View {
+        let evidence = model.hooks.detectedInstallations[agent]
+        let optedOut = model.hooks.intentStore.intent(for: agent) == .uninstalled
+        let state = model.hooks.desktopConnectionStates[agent]
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(name, systemImage: "desktopcomputer")
+                Spacer()
+                if optedOut {
+                    Button(lang.t("setup.connection.configure")) { model.hooks.reconnectDesktopSource(agent) }
+                } else {
+                    Button(lang.t("setup.desktop.stopAutomatic")) { model.hooks.removeDesktopConnectionIntent(agent) }
+                }
+            }
+            Text(optedOut ? lang.t("setup.desktop.optedOut") : model.hooks.automaticConnectionErrors[agent]
+                ?? lang.t(evidence == nil ? "setup.connection.sourceMissing" : "setup.desktop." + (state?.rawValue ?? "checking")))
+                .font(.caption).foregroundStyle(.secondary)
+            if !optedOut, evidence != nil {
+                HStack {
+                    Button(lang.t("setup.desktop.checkAgain")) { Task { await model.hooks.configureDetectedSources() } }
+                    if agent == .miniMaxCodeDesktop && state == .waitingForProfile {
+                        Button(lang.t("setup.desktop.chooseDataDirectory")) {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+                            if panel.runModal() == .OK, let selected = panel.url { model.hooks.confirmMiniMaxDataDirectory(selected) }
+                        }
+                    }
+                    if let app = evidence?.bundleURL {
+                        Button(lang.t("setup.desktop.openSource")) { NSWorkspace.shared.open(app) }
+                    }
+                }
+            }
+        }
+        .disabled(model.hooks.sourceSetupDisabled || model.hooks.isAutomaticConnectionBusy || evidence == nil)
     }
 
     private func revealInFinder(_ url: URL) {
@@ -1342,5 +1560,64 @@ struct UpdateBanner: View {
         }
         .buttonStyle(.plain)
         .shadow(color: .blue.opacity(0.3), radius: 4, y: 2)
+    }
+}
+
+
+/// Progress remains visible in Settings while Sparkle validates and installs.
+struct UpdateSettingsStatus: View {
+    var checker: UpdateChecker
+    var lang: LanguageManager
+
+    private var statusKey: String? {
+        switch checker.phase {
+        case .idle: nil
+        case .checking: "settings.update.checking"
+        case .available: "settings.update.ready"
+        case .downloading: "settings.update.downloading"
+        case .extracting: "settings.update.extracting"
+        case .installing: "settings.update.installing"
+        case .installed: "settings.update.installed"
+        case .upToDate: "settings.update.upToDate"
+        case .blocked, .failed: checker.messageKey
+        }
+    }
+    var body: some View {
+        if let statusKey {
+            VStack(alignment: .leading, spacing: 10) {
+                if let version = checker.latestVersion, checker.phase != .upToDate {
+                    Text(lang.t("settings.update.latestVersion", version)).font(.headline)
+                }
+                Text(lang.t(statusKey)).font(.callout).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.update.status")
+                if checker.phase == .checking || checker.phase == .installing {
+                    ProgressView().controlSize(.small)
+                } else if checker.phase == .downloading {
+                    if let progress = checker.downloadProgress {
+                        ProgressView(value: progress).accessibilityIdentifier("settings.update.progress")
+                    } else { ProgressView().controlSize(.small) }
+                    Text(checker.expectedBytes > 0
+                         ? "\(ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.downloadedBytes), countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.expectedBytes), countStyle: .file))"
+                         : ByteCountFormatter.string(fromByteCount: Int64(clamping: checker.downloadedBytes), countStyle: .file))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                } else if checker.phase == .extracting {
+                    ProgressView(value: checker.extractionProgress)
+                }
+                if let detail = checker.errorDetail { Text(detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                HStack {
+                    if checker.hasUpdate {
+                        Button(lang.t("settings.update.downloadInstall")) { checker.downloadAndInstall() }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("settings.update.downloadInstall")
+                    }
+                    if checker.canCancel { Button(lang.t("settings.update.cancel")) { checker.cancel() } }
+                    if checker.canRetryTermination { Button(lang.t("settings.update.retryRelaunch")) { checker.retryRelaunch() } }
+                    if let notes = checker.releaseNotesURL {
+                        Link(lang.t("settings.update.releaseNotes"), destination: notes)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
     }
 }

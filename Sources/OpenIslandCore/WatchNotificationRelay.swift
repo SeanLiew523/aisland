@@ -71,12 +71,7 @@ public final class WatchNotificationRelay: @unchecked Sendable {
             Self.logger.info("Pushed questionAsked for session \(payload.sessionID)")
 
         case let .sessionCompleted(payload):
-            guard let session else { return }
-            let sseEvent = WatchSSEEvent.sessionCompleted(WatchCompletionEvent(
-                sessionID: payload.sessionID,
-                agentTool: session.tool.displayName,
-                summary: payload.summary
-            ))
+            guard let sseEvent = Self.completionNotification(for: payload, session: session) else { return }
             endpoint.pushEvent(sseEvent)
             Self.logger.info("Pushed sessionCompleted for session \(payload.sessionID)")
 
@@ -104,6 +99,16 @@ public final class WatchNotificationRelay: @unchecked Sendable {
         default:
             break
         }
+    }
+
+    /// The companion completion event renders a success badge/haptic, so silent restoration
+    /// and unsuccessful outcomes must be filtered before losing their richer native metadata.
+    static func completionNotification(for payload: SessionCompleted, session: AgentSession?) -> WatchSSEEvent? {
+        guard let session, session.id == payload.sessionID,
+              payload.isInterrupt != true, payload.isSessionEnd != true,
+              payload.runtimeOutcome == nil || payload.runtimeOutcome == .succeeded else { return nil }
+        return .sessionCompleted(WatchCompletionEvent(sessionID: payload.sessionID,
+            agentTool: session.tool.displayName, summary: payload.summary))
     }
 
     // MARK: - Lifecycle

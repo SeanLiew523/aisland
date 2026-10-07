@@ -1501,9 +1501,11 @@ struct SessionStateTests {
     }
 
     @Test
-    func codexGhosttyLocatorUsedForSessionStartAndPromptButNotToolUse() {
+    func codexGhosttyWithoutVerifiedBindingNeverBorrowsFocusedLocator() {
+        var locatorCalls = 0
         let locator: (String) -> (sessionID: String?, tty: String?, title: String?) = { _ in
-            (sessionID: "ghostty-frontmost", tty: nil, title: "codex ~/tmp/worktree")
+            locatorCalls += 1
+            return (sessionID: "ghostty-frontmost", tty: nil, title: "codex ~/tmp/worktree")
         }
         let env = ["TERM_PROGRAM": "ghostty"]
         let ttyProvider: () -> String? = { "/dev/ttys022" }
@@ -1513,27 +1515,31 @@ struct SessionStateTests {
             model: "gpt-5-codex", permissionMode: .default, sessionID: "s1", transcriptPath: nil
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atStart.terminalSessionID == "ghostty-frontmost")
-        #expect(atStart.terminalTitle == "codex ~/tmp/worktree")
+        #expect(atStart.terminalSessionID == nil)
+        #expect(atStart.terminalTitle == nil)
+        #expect(atStart.terminalTTY == "/dev/ttys022")
 
         let atPrompt = CodexHookPayload(
             cwd: "/tmp/worktree", hookEventName: .userPromptSubmit,
             model: "gpt-5-codex", permissionMode: .default, sessionID: "s1", transcriptPath: nil
         ).withRuntimeContext(environment: env, currentTTYProvider: ttyProvider, terminalLocatorProvider: locator)
 
-        #expect(atPrompt.terminalSessionID == "ghostty-frontmost")
-        #expect(atPrompt.terminalTitle == "codex ~/tmp/worktree")
+        #expect(atPrompt.terminalSessionID == nil)
+        #expect(atPrompt.terminalTitle == nil)
+        #expect(atPrompt.terminalTTY == "/dev/ttys022")
 
         let atTool = CodexHookPayload(
             cwd: "/tmp/worktree", hookEventName: .preToolUse,
             model: "gpt-5-codex", permissionMode: .default, sessionID: "s1", transcriptPath: nil
         ).withRuntimeContext(
             environment: env, currentTTYProvider: ttyProvider,
-            terminalLocatorProvider: { _ in (sessionID: "ghostty-wrong", tty: nil, title: "wrong") }
+            terminalLocatorProvider: locator
         )
 
         #expect(atTool.terminalSessionID == nil)
         #expect(atTool.terminalTitle == nil)
+        #expect(atTool.terminalTTY == "/dev/ttys022")
+        #expect(locatorCalls == 0)
     }
 
     @Test

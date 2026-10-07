@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import OpenIslandCore
 
@@ -7,16 +8,57 @@ import OpenIslandCore
 final class HookInstallationCoordinator {
     @ObservationIgnored
     let intentStore: AgentIntentStore
+    nonisolated let isRuntimeAcceptance: Bool
+    nonisolated let sourceSetupAcceptance: RuntimeAcceptanceConfiguration.SourceSetup?
+    var sourceSetupDisabled: Bool { isRuntimeAcceptance && sourceSetupAcceptance == nil }
+
+    struct StartupStages {
+        var detect: @MainActor () async -> Void
+        var refresh: @MainActor () async -> Void
+        var configure: @MainActor () async -> Void
+    }
 
     init(
         intentStore: AgentIntentStore = AgentIntentStore(),
+        isRuntimeAcceptance: Bool = false,
+        sourceSetupAcceptance: RuntimeAcceptanceConfiguration.SourceSetup? = nil,
         piExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .pi),
-        ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi)
+        ohMyPiExtensionInstallationManager: PiExtensionInstallationManager = PiExtensionInstallationManager(agent: .ohMyPi),
+        installationDetector: AgentInstallationDetector = AgentInstallationDetector(),
+        hermesInstallationManager: HermesHookInstallationManager = HermesHookInstallationManager(),
+        startupHookBinaryLocator: @escaping @Sendable () -> URL? = HookInstallationCoordinator.locateStartupHookBinary,
+        startupHookBinaryDeployer: @escaping @Sendable (URL) async throws -> URL = HookInstallationCoordinator.deployStartupHookBinary,
+        startupStages: StartupStages? = nil
     ) {
+        self.installationDetector = installationDetector
+        self.startupHookBinaryLocator = startupHookBinaryLocator
+        self.startupHookBinaryDeployer = startupHookBinaryDeployer
+        self.startupStages = startupStages
+        self.hermesInstallationManager = hermesInstallationManager
         self.intentStore = intentStore
+        self.isRuntimeAcceptance = isRuntimeAcceptance || sourceSetupAcceptance != nil
+        self.sourceSetupAcceptance = sourceSetupAcceptance
         self.piExtensionInstallationManager = piExtensionInstallationManager
         self.ohMyPiExtensionInstallationManager = ohMyPiExtensionInstallationManager
     }
+
+    @ObservationIgnored private let installationDetector: AgentInstallationDetector
+    @ObservationIgnored private let startupHookBinaryLocator: @Sendable () -> URL?
+    @ObservationIgnored private let startupHookBinaryDeployer: @Sendable (URL) async throws -> URL
+    @ObservationIgnored private let startupStages: StartupStages?
+    @ObservationIgnored private var hasReportedStartupReady = false
+    @ObservationIgnored let hermesInstallationManager: HermesHookInstallationManager
+    var detectedInstallations: [AgentIdentifier: AgentInstallationDetector.Evidence] = [:]
+    var automaticConnectionErrors: [AgentIdentifier: String] = [:]
+    var isAutomaticConnectionBusy = false
+    var desktopConnectionStates: [AgentIdentifier: DesktopConnectionInstallationManager.State] = [:]
+    @ObservationIgnored private var confirmedMiniMaxDataDirectory: URL?
+    @ObservationIgnored private let connectionObservationStarted = Date()
+    @ObservationIgnored private var receivedSourceSetupAgents: Set<AgentIdentifier> = []
+    var hermesHookStatus: HermesHookInstallationStatus?
+    /// Runtime observation is separate from Hermes' persisted consent record.
+    /// Profile identity comes from the validated bridge event, never the focused terminal.
+    var hermesSessionEventProfiles: Set<String> = []
 
     var codexHookStatus: CodexHookInstallationStatus?
     var claudeHookStatus: ClaudeHookInstallationStatus?
@@ -142,7 +184,32 @@ final class HookInstallationCoordinator {
         return formatter
     }
 
+    private var isolatedStatusTitle: String {
+        LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "独立验收 · 未安装" : "Isolated acceptance · not installed"
+    }
+    private var isolatedStatusSummary: String {
+        if sourceSetupAcceptance != nil {
+            return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "此独立验收仅配置构建清单中的来源；其它来源配置保持原样。" : "This isolated case configures only its explicitly listed sources; other source configurations are preserved."
+        }
+        return LanguageManager.shared.language.resolvedCode.hasPrefix("zh") ? "来源读取与安装已停用。" : "Source reads and installation are disabled."
+    }
+
     // MARK: - Computed display properties
+
+    enum SetupBlockReason: String {
+        case isolatedAcceptance = "setup.connection.isolated"
+        case sourceSetupScope = "setup.connection.sourceSetupScope"
+        case missingHooksBinary = "setup.connection.missingHelper"
+    }
+
+    /// This describes AIsland's configuration prerequisites, not whether the
+    /// source agent is installed or its runtime connection has been verified.
+    func setupBlockReason(requiresBinary: Bool) -> SetupBlockReason? {
+        if sourceSetupAcceptance != nil { return .sourceSetupScope }
+        if isRuntimeAcceptance { return .isolatedAcceptance }
+        if requiresBinary && hooksBinaryURL == nil { return .missingHooksBinary }
+        return nil
+    }
 
     var codexHooksInstalled: Bool {
         codexHookStatus?.managedHooksPresent == true
@@ -209,6 +276,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if claudeHooksInstalled {
             return "Claude hooks installed"
         }
@@ -221,6 +289,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = claudeHookStatus else {
             return "Reading \(ClaudeConfigDirectory.resolved().appendingPathComponent("settings.json").path)."
         }
@@ -244,6 +313,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeUsageStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         guard let status = claudeStatusLineStatus else {
             return "Claude usage status unavailable"
         }
@@ -264,6 +334,7 @@ final class HookInstallationCoordinator {
     }
 
     var claudeUsageStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = claudeStatusLineStatus else {
             return "Reading \(ClaudeConfigDirectory.resolved().appendingPathComponent("settings.json").path)."
         }
@@ -305,6 +376,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexUsageStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if codexUsageSnapshot?.isEmpty == false {
             return "Codex rate limits detected"
         }
@@ -313,6 +385,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexUsageStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         if let summary = codexUsageSummaryText {
             return "Reading the latest local rollout token_count snapshots · \(summary)"
         }
@@ -341,6 +414,7 @@ final class HookInstallationCoordinator {
     }
 
     var openCodePluginStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if openCodePluginInstalled {
             return "OpenCode plugin installed"
         }
@@ -349,6 +423,7 @@ final class HookInstallationCoordinator {
     }
 
     var openCodePluginStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = openCodePluginStatus else {
             return "Reading ~/.config/opencode state."
         }
@@ -365,6 +440,7 @@ final class HookInstallationCoordinator {
     }
 
     var cursorHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if cursorHooksInstalled {
             return "Cursor hooks installed"
         }
@@ -377,6 +453,7 @@ final class HookInstallationCoordinator {
     }
 
     var cursorHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard cursorHookStatus != nil else {
             return "Reading ~/.cursor/hooks.json."
         }
@@ -393,11 +470,13 @@ final class HookInstallationCoordinator {
     }
 
     var geminiHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         guard let status = geminiHookStatus else { return "Gemini hooks loading" }
         return status.managedHooksPresent ? "Gemini hooks installed" : "Gemini hooks not installed"
     }
 
     var geminiHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = geminiHookStatus else {
             return "Reading ~/.gemini/settings.json."
         }
@@ -410,6 +489,7 @@ final class HookInstallationCoordinator {
     }
 
     var kimiHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if kimiHooksInstalled {
             return "Kimi hooks installed"
         }
@@ -422,6 +502,7 @@ final class HookInstallationCoordinator {
     }
 
     var kimiHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard kimiHookStatus != nil else {
             return "Reading ~/.kimi/config.toml."
         }
@@ -438,6 +519,7 @@ final class HookInstallationCoordinator {
     }
 
     var grokHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if grokHooksInstalled {
             return "Grok hooks installed"
         }
@@ -450,6 +532,7 @@ final class HookInstallationCoordinator {
     }
 
     var grokHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard grokHookStatus != nil else {
             return "Reading ~/.grok/hooks/open-island.json."
         }
@@ -466,6 +549,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexHookStatusTitle: String {
+        if isRuntimeAcceptance { return isolatedStatusTitle }
         if codexHooksInstalled {
             return "Codex hooks installed"
         }
@@ -478,6 +562,7 @@ final class HookInstallationCoordinator {
     }
 
     var codexHookStatusSummary: String {
+        if isRuntimeAcceptance { return isolatedStatusSummary }
         guard let status = codexHookStatus else {
             return "Reading ~/.codex state."
         }
@@ -498,6 +583,7 @@ final class HookInstallationCoordinator {
 
     /// Updates the custom Claude config directory, cleans up old hooks if present, and refreshes status.
     func updateClaudeConfigDirectory(to newDirectory: URL?) {
+        guard !isRuntimeAcceptance else { return }
         let oldDirectory = ClaudeConfigDirectory.resolved()
         let oldHadHooks = claudeHookStatus?.managedHooksPresent == true
 
@@ -520,28 +606,49 @@ final class HookInstallationCoordinator {
 
     // MARK: - Auto-update hooks binary
 
-    /// Overwrites the installed hooks binary if the app bundle ships a newer version.
-    /// Call once at startup after hooksBinaryURL is set.
-    func updateHooksBinaryIfNeeded() {
-        guard let sourceURL = hooksBinaryURL else { return }
+    /// Ordinary app bundles always admit their own helper. A previously
+    /// installed copy or inherited override cannot substitute old code.
+    nonisolated static func locateStartupHookBinary() -> URL? {
+        let bundle = Bundle.main
+        return startupHookBinary(bundleURL: bundle.bundleURL,
+            executableDirectory: bundle.executableURL?.deletingLastPathComponent())
+    }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let source = sourceURL
-                let updated = try await Task.detached(priority: .utility) {
-                    try ManagedHooksBinary.updateIfNeeded(from: source)
-                }.value
-                if updated {
-                    self.onStatusMessage?("Hooks binary updated to match the current app version.")
-                    self.refreshCodexHookStatus()
-                    self.refreshClaudeHookStatus()
-                    self.refreshCursorHookStatus()
-                }
-            } catch {
-                self.onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
-            }
+    nonisolated static func startupHookBinary(bundleURL: URL, executableDirectory: URL?) -> URL? {
+        if bundleURL.pathExtension == "app" {
+            let helper = bundleURL.appendingPathComponent("Contents/Helpers/OpenIslandHooks")
+            return FileManager.default.isExecutableFile(atPath: helper.path) ? helper : nil
         }
+        // Repository executable runs have sibling build products, not an app bundle.
+        return HooksBinaryLocator.locate(
+            executableDirectory: executableDirectory, environment: [:]
+        )
+    }
+
+    nonisolated static func deployStartupHookBinary(from source: URL) async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            if FileManager.default.fileExists(atPath: ManagedHooksBinary.defaultURL().path) {
+                _ = try ManagedHooksBinary.updateIfNeeded(from: source)
+            } else {
+                _ = try ManagedHooksBinary.install(from: source)
+            }
+            return ManagedHooksBinary.defaultURL()
+        }.value
+    }
+
+    /// Return only a deployed executable matching the current source. Configs
+    /// use this durable destination rather than the versioned app bundle path.
+    @discardableResult
+    func updateHooksBinaryIfNeeded(from source: URL? = nil) async throws -> URL? {
+        guard !isRuntimeAcceptance, let sourceURL = source ?? hooksBinaryURL else { return nil }
+        let deployedURL = try await startupHookBinaryDeployer(sourceURL)
+        try await Task.detached(priority: .userInitiated) {
+            guard FileManager.default.isExecutableFile(atPath: deployedURL.path),
+                  try Data(contentsOf: deployedURL) == Data(contentsOf: sourceURL) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }.value
+        return deployedURL
     }
 
     // MARK: - Health check & auto-repair
@@ -558,6 +665,7 @@ final class HookInstallationCoordinator {
 
     /// Runs health checks for Claude, Codex and OpenCode hooks.
     func runHealthChecks() {
+        guard !isRuntimeAcceptance else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -586,6 +694,7 @@ final class HookInstallationCoordinator {
     /// Returns true if any repairs were attempted.
     @discardableResult
     func repairHooksIfNeeded() async -> Bool {
+        guard !isRuntimeAcceptance else { return false }
         var repaired = false
 
         // Re-run health checks first
@@ -602,21 +711,21 @@ final class HookInstallationCoordinator {
         openCodeHealthReport = openCodeReport
 
         // Repair Claude hooks if there are repairable issues
-        if !claudeReport.repairableIssues.isEmpty, hooksBinaryURL != nil {
+        if !claudeReport.repairableIssues.isEmpty, hooksBinaryURL != nil, detectedInstallations[.claudeCode] != nil, intentStore.intent(for: .claudeCode) != .uninstalled {
             onStatusMessage?("Repairing Claude hooks: \(claudeReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installClaudeHooks()
             repaired = true
         }
 
         // Repair Codex hooks if there are repairable issues
-        if !codexReport.repairableIssues.isEmpty, hooksBinaryURL != nil {
+        if !codexReport.repairableIssues.isEmpty, hooksBinaryURL != nil, detectedInstallations[.codex] != nil, intentStore.intent(for: .codex) != .uninstalled {
             onStatusMessage?("Repairing Codex hooks: \(codexReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installCodexHooks()
             repaired = true
         }
 
         // Repair OpenCode plugin if there are repairable issues
-        if !openCodeReport.repairableIssues.isEmpty {
+        if !openCodeReport.repairableIssues.isEmpty, detectedInstallations[.openCode] != nil, intentStore.intent(for: .openCode) != .uninstalled {
             onStatusMessage?("Repairing OpenCode plugin: \(openCodeReport.repairableIssues.map(\.description).joined(separator: "; "))")
             installOpenCodePlugin()
             repaired = true
@@ -649,6 +758,7 @@ final class HookInstallationCoordinator {
     // MARK: - Refresh
 
     func refreshCodexHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -662,6 +772,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshClaudeHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -675,6 +786,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCCForkHookStatuses() {
+        guard !isRuntimeAcceptance else { return }
         refreshCCForkHookStatus(manager: qoderHookInstallationManager, name: "Qoder") { [weak self] in self?.qoderHookStatus = $0 }
         refreshCCForkHookStatus(manager: qwenCodeHookInstallationManager, name: "Qwen Code") { [weak self] in self?.qwenCodeHookStatus = $0 }
         refreshCCForkHookStatus(manager: factoryHookInstallationManager, name: "Factory") { [weak self] in self?.factoryHookStatus = $0 }
@@ -688,6 +800,7 @@ final class HookInstallationCoordinator {
         name: String,
         apply: @MainActor @escaping (ClaudeHookInstallationStatus) -> Void
     ) {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -702,6 +815,21 @@ final class HookInstallationCoordinator {
 
     /// Awaitable versions of refresh for use in startup flow to avoid race conditions.
     func refreshAllHookStatusAndWait() async {
+        guard !sourceSetupDisabled else { return }
+        if detectedInstallations[.hermes] != nil {
+            do { hermesHookStatus = try await Task.detached { [hermesInstallationManager, hooksBinaryURL] in
+                try hermesInstallationManager.status(hooksBinaryURL: hooksBinaryURL)
+            }.value } catch { automaticConnectionErrors[.hermes] = error.localizedDescription }
+        }
+        // The dedicated source-setup case never reads unrelated hook configs,
+        // usage caches or repairs the optional usage bridge.
+        if let sourceSetupAcceptance {
+            if sourceSetupAcceptance.agents.contains(.ohMyPi), detectedInstallations[.ohMyPi] != nil {
+                do { ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(targetSocketURL: sourceSetupAcceptance.socketURL, extensionSourceData: loadBundledPiExtension()) }
+                catch { automaticConnectionErrors[.ohMyPi] = error.localizedDescription }
+            }
+            return
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
@@ -742,6 +870,12 @@ final class HookInstallationCoordinator {
                 } catch {
                     self.onStatusMessage?("Failed to read Claude usage state: \(error.localizedDescription)")
                 }
+            }
+
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                do { self.cursorHookStatus = try self.cursorHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL) }
+                catch { self.onStatusMessage?("Failed to read Cursor hook status: \(error.localizedDescription)") }
             }
 
             // CC fork agents
@@ -802,6 +936,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshOpenCodePluginStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -815,6 +950,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCursorHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -828,6 +964,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshGeminiHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -841,6 +978,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshKimiHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -854,6 +992,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshGrokHookStatus() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -867,6 +1006,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshPiExtensionStatuses() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
             self.loadPiExtensionStatuses()
@@ -876,8 +1016,12 @@ final class HookInstallationCoordinator {
     /// Reads Pi and Oh My Pi installation status independently so one
     /// corrupted manifest cannot block the other agent's status refresh.
     func loadPiExtensionStatuses() {
+        guard !isRuntimeAcceptance else { return }
+        // Ownership alone does not mean the installed template is current.
+        // Compare against this build so existing connections receive fixes.
+        let sourceData = loadBundledPiExtension()
         do {
-            piExtensionStatus = try piExtensionInstallationManager.status()
+            piExtensionStatus = try piExtensionInstallationManager.status(extensionSourceData: sourceData)
         } catch {
             onStatusMessage?(
                 "Failed to read Pi extension status: \(error.localizedDescription)"
@@ -885,7 +1029,7 @@ final class HookInstallationCoordinator {
         }
 
         do {
-            ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status()
+            ohMyPiExtensionStatus = try ohMyPiExtensionInstallationManager.status(extensionSourceData: sourceData)
         } catch {
             onStatusMessage?(
                 "Failed to read Oh My Pi extension status: \(error.localizedDescription)"
@@ -894,6 +1038,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshClaudeUsageState() {
+        guard !isRuntimeAcceptance else { return }
         let manager = claudeStatusLineInstallationManager
         Task { [weak self] in
             guard let self else { return }
@@ -921,6 +1066,7 @@ final class HookInstallationCoordinator {
     }
 
     func refreshCodexUsageState() {
+        guard !isRuntimeAcceptance else { return }
         Task { [weak self] in
             guard let self else { return }
 
@@ -937,38 +1083,263 @@ final class HookInstallationCoordinator {
 
     // MARK: - Intent-aware helpers
 
-    /// Reports whether the startup flow should auto-install hooks for the
-    /// given agent.
-    ///
-    /// Post-onboarding, the only case that triggers auto-install is
-    /// `.installed && !present` — i.e. the user asked for this hook in the
-    /// past but it is currently missing (fresh machine, config wiped,
-    /// upgraded binary path, etc). This is a repair, not a surprise
-    /// install. `.untouched` and `.uninstalled` both return false;
-    /// untouched agents are surfaced to the user via the first-run
-    /// onboarding window and the empty-state banner instead.
+    func runStartupSetup(onReady: () -> Void) async {
+        var helperPrepared = !sourceSetupDisabled
+        if let sourceSetupAcceptance {
+            do { hooksBinaryURL = try sourceSetupAcceptance.prepareHooksWrapper() }
+            catch {
+                helperPrepared = false
+                for agent in sourceSetupAcceptance.agents { automaticConnectionErrors[agent] = "The isolated callback helper could not be prepared. No source configuration was changed." }
+            }
+        } else if !sourceSetupDisabled {
+            let locator = startupHookBinaryLocator
+            // Publish the source only after its managed copy is ready. A late
+            // history payload has no helper field and cannot replace it.
+            hooksBinaryURL = nil
+            if let source = await Task.detached(priority: .userInitiated, operation: { locator() }).value {
+                do {
+                    hooksBinaryURL = try await updateHooksBinaryIfNeeded(from: source)
+                }
+                catch {
+                    helperPrepared = false
+                    onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
+                }
+            } else {
+                helperPrepared = false
+                onStatusMessage?("The current app's callback helper is unavailable. Source configuration was not changed.")
+            }
+        }
+        if !sourceSetupDisabled, let stages = startupStages {
+            await stages.detect()
+            await stages.refresh()
+        } else {
+            await detectInstalledSources()
+            await refreshAllHookStatusAndWait()
+        }
+        recordSourceSetupStates()
+        migrateIntentStoreIfNeeded()
+        if !hasReportedStartupReady {
+            hasReportedStartupReady = true
+            onReady()
+        }
+        if helperPrepared {
+            if let stages = startupStages { await stages.configure() }
+            else { await configureDetectedSources() }
+        }
+    }
+
+    /// Only detected sources are admitted. Explicit removal survives both
+    /// first launch and future source installations. Untouched detected sources
+    /// are configured on each startup/re-scan, independently of onboarding.
+    func detectInstalledSources() async {
+        guard !sourceSetupDisabled else { return }
+        detectedInstallations = await Task.detached { [installationDetector] in installationDetector.detect() }.value
+    }
+
+    /// Sequential configuration: completion reflects the installer result,
+    /// rather than an unawaited UI action or a fixed delay.
+    func configureDetectedSources() async {
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy else { return }
+        isAutomaticConnectionBusy = true
+        defer { isAutomaticConnectionBusy = false }
+        await detectInstalledSources()
+        for agent in AgentIdentifier.allCases where shouldAutoInstall(agent) {
+            do {
+                try await configureDetectedSource(agent)
+                automaticConnectionErrors[agent] = nil
+                if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop {
+                    if desktopConnectionStates[agent] == .waitingForProfile || desktopConnectionStates[agent] == .waitingForSourceExit { continue }
+                }
+                intentStore.setIntent(.installed, for: agent)
+                automaticConnectionErrors[agent] = nil
+            } catch {
+                automaticConnectionErrors[agent] = error.localizedDescription
+                onStatusMessage?("\(agent.rawValue): \(error.localizedDescription)")
+            }
+        }
+        await refreshAllHookStatusAndWait()
+        recordSourceSetupStates()
+    }
+
+    private func recordSourceSetupStates() {
+        guard let sourceSetupAcceptance else { return }
+        for agent in sourceSetupAcceptance.agents {
+            let state: RuntimeAcceptanceConfiguration.SourceSetup.ConnectionState
+            if intentStore.intent(for: agent) == .uninstalled { state = .cancelled }
+            else if automaticConnectionErrors[agent] != nil { state = .error }
+            else if detectedInstallations[agent] == nil { state = .absent }
+            else if let desktop = desktopConnectionStates[agent] {
+                switch desktop {
+                case .waitingForProfile: state = .waitingForProfile
+                case .waitingForSourceExit: state = .waitingForSourceExit
+                case .waitingForActivation: state = .waitingForActivation
+                case .configuredFiles: state = .configured
+                case .eventReceived: state = .eventReceived
+                }
+            } else if receivedSourceSetupAgents.contains(agent) { state = .eventReceived }
+            else if agent == .hermes && hermesHookStatus?.isCurrent == true { state = hermesHookStatus?.hasConsent == true ? .configured : .waitingForConsent }
+            else if agent == .ohMyPi && ohMyPiExtensionStatus?.isCurrent == true { state = .configured }
+            else { state = .installed }
+            do { try sourceSetupAcceptance.record(agent: agent, state: state) }
+            catch { onStatusMessage?("Isolated source-setup receipt could not be written.") }
+        }
+    }
+
+    private func configureDetectedSource(_ agent: AgentIdentifier) async throws {
+        if let sourceSetupAcceptance, !sourceSetupAcceptance.agents.contains(agent) { return }
+        if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop {
+            try await configureDesktopSource(agent)
+            return
+        }
+        if agent == .pi || agent == .ohMyPi {
+            guard let data = loadBundledPiExtension() else { throw AutomaticConnectionError.missingExtension }
+            let manager = agent == .pi ? piExtensionInstallationManager : ohMyPiExtensionInstallationManager
+            let socket = sourceSetupAcceptance?.socketURL
+            let updated = try await Task.detached { try manager.install(extensionSourceData: data, targetSocketURL: socket) }.value
+            if agent == .pi { piExtensionStatus = updated } else { ohMyPiExtensionStatus = updated }
+            return
+        }
+        if agent == .openCode {
+            guard let data = loadBundledOpenCodePlugin() else { throw AutomaticConnectionError.missingExtension }
+            let manager = openCodePluginInstallationManager
+            _ = try await Task.detached { try manager.install(pluginSourceData: data) }.value
+            return
+        }
+        guard let binary = hooksBinaryURL else { throw HermesHookInstallationError.missingBinary }
+        let action: @Sendable () throws -> Void
+        switch agent {
+        case .claudeCode: let manager = claudeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .codex: let manager = codexHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .cursor: let manager = cursorHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .qoder: let manager = qoderHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .qwenCode: let manager = qwenCodeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .factory: let manager = factoryHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .codebuddy: let manager = codebuddyHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .zcode: let manager = zcodeHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .workbuddy: let manager = workbuddyHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .gemini: let manager = geminiHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .kimi: let manager = kimiHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .grok: let manager = grokHookInstallationManager; action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .openCode: return
+        case .hermes:
+            let manager = hermesInstallationManager
+            if let sourceSetupAcceptance { try sourceSetupAcceptance.backupHermesConfiguration(profileURL: manager.profileDirectory) }
+            action = { _ = try manager.install(hooksBinaryURL: binary) }
+        case .pi, .ohMyPi, .claudeUsageBridge, .deepSeekDesktop, .miniMaxCodeDesktop: return
+        }
+        try await Task.detached(priority: .utility) { try action() }.value
+    }
+
+    func observeDesktopConnectionEvent(_ event: AgentEvent) {
+        guard !sourceSetupDisabled, case let .sessionStarted(start) = event,
+              start.timestamp >= connectionObservationStarted, start.origin == .live else { return }
+        let agent: AgentIdentifier?
+        switch start.tool {
+        case .deepseekHarness: agent = .deepSeekDesktop
+        case .minimaxCodeDesktop: agent = .miniMaxCodeDesktop
+        case .hermesCLI: agent = .hermes
+        case .ohMyPi: agent = .ohMyPi
+        default: agent = nil
+        }
+        if let agent {
+            if agent == .hermes, let profile = start.jumpTarget?.runtimeProfileID,
+               profile.hasPrefix("/") {
+                hermesSessionEventProfiles.insert(URL(fileURLWithPath: profile).standardizedFileURL.path)
+            }
+            if agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop { desktopConnectionStates[agent] = .eventReceived }
+            receivedSourceSetupAgents.insert(agent)
+            recordSourceSetupStates()
+        }
+    }
+
+    func cancelSourceSetupHermes() {
+        guard sourceSetupAcceptance?.agents.contains(.hermes) == true, !isAutomaticConnectionBusy else { return }
+        intentStore.setIntent(.uninstalled, for: .hermes)
+        recordSourceSetupStates()
+    }
+
+    func confirmMiniMaxDataDirectory(_ directory: URL) {
+        guard !sourceSetupDisabled else { return }
+        confirmedMiniMaxDataDirectory = directory.standardizedFileURL
+        Task { await configureDetectedSources() }
+    }
+
+    func removeDesktopConnectionIntent(_ agent: AgentIdentifier) {
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy,
+              agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
+        // A source-side disable/removal still belongs to the source plugin UI.
+        // Preserve a durable opt-out so startup/re-scan cannot re-enable it.
+        intentStore.setIntent(.uninstalled, for: agent)
+        recordSourceSetupStates()
+    }
+
+    func reconnectDesktopSource(_ agent: AgentIdentifier) {
+        guard !sourceSetupDisabled, !isAutomaticConnectionBusy,
+              agent == .deepSeekDesktop || agent == .miniMaxCodeDesktop else { return }
+        intentStore.setIntent(.untouched, for: agent)
+        Task { await configureDetectedSources() }
+    }
+
+    private func configureDesktopSource(_ agent: AgentIdentifier) async throws {
+        guard let evidence = detectedInstallations[agent], let app = evidence.bundleURL else { return }
+        guard let packages = Bundle.appResources.url(forResource: "AgentIntegrationPackages", withExtension: nil) else { throw AutomaticConnectionError.missingExtension }
+        let node = installationDetector.executableDirectories.map { $0.appendingPathComponent("node") }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        let probe = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MiniMaxCodeSourceProbe")
+        let manager = DesktopConnectionInstallationManager(supportDirectory: sourceSetupAcceptance?.supportURL,
+            packagesDirectory: packages, nodeURL: node, bundledProbeURL: probe,
+            bridgeSocketURL: sourceSetupAcceptance?.socketURL ?? BridgeSocketLocation.defaultURL,
+            // Relocate receipt-validated helpers to this runtime's durable
+            // support directory; never retain a dependency on a test directory.
+            preservesPreviousHelper: true)
+        if agent == .miniMaxCodeDesktop {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
+                .filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }
+            let pid = running.count == 1 ? running[0].processIdentifier : nil
+            let explicit = confirmedMiniMaxDataDirectory
+            let state = try await Task.detached {
+                let discovered = if let pid { try? MiniMaxCodeActiveDataDirectory.resolve(processID: pid, appURL: app) } else { nil as URL? }
+                return try manager.configureMiniMax(evidence: evidence, activeDataDirectory: discovered ?? explicit)
+            }.value
+            if desktopConnectionStates[agent] != .eventReceived { desktopConnectionStates[agent] = state }
+        } else {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.deepseek.dsh").contains { !$0.isTerminated }
+            let state = try await Task.detached { try manager.configureDeepSeek(evidence: evidence, sourceRunning: running) }.value
+            if desktopConnectionStates[agent] != .eventReceived { desktopConnectionStates[agent] = state }
+        }
+    }
+
+    private enum AutomaticConnectionError: LocalizedError {
+        case missingExtension
+        var errorDescription: String? { "The bundled AIsland event extension is unavailable." }
+    }
+
     func shouldAutoInstall(_ agent: AgentIdentifier) -> Bool {
-        guard intentStore.intent(for: agent) == .installed else {
+        guard !sourceSetupDisabled else { return false }
+        if let sourceSetupAcceptance, !sourceSetupAcceptance.agents.contains(agent) { return false }
+        guard intentStore.shouldAutomaticallyConfigure(agent, installationDetected: detectedInstallations[agent] != nil, configurationCurrent: false) else {
             return false
         }
 
         switch agent {
-        case .claudeCode: return !claudeHooksInstalled
-        case .codex: return !codexHooksInstalled
+        case .claudeCode: return claudeHookStatus?.isCurrent != true
+        case .codex: return codexHookStatus?.isCurrent != true
         case .cursor: return !cursorHooksInstalled
-        case .qoder: return !qoderHooksInstalled
-        case .qwenCode: return !qwenCodeHooksInstalled
-        case .factory: return !factoryHooksInstalled
-        case .codebuddy: return !codebuddyHooksInstalled
-        case .zcode: return !zcodeHooksInstalled
-        case .workbuddy: return !workbuddyHooksInstalled
+        case .qoder: return qoderHookStatus?.isCurrent != true
+        case .qwenCode: return qwenCodeHookStatus?.isCurrent != true
+        case .factory: return factoryHookStatus?.isCurrent != true
+        case .codebuddy: return codebuddyHookStatus?.isCurrent != true
+        case .zcode: return zcodeHookStatus?.isCurrent != true
+        case .workbuddy: return workbuddyHookStatus?.isCurrent != true
         case .openCode: return !openCodePluginInstalled
         case .gemini: return !geminiHooksInstalled
         case .kimi: return !kimiHooksInstalled
         case .grok: return !grokHooksInstalled
         case .pi: return !(piExtensionStatus?.isCurrent ?? false)
         case .ohMyPi: return !(ohMyPiExtensionStatus?.isCurrent ?? false)
-        case .claudeUsageBridge: return !claudeUsageInstalled
+        case .claudeUsageBridge: return false
+        case .hermes: return hermesHookStatus?.isCurrent != true
+        case .deepSeekDesktop, .miniMaxCodeDesktop: return true
         }
     }
 
@@ -980,6 +1351,12 @@ final class HookInstallationCoordinator {
     /// will be recorded as `.untouched` and legacy users will have their
     /// installed hooks silently forgotten.
     func migrateIntentStoreIfNeeded() {
+        if isRuntimeAcceptance {
+            // Maintain the calling acceptance domain's onboarding readiness;
+            // no source inspection or installation is performed.
+            intentStore.migrateFromLegacyStateIfNeeded { _ in false }
+            return
+        }
         intentStore.migrateFromLegacyStateIfNeeded { [self] agent in
             switch agent {
             case .claudeCode: return claudeHooksInstalled
@@ -998,6 +1375,8 @@ final class HookInstallationCoordinator {
             case .pi: return piExtensionInstalled
             case .ohMyPi: return ohMyPiExtensionInstalled
             case .claudeUsageBridge: return claudeUsageInstalled
+            case .hermes: return hermesHookStatus?.isInstalled == true
+            case .deepSeekDesktop, .miniMaxCodeDesktop: return false
             }
         }
     }
@@ -1005,6 +1384,7 @@ final class HookInstallationCoordinator {
     // MARK: - Install / uninstall
 
     func installCodexHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1016,12 +1396,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallCodexHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCodexHooks(userMessage: "Removing Codex hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installClaudeHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1033,56 +1415,69 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallClaudeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeHooks(userMessage: "Removing Claude hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installQoderHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: true)
     }
 
     func uninstallQoderHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qoderHookInstallationManager, name: "Qoder", agent: .qoder, isBusySetter: { [weak self] in self?.isQoderHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qoderHookStatus = $0 }, install: false)
     }
 
     func installQwenCodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: true)
     }
 
     func uninstallQwenCodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: qwenCodeHookInstallationManager, name: "Qwen Code", agent: .qwenCode, isBusySetter: { [weak self] in self?.isQwenCodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.qwenCodeHookStatus = $0 }, install: false)
     }
 
     func installFactoryHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: true)
     }
 
     func uninstallFactoryHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: factoryHookInstallationManager, name: "Factory", agent: .factory, isBusySetter: { [weak self] in self?.isFactoryHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.factoryHookStatus = $0 }, install: false)
     }
 
     func installCodebuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: true)
     }
 
     func uninstallCodebuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: codebuddyHookInstallationManager, name: "CodeBuddy", agent: .codebuddy, isBusySetter: { [weak self] in self?.isCodebuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.codebuddyHookStatus = $0 }, install: false)
     }
 
     func installZcodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: zcodeHookInstallationManager, name: "ZCode", agent: .zcode, isBusySetter: { [weak self] in self?.isZcodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.zcodeHookStatus = $0 }, install: true)
     }
 
     func uninstallZcodeHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: zcodeHookInstallationManager, name: "ZCode", agent: .zcode, isBusySetter: { [weak self] in self?.isZcodeHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.zcodeHookStatus = $0 }, install: false)
     }
 
     func installWorkbuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: workbuddyHookInstallationManager, name: "WorkBuddy", agent: .workbuddy, isBusySetter: { [weak self] in self?.isWorkbuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.workbuddyHookStatus = $0 }, install: true)
     }
 
     func uninstallWorkbuddyHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCCForkHooks(manager: workbuddyHookInstallationManager, name: "WorkBuddy", agent: .workbuddy, isBusySetter: { [weak self] in self?.isWorkbuddyHookSetupBusy = $0 }, statusSetter: { [weak self] in self?.workbuddyHookStatus = $0 }, install: false)
     }
 
@@ -1094,6 +1489,7 @@ final class HookInstallationCoordinator {
         statusSetter: @MainActor @escaping (ClaudeHookInstallationStatus) -> Void,
         install: Bool
     ) {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1125,6 +1521,7 @@ final class HookInstallationCoordinator {
     }
 
     func installOpenCodePlugin() {
+        guard !isRuntimeAcceptance else { return }
         guard let pluginData = loadBundledOpenCodePlugin() else {
             onStatusMessage?("Could not find the bundled OpenCode plugin resource.")
             return
@@ -1154,6 +1551,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallOpenCodePlugin() {
+        guard !isRuntimeAcceptance else { return }
         isOpenCodeSetupBusy = true
         onStatusMessage?("Removing OpenCode plugin.")
 
@@ -1174,6 +1572,7 @@ final class HookInstallationCoordinator {
     }
 
     func installCursorHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1185,12 +1584,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallCursorHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateCursorHooks(userMessage: "Removing Cursor hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installGeminiHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1202,12 +1603,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallGeminiHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateGeminiHooks(userMessage: "Removing Gemini hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installKimiHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1219,12 +1622,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallKimiHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateKimiHooks(userMessage: "Removing Kimi hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installGrokHooks() {
+        guard !isRuntimeAcceptance else { return }
         guard let hooksBinaryURL else {
             onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
             return
@@ -1236,12 +1641,14 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallGrokHooks() {
+        guard !isRuntimeAcceptance else { return }
         updateGrokHooks(userMessage: "Removing Grok hooks.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
     }
 
     func installPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: piExtensionInstallationManager,
             agent: .pi,
@@ -1253,6 +1660,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: piExtensionInstallationManager,
             agent: .pi,
@@ -1264,6 +1672,7 @@ final class HookInstallationCoordinator {
     }
 
     func installOhMyPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: ohMyPiExtensionInstallationManager,
             agent: .ohMyPi,
@@ -1275,6 +1684,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallOhMyPiExtension() {
+        guard !isRuntimeAcceptance else { return }
         updatePiExtension(
             manager: ohMyPiExtensionInstallationManager,
             agent: .ohMyPi,
@@ -1293,6 +1703,7 @@ final class HookInstallationCoordinator {
         busy: ReferenceWritableKeyPath<HookInstallationCoordinator, Bool>,
         install: Bool
     ) {
+        guard !isRuntimeAcceptance else { return }
         let sourceData: Data?
         if install {
             sourceData = loadBundledPiExtension()
@@ -1301,7 +1712,7 @@ final class HookInstallationCoordinator {
                 return
             }
         } else {
-            sourceData = nil
+            sourceData = loadBundledPiExtension()
         }
 
         self[keyPath: busy] = true
@@ -1310,10 +1721,10 @@ final class HookInstallationCoordinator {
             guard let self else { return }
             defer { self[keyPath: busy] = false }
             do {
-                let updated = if let sourceData {
+                let updated = if install, let sourceData {
                     try manager.install(extensionSourceData: sourceData)
                 } else {
-                    try manager.uninstall()
+                    try manager.uninstall(extensionSourceData: sourceData)
                 }
                 self[keyPath: status] = updated
                 self.intentStore.setIntent(install ? .installed : .uninstalled, for: agent)
@@ -1329,6 +1740,7 @@ final class HookInstallationCoordinator {
     }
 
     func installClaudeUsageBridge() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.", intent: .installed) { manager in
             do {
                 return try manager.install()
@@ -1341,6 +1753,7 @@ final class HookInstallationCoordinator {
     }
 
     func uninstallClaudeUsageBridge() {
+        guard !isRuntimeAcceptance else { return }
         updateClaudeUsageBridge(userMessage: "Removing Claude usage bridge.", intent: .uninstalled) { manager in
             try manager.uninstall()
         }
@@ -1349,6 +1762,7 @@ final class HookInstallationCoordinator {
     // MARK: - Monitoring
 
     func startClaudeUsageMonitoringIfNeeded() {
+        guard !isRuntimeAcceptance else { return }
         guard claudeUsageMonitorTask == nil else { return }
 
         claudeUsageMonitorTask = Task { @MainActor [weak self] in
@@ -1362,6 +1776,7 @@ final class HookInstallationCoordinator {
     }
 
     func startCodexUsageMonitoringIfNeeded() {
+        guard !isRuntimeAcceptance else { return }
         guard codexUsageMonitorTask == nil else { return }
 
         codexUsageMonitorTask = Task { @MainActor [weak self] in
@@ -1383,6 +1798,7 @@ final class HookInstallationCoordinator {
         snapshot: ClaudeUsageSnapshot?,
         repairedManagedBridge: Bool
     ) {
+        guard !isRuntimeAcceptance else { throw RuntimeAcceptanceConfiguration.ConfigurationError.unsafePath }
         let manager = ClaudeStatusLineInstallationManager()
         var status = try manager.status()
         var repairedManagedBridge = false
@@ -1403,6 +1819,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (CodexHookInstallationManager) throws -> CodexHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isCodexSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1431,6 +1848,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (ClaudeHookInstallationManager) throws -> ClaudeHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isClaudeHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1461,6 +1879,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (CursorHookInstallationManager) throws -> CursorHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isCursorHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1489,6 +1908,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (GeminiHookInstallationManager) throws -> GeminiHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isGeminiHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1517,6 +1937,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (KimiHookInstallationManager) throws -> KimiHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isKimiHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1545,6 +1966,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (GrokHookInstallationManager) throws -> GrokHookInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isGrokHookSetupBusy = true
         onStatusMessage?(userMessage)
 
@@ -1573,6 +1995,7 @@ final class HookInstallationCoordinator {
         intent: AgentHookIntent,
         operation: @escaping (ClaudeStatusLineInstallationManager) throws -> ClaudeStatusLineInstallationStatus
     ) {
+        guard !isRuntimeAcceptance else { return }
         isClaudeUsageSetupBusy = true
         onStatusMessage?(userMessage)
 

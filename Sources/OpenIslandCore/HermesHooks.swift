@@ -1,0 +1,68 @@
+import Darwin
+import CoreFoundation
+import Foundation
+
+public enum HermesHookAdapter {
+    /// Hermes stdin contains user/tool/history content. Decode only identity and result fields.
+    public static func decode(_ data: Data, profileID: String?, environment: [String: String] = [:],
+                              timestamp: Date = .now, ttyProvider: () -> String? = runtimeTTY,
+                              ghosttyBindingProvider: GhosttySourceBindingProvider? = nil) throws -> RuntimeLifecycleHookPayload? {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = root["hook_event_name"] as? String,
+              let session = root["session_id"] as? String, !session.isEmpty else { return nil }
+        let extra = root["extra"] as? [String: Any] ?? [:]
+        // Shutdown supplement without a turn identity cannot safely end another active turn.
+        guard let turn = extra["turn_id"] as? String, !turn.isEmpty else { return nil }
+        let event: RuntimeLifecycleHookPayload.Event
+        switch name {
+        case "pre_llm_call": event = .turnStarted
+        case "on_session_end":
+            if boolean(extra["interrupted"]) == true { event = .turnInterrupted }
+            else if boolean(extra["failed"]) == true { event = .turnFailed }
+            else if boolean(extra["completed"]) == true { event = .turnCompleted }
+            else { event = .turnFailed }
+        default: return nil
+        }
+        let profile = profileID ?? environment["HERMES_HOME"] ?? (root["profile"] as? String)
+        guard let profile, !profile.isEmpty else { return nil }
+        let cwd = root["cwd"] as? String ?? ""
+        // Reuse existing host inference/multiplexer IDs, but never guess the focused window.
+        // PID correlation is unambiguous for Warp; cwd-only fallback is deliberately omitted.
+        // This hook is emitted once at CLI turn entry; completion, gateways
+        // and subagents may reuse a receipt but must never capture focus.
+        let bindingEvent: GhosttySourceEvent = event == .turnStarted
+            && extra["platform"] as? String == "cli"
+            && ((extra["parent_session_id"] as? String) ?? "").isEmpty ? .userSubmit : .background
+        let bindingProvider = ghosttyBindingProvider ?? GhosttySourceBindingStore.production
+        let runtime = ClaudeHookPayload(cwd: cwd, hookEventName: event == .turnStarted ? .userPromptSubmit : .stop, sessionID: session)
+            .withRuntimeContext(environment: environment, currentTTYProvider: ttyProvider,
+                terminalLocatorProvider: { _ in (nil, nil, nil) }, warpPaneResolver: { _ in
+                    guard let context = WarpProcessResolver.resolveCurrentPaneContext() else { return nil }
+                    return WarpSQLiteReader().lookupPaneUUIDByShellPID(context.shellPID, terminalServerPID: context.terminalServerPID)
+                }, ghosttyBindingProvider: { _, nativeID, tty, directory, _ in
+                    bindingProvider("hermes", nativeID, tty, directory, bindingEvent)
+                })
+        // Generic inherited shell IDs are not Ghostty surface identities.
+        let inheritedSessionID = runtime.terminalApp?.lowercased() == "ghostty"
+            ? nil : environment["ITERM_SESSION_ID"] ?? environment["TERM_SESSION_ID"]
+        return RuntimeLifecycleHookPayload(source: .hermesCLI, event: event, profileID: profile, sessionID: session,
+            turnID: turn, cwd: cwd, timestamp: timestamp, terminalApp: runtime.terminalApp,
+            terminalSessionID: runtime.terminalSessionID ?? inheritedSessionID,
+            terminalTTY: runtime.terminalTTY, resultReason: coarseReason(extra["turn_exit_reason"] as? String),
+            tmuxTarget: environment["TMUX_PANE"], tmuxSocketPath: environment["TMUX"]?.components(separatedBy: ",").first,
+            warpPaneUUID: runtime.warpPaneUUID)
+    }
+    private static func boolean(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+    public static func coarseReason(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let coarse = String(value.prefix { $0 != "(" })
+        return RuntimeLifecycleHookPayload.hermesResultReasons.contains(coarse) ? coarse : nil
+    }
+
+    public static func runtimeTTY() -> String? {
+        RuntimeTTYProbe.currentTTY()
+    }
+}

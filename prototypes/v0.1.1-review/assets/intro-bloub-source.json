@@ -1,0 +1,62 @@
+{
+  "upstream": {
+    "repository": "https://github.com/jeremy-prt/bloub",
+    "commit": "b4bb3c1b5f93c7b87a2e8d620f667c4093d97749",
+    "files": {
+      "face.ts": "f9ddf7f750b101dbf6fa29acc95fe5fbdeec41c96b2873b1a844df2b5c1bd8c8",
+      "profiles.ts": "62dc55bc860b9e2b1f7a43168cee8738b68b42bf4d07f668d32984ee886f02d3",
+      "skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
+      "states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
+      "decor.ts": "6c300f8aaa7d2f95c13b35993753b0542779528d16bd8e1d01507e467fe52d04",
+      "math.ts": "736be559b961109c3ca2a4c88d7992e99ceaff46450a522d47e596c1def99c0f",
+      "shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
+      "engine.ts": "d824c715b6ec38b241fc61ae2ac516d7c1623f9603f88942b4585cdd9307e638",
+      "cycles.ts": "7567aaecf000fa8dce5900617ec64a4537520a3329c62a67c81526d4e25ed86c",
+      "expressions.ts": "66c5562afcf376c7fde0c83b6c9cc953f1313d9e2f910e2b94fd24098aa52ae5",
+      "eyefit.ts": "8da411d7643c24f383d2d994a4668e43292c9810a6f63c257dbfd13f61284e9b",
+      "repere.ts": "2f74419387868a13c2f887a714c7442b130753d938732d91f39905f39ab2030e"
+    }
+  },
+  "adapter": "intro-bloub.ts",
+  "renderer": "SVG layers/mask from the website integrated-motion.ts; unchanged BotEngine orbit state supplies the full triangle-to-sphere motion",
+  "states": [
+    "idle",
+    "thinking",
+    "orbit"
+  ],
+  "source_files_sha256": {
+    "aisland-website/src/integrated-motion.ts": "329e1d2ef2ba4b9b78aa6518ff5bda49d31b44d893fee169d6bd53aecd90b085",
+    "aisland-website/src/vendor/bloub/cycles.ts": "7567aaecf000fa8dce5900617ec64a4537520a3329c62a67c81526d4e25ed86c",
+    "aisland-website/src/vendor/bloub/decor.ts": "6c300f8aaa7d2f95c13b35993753b0542779528d16bd8e1d01507e467fe52d04",
+    "aisland-website/src/vendor/bloub/engine.ts": "d824c715b6ec38b241fc61ae2ac516d7c1623f9603f88942b4585cdd9307e638",
+    "aisland-website/src/vendor/bloub/expressions.ts": "66c5562afcf376c7fde0c83b6c9cc953f1313d9e2f910e2b94fd24098aa52ae5",
+    "aisland-website/src/vendor/bloub/eyefit.ts": "8da411d7643c24f383d2d994a4668e43292c9810a6f63c257dbfd13f61284e9b",
+    "aisland-website/src/vendor/bloub/face.ts": "f9ddf7f750b101dbf6fa29acc95fe5fbdeec41c96b2873b1a844df2b5c1bd8c8",
+    "aisland-website/src/vendor/bloub/math.ts": "736be559b961109c3ca2a4c88d7992e99ceaff46450a522d47e596c1def99c0f",
+    "aisland-website/src/vendor/bloub/profiles.ts": "62dc55bc860b9e2b1f7a43168cee8738b68b42bf4d07f668d32984ee886f02d3",
+    "aisland-website/src/vendor/bloub/repere.ts": "2f74419387868a13c2f887a714c7442b130753d938732d91f39905f39ab2030e",
+    "aisland-website/src/vendor/bloub/shape.ts": "72020197e3ff117487ed670d915dfb3297b8034f7e9a803f573f15b3dd41d44e",
+    "aisland-website/src/vendor/bloub/skins.ts": "2fa0f296e8a49b7b81458eebb98b6ecb44d1073bdc815a46e7846819b743b3c3",
+    "aisland-website/src/vendor/bloub/states.ts": "7b67bfc4ee95011225a2cef542866dacde0a1c044a56f174bee4173b82cec207",
+    "prototypes/v0.1.1-review/intro-bloub.ts": "b1336ad642aad1706be75a1f4cd12f1057687c9322226cf10bc5453a9a8b988f"
+  },
+  "bundle_sha256": "3e46e27f97069f49e31493742b8e2c14356b323c871d6db5d037b3d52ba2fbde",
+  "scope": "Prototype brand animation; not runtime sessions or acceptance evidence",
+  "build": {
+    "tool": "esbuild",
+    "version": "0.25.11",
+    "format": "iife",
+    "target": "es2022",
+    "command": "npm exec --offline --package=esbuild@0.25.11 -- esbuild prototypes/v0.1.1-review/intro-bloub.ts --bundle --format=iife --target=es2022 --outfile=prototypes/v0.1.1-review/assets/intro-bloub.js"
+  },
+  "revision": 9,
+  "geometry": {
+    "diameter": "min(width * .68, height * .66) * .7",
+    "center": [
+      "width / 2",
+      "height * .55"
+    ],
+    "morph": "original orbit sample 0–3.3 seconds fitted to dock 18.1–settled 20.7, then held"
+  },
+  "rendererResolution": "Explicit display pixel dimensions for SVG masks; original viewBox and geometry unchanged"
+}

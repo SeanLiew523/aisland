@@ -128,14 +128,14 @@
 "settings.sound.selectSound" = "Select Sound";
 
 /* Settings - Setup */
-"settings.tab.setup" = "Setup";
+"settings.tab.setup" = "Agent Connections";
 "setup.section.binary" = "Hook Binary";
 "setup.claudeConfigDir.section" = "Claude Config Directory";
 "setup.claudeConfigDir.title" = "Config Directory";
 "setup.claudeConfigDir.choose" = "Choose…";
 "setup.claudeConfigDir.reset" = "Reset";
 "setup.claudeConfigDir.footer" = "For users who run Claude Code with CLAUDE_CONFIG_DIR. Leave default unless you use a custom config path.";
-"setup.section.hooks" = "CLI Hooks";
+"setup.section.hooks" = "AIsland Event Connections";
 "setup.section.usage" = "Usage Bridge";
 "setup.section.permissions" = "Permissions";
 "setup.binaryReady" = "Ready";
@@ -143,14 +143,14 @@
 "setup.hookReady" = "Hooks installed";
 "setup.hookMissing" = "Hooks not installed";
 "setup.usageBridge" = "Claude Usage Bridge";
-"setup.usageBridgeReady" = "Installed";
+"setup.usageBridgeReady" = "Usage Connection Configured";
 "setup.usageBridgeDesc" = "Tracks Claude API usage locally";
 "setup.optional" = "Optional";
 "setup.permissionsTitle" = "Accessibility";
 "setup.permissionsDesc" = "AIsland may need Accessibility permission to detect terminal windows. Grant it in System Settings → Privacy & Security → Accessibility.";
-"setup.installAll" = "Install All";
+"setup.installAll" = "Check installed agents and connect";
 "setup.banner.noHooks.title" = "Get started with AIsland";
-"setup.banner.noHooks.message" = "Install hooks for the agents you use below — AIsland will start monitoring those sessions.";
+"setup.banner.noHooks.message" = "Choose the agents you use below to configure their AIsland event connection.";
 "setup.revealConfigLocation" = "Reveal config in Finder";
 "setup.section.diagnostics" = "Hook Diagnostics";
 "setup.diagnostics.notRun" = "Health check not yet run.";
@@ -170,6 +170,9 @@
 "island.quit.confirmTitle" = "Quit AIsland?";
 "island.quit.confirmAction" = "Quit";
 "island.quit.confirmMessage" = "Are you sure you want to quit?";
+"island.accessibility.openPanel" = "Open AIsland sessions";
+"island.accessibility.openSession" = "Open session: %@";
+"island.accessibility.sessionCount" = "%lld sessions";
 
 /* Settings - Update */
 "settings.update.available" = "v%@ Available — Update";
@@ -226,3 +229,71 @@
 
 /* Window Titles */
 "window.settings" = "AIsland Settings";
+
+"settings.general.replayWelcome" = "Replay welcome";
+
+// GitHub stable releases and signed Sparkle updates
+"settings.update.latestVersion" = "Latest version: %@";
+"settings.update.checking" = "Checking the latest stable release on GitHub…";
+"settings.update.ready" = "Download the update to install it and restart AIsland automatically.";
+"settings.update.downloadInstall" = "Download, Install & Restart";
+"settings.update.downloading" = "Downloading update…";
+"settings.update.extracting" = "Verifying and preparing the update…";
+"settings.update.installing" = "Installing update and restarting AIsland…";
+"settings.update.installed" = "Update installed.";
+"settings.update.upToDate" = "You have the latest stable release.";
+"settings.update.cancel" = "Cancel";
+"settings.update.retryRelaunch" = "Retry Restart";
+"settings.update.releaseNotes" = "Release Notes";
+"settings.update.noRelease" = "No stable release is available on GitHub yet.";
+"settings.update.rateLimited" = "GitHub request limit reached. Try again later.";
+"settings.update.invalidRelease" = "GitHub returned an invalid stable release.";
+"settings.update.networkFailed" = "Could not check GitHub. Check your connection and try again.";
+"settings.update.invalidCurrentVersion" = "This build has no valid release version; automatic installation is unavailable.";
+"settings.update.signingNotConfigured" = "A newer release exists, but this build is not configured to trust AIsland update signatures.";
+"settings.update.missingFeed" = "This release has no signed update feed. Automatic installation is unavailable.";
+"settings.update.invalidFeed" = "The signed feed does not match this GitHub release. The update was stopped.";
+"settings.update.unavailableForSystem" = "The release has no compatible newer update for this build or macOS version.";
+"settings.update.installFailed" = "Update failed. AIsland could not validate, download or install this update. Try again.";
+
+/* Agent connection setup */
+"setup.connection.explanation" = "Install the agent itself separately first. These buttons configure its AIsland connection by adding event hooks or a plugin to its configuration.";
+"setup.connection.configurationOnly" = "“Configured” means the connection files were detected. Run a turn in the agent to verify that AIsland receives its events.";
+"setup.connection.configure" = "Configure AIsland";
+"setup.connection.update" = "Update AIsland Connection";
+"setup.connection.remove" = "Remove Connection";
+"setup.connection.configured" = "Connection Configured";
+"setup.connection.notConfigured" = "AIsland connection is not configured.";
+"setup.connection.unknown" = "Connection configuration has not been read yet.";
+"setup.connection.missingHelper" = "This AIsland copy cannot find its local connection helper. Use the complete app with its connection components.";
+"setup.connection.isolated" = "This acceptance build disables agent configuration and source reads. Use the regular app to configure connections.";
+"setup.connection.configureAllExplanation" = "Checks installed sources again, configures missing AIsland event connections, and preserves sources you removed.";
+"setup.connection.hermesExplanation" = "Adds AIsland turn hooks to the chosen Hermes profile; it does not install Hermes. Restart Hermes after configuring and approve its two AIsland hooks at the Hermes prompt. Approvals remain in Hermes.";
+
+"setup.connection.automatic" = "Installed agents are connected automatically. Agents you removed stay disconnected. After installing another agent, check again here or restart AIsland.";
+
+"setup.connection.sourceMissing" = "Agent installation not detected. Install the agent first, then check again.";
+
+"setup.desktop.stopAutomatic" = "Stop automatic setup";
+
+"setup.desktop.optedOut" = "Automatic setup is off. Existing source plugins remain under the source app’s control.";
+
+"setup.desktop.waitingForSourceExit" = "Finish your source tasks, quit Desktop normally, then check again to complete setup. AIsland does not close source tasks.";
+
+"setup.desktop.waitingForProfile" = "Open the source once so its active profile can be identified. For MiniMaxCode, you can also choose the data directory currently selected in its settings.";
+
+"setup.desktop.waitingForActivation" = "Event components are configured. Enable the AIsland plugin in the source app, then run your next normal task. Live event receipt has not been verified in this run.";
+
+"setup.desktop.configuredFiles" = "Event components are configured; waiting for the source to load them.";
+
+"setup.desktop.eventReceived" = "A task event was received from this source during this AIsland run.";
+
+"setup.desktop.checking" = "Checking installed source and event components…";
+
+"setup.desktop.checkAgain" = "Check and finish setup";
+
+"setup.desktop.chooseDataDirectory" = "Choose active data directory…";
+
+"setup.desktop.openSource" = "Open source app";
+
+"setup.connection.sourceSetupScope" = "This isolated case automatically configures only its explicitly listed sources. Other source configurations are preserved; manual installation and profile changes are disabled.";

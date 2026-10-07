@@ -692,6 +692,35 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
+        // Hermes hooks own task state; only an unambiguous terminal locator or cwd keeps the process alive.
+        let hermesProcesses = activeProcesses.filter { $0.tool == .hermesCLI }
+        for session in sessions where session.tool == .hermesCLI && !session.isDemoSession && !session.isSessionEnded {
+            let matches = hermesProcesses.filter { process in
+                if let tty = session.jumpTarget?.terminalTTY, let processTTY = process.terminalTTY { return tty == processTTY }
+                guard let cwd = session.jumpTarget?.workingDirectory, let processCwd = process.workingDirectory else { return false }
+                return cwd == processCwd
+            }
+            if matches.count == 1 { aliveIDs.insert(session.id) }
+        }
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.deepseek.dsh").isEmpty {
+            for session in sessions where session.tool == .deepseekHarness && !session.isDemoSession && !session.isSessionEnded {
+                aliveIDs.insert(session.id)
+            }
+        }
+
+        // The Desktop runtime is an Electron utility process without a TTY.
+        // Missing CLI discovery is not evidence that its conversations ended.
+        // Recheck the live bundle/version; never bind all rows to one PID or cwd.
+        let miniMaxVersions = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.minimax.agent")
+            .filter { !$0.isTerminated }
+            .compactMap { application -> String? in
+                guard let url = application.bundleURL, let bundle = Bundle(url: url),
+                      bundle.bundleIdentifier == "com.minimax.agent" else { return nil }
+                return bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            })
+        aliveIDs.formUnion(MiniMaxCodeDesktopLiveness.aliveSessionIDs(
+            in: sessions, runningSourceVersions: miniMaxVersions))
+
         // Synthetic sessions: always alive if the process exists.
         let syntheticSessions = sessions.filter { isSyntheticClaudeSession($0) }
         for session in syntheticSessions {
@@ -1399,6 +1428,9 @@ final class ProcessMonitoringCoordinator {
     // MARK: - Display helpers
 
     func liveAttachmentKey(for session: AgentSession) -> String? {
+        if let identity = MiniMaxCodeDisplayIdentity.key(for: session) {
+            return identity
+        }
         guard let jumpTarget = session.jumpTarget else {
             return nil
         }
@@ -1654,6 +1686,10 @@ final class ProcessMonitoringCoordinator {
             return "Oh My Pi \(session.id.prefix(8))"
         case .zcode:
             return "ZCode \(session.id.prefix(8))"
+        case .hermesCLI: return "Hermes CLI"
+        case .deepseekHarness: return "DeepSeek Harness"
+        case .minimaxCodeDesktop: return "MiniMaxCode Desktop"
+        case .minimaxCodeCLI: return "MiniMaxCode CLI"
         case .workbuddy:
             return "WorkBuddy \(session.id.prefix(8))"
         }

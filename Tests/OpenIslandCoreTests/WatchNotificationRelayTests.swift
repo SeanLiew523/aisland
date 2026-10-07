@@ -9,6 +9,29 @@ import Testing
 /// the watch SSE stream stuck on stale "actionable" badges.
 struct WatchNotificationRelayTests {
     @Test
+    func successOnlyCompletionProjectionDoesNotTurnSilentOutcomesIntoCompanionSuccess() {
+        let session = AgentSession(id: "runtime-test", title: "Test", tool: .hermesCLI,
+            phase: .completed, summary: "Test", updatedAt: .now)
+        for outcome in [RuntimeTurnOutcome.failed, .interrupted, .ended] {
+            let payload = SessionCompleted(sessionID: session.id, summary: "Test", timestamp: .now,
+                runtimeOutcome: outcome)
+            #expect(WatchNotificationRelay.completionNotification(for: payload, session: session) == nil)
+        }
+        let restored = SessionCompleted(sessionID: session.id, summary: "Restored", timestamp: .now,
+            isInterrupt: true, runtimeOutcome: .succeeded)
+        #expect(WatchNotificationRelay.completionNotification(for: restored, session: session) == nil)
+        let ended = SessionCompleted(sessionID: session.id, summary: "Ended", timestamp: .now, isSessionEnd: true)
+        #expect(WatchNotificationRelay.completionNotification(for: ended, session: session) == nil)
+        let wrongSession = SessionCompleted(sessionID: "other", summary: "Done", timestamp: .now)
+        #expect(WatchNotificationRelay.completionNotification(for: wrongSession, session: session) == nil)
+        for outcome in [nil, RuntimeTurnOutcome.succeeded] {
+            let payload = SessionCompleted(sessionID: session.id, summary: "Done", timestamp: .now, runtimeOutcome: outcome)
+            #expect(WatchNotificationRelay.completionNotification(for: payload, session: session)?.sseString()
+                .contains("event: sessionCompleted") == true)
+        }
+    }
+
+    @Test
     func resolvingActionableStateClearsAllPendingRequestsForSession() {
         let relay = WatchNotificationRelay()
         let session = AgentSession(

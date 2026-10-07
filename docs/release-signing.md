@@ -1,36 +1,29 @@
-# Release Signing and Notarization
+# Release signing and updates
 
-AIsland's initial public releases are ad-hoc signed, are not Apple-notarized, and have Sparkle updates disabled. The release workflow needs no Apple credentials in this phase. This keeps the independent project from reusing Open Island's signing certificate, notarization account, or update key.
+Formal v0.1.1 packages use Developer ID Application signing and Hardened Runtime.
+The committed public Ed25519 identity is `config/packaging/AIslandUpdates.json`;
+its private key stays in the local login Keychain account
+`dev.aisland.app.sparkle-v1`. No private key is stored in the repository, exported
+by packaging, or uploaded to GitHub Actions. Do not regenerate or replace it
+after shipping this identity: existing installations rely on its public key.
 
-The current package identity is:
+`package-aisland.sh` enables signed updates for formal packages by default.
+It verifies the existing Keychain public identity before compiling. The app
+and signed archive/feed must use the same committed public key. User initiation
+is required: Settings checks GitHub's latest stable release, then one Download
+and Install action downloads the verified ZIP, replaces the app and relaunches.
+Automatic background checks/downloads remain disabled. Development and CI
+packages explicitly disable updates and are not release artifacts.
 
-- app name: `AIsland`
-- bundle identifier: `dev.aisland.app`
-- update mode: disabled
-- distribution: GitHub Release DMG and ZIP
+Notarization remains an external Apple acceptance gate. Before public release,
+staple the application, recreate/sign the final ZIP/feed, recreate/staple the
+DMG and run `verify-aisland-package.py --require-notarized`. Both tickets and the
+actual Gatekeeper assessment must pass. A pending Apple submission is not an
+accepted or publicly installable release. v0.1.0 submissions/artifacts remain
+owned by their separate notarization worktree and are not changed here.
 
-See [releasing.md](releasing.md) for the active release procedure.
+The installed v0.1.0 build 5 disables Sparkle. Its first upgrade must be manual;
+publishing a successor cannot alter that installed executable. Deleting only
+the app does not reset welcome/setup preferences.
 
-## Moving to Developer ID Distribution
-
-Treat signed distribution as a separate, reviewed migration. Before enabling it:
-
-1. Choose a permanent AIsland bundle identifier.
-2. Create a dedicated Developer ID Application certificate and notarization profile.
-3. Generate an AIsland Sparkle EdDSA key pair and publish only the public key.
-4. Decide how existing local permissions and installs migrate to the permanent identity.
-5. Update packaging, CI, `appcast.xml`, and user documentation in one coherent change.
-6. Verify the signed, notarized app on a clean macOS account before publishing it.
-
-The likely GitHub secrets for that future workflow are:
-
-| Secret | Purpose |
-|---|---|
-| `APPLE_CERTIFICATE_P12` | Base64-encoded AIsland Developer ID certificate |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for the certificate archive |
-| `APPLE_SIGNING_IDENTITY` | Developer ID signing identity |
-| `APPLE_ID` | Apple account used by `notarytool` |
-| `APPLE_TEAM_ID` | Apple Developer team identifier |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
-
-Do not add or enable these secrets until the packaging workflow has been updated to require and verify the new permanent identity. A successful ad-hoc build is not evidence of Developer ID signing or notarization.
+See [releasing.md](releasing.md) for packaging and publication.

@@ -8,6 +8,7 @@ public struct CodexHookInstallationStatus: Equatable, Sendable {
     public var hooksBinaryURL: URL?
     public var featureFlagEnabled: Bool
     public var managedHooksPresent: Bool
+    public var isCurrent: Bool
     public var manifest: CodexHookInstallerManifest?
 
     public init(
@@ -18,7 +19,8 @@ public struct CodexHookInstallationStatus: Equatable, Sendable {
         hooksBinaryURL: URL?,
         featureFlagEnabled: Bool,
         managedHooksPresent: Bool,
-        manifest: CodexHookInstallerManifest?
+        manifest: CodexHookInstallerManifest?,
+        isCurrent: Bool = false
     ) {
         self.codexDirectory = codexDirectory
         self.configURL = configURL
@@ -27,6 +29,7 @@ public struct CodexHookInstallationStatus: Equatable, Sendable {
         self.hooksBinaryURL = hooksBinaryURL
         self.featureFlagEnabled = featureFlagEnabled
         self.managedHooksPresent = managedHooksPresent
+        self.isCurrent = isCurrent
         self.manifest = manifest
     }
 }
@@ -64,6 +67,13 @@ public final class CodexHookInstallationManager: @unchecked Sendable {
             managedCommand: managedCommand
         ))?.changed) == true
 
+        let expected = CodexHookInstaller.hookCommand(for: managedHooksBinaryURL.path)
+        let normalized = try CodexHookInstaller.installHooksJSON(existingData: hooksData, hookCommand: expected)
+        let current = CodexHookInstaller.isCodexHooksFeatureEnabled(in: configContents)
+            && fileManager.isExecutableFile(atPath: managedHooksBinaryURL.path)
+            && manifest?.hookCommand == expected
+            && HookConfigurationComparison.sameJSON(hooksData, normalized.contents)
+
         return CodexHookInstallationStatus(
             codexDirectory: codexDirectory,
             configURL: configURL,
@@ -72,7 +82,8 @@ public final class CodexHookInstallationManager: @unchecked Sendable {
             hooksBinaryURL: resolvedHooksBinaryURL,
             featureFlagEnabled: CodexHookInstaller.isCodexHooksFeatureEnabled(in: configContents),
             managedHooksPresent: managedHooksPresent,
-            manifest: manifest
+            manifest: manifest,
+            isCurrent: current
         )
     }
 

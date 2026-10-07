@@ -165,7 +165,6 @@ struct TerminalSessionAttachmentProbe {
             for: ghosttySessions + ambiguousSessions,
             availability: ghosttyAvailability,
             activeSessionIDs: activeSessionIDs,
-            activeProcessesBySessionID: activeProcessesBySessionID,
             now: now
         )
         let attachedTerminalSessions = attachedTerminalSessions(
@@ -384,12 +383,11 @@ struct TerminalSessionAttachmentProbe {
         for sessions: [AgentSession],
         availability: SnapshotAvailability<GhosttyTerminalSnapshot>,
         activeSessionIDs: Set<String>,
-        activeProcessesBySessionID: [String: ActiveProcessSnapshot],
         now: Date
     ) -> [String: GhosttyTerminalSnapshot] {
-        guard let snapshots = availability.snapshots else {
-            return [:]
-        }
+        guard let inventory = availability.snapshots else { return [:] }
+        let counts = Dictionary(grouping: inventory, by: \.sessionID).mapValues(\.count)
+        let snapshots = inventory.filter { counts[$0.sessionID] == 1 && nonEmptyValue($0.sessionID) != nil }
 
         var assignments: [String: GhosttyTerminalSnapshot] = [:]
         var claimedSessionIDs: Set<String> = []
@@ -401,10 +399,13 @@ struct TerminalSessionAttachmentProbe {
                     return false
                 }
 
+                if let recordedID = nonEmptyValue(session.jumpTarget?.terminalSessionID),
+                   recordedID != snapshot.sessionID { return false }
                 return snapshotTitleMentionsSessionID(snapshot, session: session)
             }
 
-            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
+            guard matches.count == 1, let preferred = matches.first,
+                  snapshots.filter({ snapshotTitleMentionsSessionID($0, session: preferred) }).count == 1 else {
                 continue
             }
 
@@ -421,29 +422,6 @@ struct TerminalSessionAttachmentProbe {
                     activeSessionIDs: activeSessionIDs,
                     now: now
                 ) && activeSessionIDs.contains(session.id)
-            }
-
-            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
-                continue
-            }
-
-            assignments[preferred.id] = snapshot
-            claimedSessionIDs.insert(preferred.id)
-            claimedSnapshotIDs.insert(snapshot.sessionID)
-        }
-
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            let matches = sessions.filter { session in
-                ghosttyFallbackCandidateMatches(
-                    snapshot,
-                    session: session,
-                    claimedSessionIDs: claimedSessionIDs,
-                    claimedSnapshotIDs: claimedSnapshotIDs,
-                    activeSessionIDs: activeSessionIDs,
-                    activeProcessesBySessionID: activeProcessesBySessionID,
-                    requireActiveSession: true,
-                    now: now
-                )
             }
 
             guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
@@ -476,94 +454,7 @@ struct TerminalSessionAttachmentProbe {
             claimedSnapshotIDs.insert(snapshot.sessionID)
         }
 
-        for snapshot in snapshots where !claimedSnapshotIDs.contains(snapshot.sessionID) {
-            let matches = sessions.filter { session in
-                isRecentEnoughForInactiveMatch(session, now: now)
-                    && ghosttyFallbackCandidateMatches(
-                        snapshot,
-                        session: session,
-                        claimedSessionIDs: claimedSessionIDs,
-                        claimedSnapshotIDs: claimedSnapshotIDs,
-                        activeSessionIDs: activeSessionIDs,
-                        activeProcessesBySessionID: activeProcessesBySessionID,
-                        requireActiveSession: false,
-                        now: now
-                    )
-            }
-
-            guard let preferred = preferredSession(from: matches, activeSessionIDs: activeSessionIDs) else {
-                continue
-            }
-
-            assignments[preferred.id] = snapshot
-            claimedSessionIDs.insert(preferred.id)
-            claimedSnapshotIDs.insert(snapshot.sessionID)
-        }
-
         return assignments
-    }
-
-    private func ghosttyFallbackCandidateMatches(
-        _ snapshot: GhosttyTerminalSnapshot,
-        session: AgentSession,
-        claimedSessionIDs: Set<String>,
-        claimedSnapshotIDs: Set<String>,
-        activeSessionIDs: Set<String>,
-        activeProcessesBySessionID: [String: ActiveProcessSnapshot],
-        requireActiveSession: Bool,
-        now: Date
-    ) -> Bool {
-        guard !claimedSessionIDs.contains(session.id) else {
-            return false
-        }
-
-        let isActiveSession = activeSessionIDs.contains(session.id)
-        if requireActiveSession && !isActiveSession {
-            return false
-        }
-
-        guard snapshotLikelyHostsSession(
-            snapshot,
-            session: session,
-            isActiveSession: isActiveSession,
-            now: now
-        ) else {
-            return false
-        }
-
-        let jumpTarget = session.jumpTarget
-        let activeProcess = activeProcessesBySessionID[session.id]
-
-        let snapshotHint = hintedTool(for: snapshot.title)
-        if let snapshotHint, session.tool != snapshotHint {
-            return false
-        }
-
-        // When the snapshot title carries no tool hint (e.g. a plain shell
-        // prompt like "~/project"), do not match it to agent sessions.  This
-        // prevents Claude/Codex sessions from binding to an unrelated terminal
-        // that just happens to share the same working directory.
-        if snapshotHint == nil && (session.tool == .claudeCode || session.tool == .codex) {
-            return false
-        }
-
-        if let jumpTarget {
-            guard canFallbackFromRecordedGhosttySessionID(
-                jumpTarget,
-                allowRecordedSessionIDOverride: isActiveSession,
-                claimedSnapshotIDs: claimedSnapshotIDs
-            ) else {
-                return false
-            }
-        }
-
-        let candidateWorkingDirectory = normalizedPathForMatching(jumpTarget?.workingDirectory)
-            ?? normalizedPathForMatching(activeProcess?.workingDirectory)
-        if candidateWorkingDirectory == normalizedPathForMatching(snapshot.workingDirectory) {
-            return true
-        }
-
-        return sessionWorkspaceNameCandidates(for: session).contains(snapshotWorkspaceName(for: snapshot))
     }
 
     private func exactGhosttySnapshotMatches(
@@ -599,50 +490,6 @@ struct TerminalSessionAttachmentProbe {
         }
 
         return recentAttachmentGraceApplies(to: session, now: now)
-    }
-
-    private func canFallbackFromRecordedGhosttySessionID(
-        _ jumpTarget: JumpTarget,
-        allowRecordedSessionIDOverride: Bool,
-        claimedSnapshotIDs: Set<String>
-    ) -> Bool {
-        if allowRecordedSessionIDOverride {
-            return true
-        }
-
-        guard let recordedSessionID = nonEmptyValue(jumpTarget.terminalSessionID) else {
-            return true
-        }
-
-        return claimedSnapshotIDs.contains(recordedSessionID)
-    }
-
-    private func sessionWorkspaceNameCandidates(for session: AgentSession) -> Set<String> {
-        var candidates: Set<String> = []
-
-        if let workspaceName = nonEmptyValue(session.jumpTarget?.workspaceName) {
-            candidates.insert(workspaceName)
-        }
-
-        if let workingDirectory = nonEmptyValue(session.jumpTarget?.workingDirectory) {
-            let derivedWorkspace = URL(fileURLWithPath: workingDirectory).lastPathComponent
-            if !derivedWorkspace.isEmpty {
-                candidates.insert(derivedWorkspace)
-            }
-        }
-
-        let titlePieces = session.title
-            .split(separator: "·", maxSplits: 1)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-        if titlePieces.count == 2, !titlePieces[1].isEmpty {
-            candidates.insert(titlePieces[1])
-        }
-
-        return candidates
-    }
-
-    private func snapshotWorkspaceName(for snapshot: GhosttyTerminalSnapshot) -> String {
-        URL(fileURLWithPath: snapshot.workingDirectory).lastPathComponent
     }
 
     private func normalizedPathForMatching(_ value: String?) -> String? {
@@ -682,21 +529,13 @@ struct TerminalSessionAttachmentProbe {
         _ snapshot: GhosttyTerminalSnapshot,
         session: AgentSession
     ) -> Bool {
-        let normalizedTitle = snapshot.title.lowercased()
-        return sessionIDPrefixes(for: session).contains { normalizedTitle.contains($0) }
-    }
-
-    private func sessionIDPrefixes(for session: AgentSession) -> [String] {
-        let normalizedID = session.id.lowercased()
-        let prefixLengths = [normalizedID.count, 18, 13, 8]
-
-        return prefixLengths.compactMap { length in
-            guard length > 0, normalizedID.count >= length else {
-                return nil
-            }
-
-            return String(normalizedID.prefix(length))
+        // Only a complete native UUID token is identity evidence. Prefixes,
+        // ordinary titles and directory names cannot prove a source binding.
+        guard UUID(uuidString: session.id) != nil else { return false }
+        let tokens = snapshot.title.lowercased().split {
+            !$0.isLetter && !$0.isNumber && $0 != "-" && $0 != "_"
         }
+        return tokens.contains(Substring(session.id.lowercased()))
     }
 
     private func attachedTerminalSessions(
@@ -873,26 +712,6 @@ struct TerminalSessionAttachmentProbe {
         }
 
         return changed ? jumpTarget : nil
-    }
-
-    private func ghosttySnapshot(_ snapshot: GhosttyTerminalSnapshot, matches session: AgentSession) -> Bool {
-        guard let jumpTarget = session.jumpTarget else {
-            return false
-        }
-
-        if let sessionID = nonEmptyValue(jumpTarget.terminalSessionID) {
-            return snapshot.sessionID == sessionID
-        }
-
-        if let workingDirectory = nonEmptyValue(jumpTarget.workingDirectory) {
-            return snapshot.workingDirectory == workingDirectory
-        }
-
-        guard let paneTitle = nonEmptyValue(jumpTarget.paneTitle) else {
-            return false
-        }
-
-        return snapshot.title.contains(paneTitle)
     }
 
     private func terminalSnapshot(_ snapshot: TerminalTabSnapshot, matches session: AgentSession) -> Bool {

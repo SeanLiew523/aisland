@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "source": "minimaxCodeDesktop",
+  "sourceRuntimeVersion": "3.1.0",
+  "profileID": "desktop",
+  "bridgeSocketPath": "/absolute/path/to/isolated/bridge.sock",
+  "metadataDatabasePath": "/absolute/source/dataDir/v2/sqlite/runtime-state.sqlite",
+  "bridgeTimeoutMs": 150,
+  "sourceDiscovery": {
+    "probePath": "/absolute/AIsland/support/minimaxcode-passive/source-probe",
+    "desktopAppPath": "/Applications/MiniMax Code.app",
+    "cliPrefix": "/Users/example/.minimax-code",
+    "hookRuntimeKind": "node",
+    "allowedSources": ["minimaxCodeDesktop"],
+    "profileIDs": {
+      "minimaxCodeDesktop": "desktop",
+      "minimaxCodeCLI": "cli"
+    }
+  }
+}

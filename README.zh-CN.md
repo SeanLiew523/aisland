@@ -76,17 +76,24 @@
 
 支持 Claude Code、Codex CLI 与桌面端、ZCode、WorkBuddy、Cursor、Gemini CLI、OpenCode 等。具体事件与交互能力依接入方式而异，详见[产品范围](docs/product.md)与 [Hooks 合同](docs/hooks.md)。AIsland 不可用时，受管 Agent 继续运行。
 
+## v0.1.1 更新
+
+- 全屏欢迎引导动效，支持中文和英文。
+- 支持自定义 MP3 通知音效。
+- 在设置中下载、安装签名更新，完成后自动重启。
+- 增加 Hermes CLI、DeepSeek Harness Desktop 和 MiniMaxCode Desktop 接入。
+- 改进 Ghostty 和桌面会话定位，修复完成回调及提示遗漏。
+- 修正 Codex 主额度选择，收起状态下优先显示正在运行和等待处理的会话方块。
+
 ## 快速开始
 
 ### 下载安装
 
 从 [GitHub Releases](https://github.com/SeanLiew523/aisland/releases) 下载最新 DMG，打开后把 **AIsland** 拖入 **Applications**。
 
-初期版本属于开发构建，尚未经过 Apple 公证。如果 Gatekeeper 阻止启动，可在“系统设置 → 隐私与安全性”中为 AIsland 选择“仍要打开”。若下载文件带有隔离属性，也可以执行：
+**v0.1.1（build 88）** 已通过 Developer ID 签名和 Apple 公证，DMG 内包含已公证的 Universal 应用。请从 [v0.1.1 发布页](https://github.com/SeanLiew523/aisland/releases/tag/v0.1.1)下载，发布附件同时提供校验值和签名更新文件。
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/AIsland.app"
-```
+从 **v0.1.0** 升级时，请先退出 AIsland，再用此 DMG 替换“应用程序”里的旧版。v0.1.0 无法在应用内完成第一次升级。本地 v0.1.1 测试构建与正式版显示相同版本号，也需要手动替换。从 v0.1.1 开始，可通过“**设置 → 关于 → 检查更新 → 下载并安装**”安装后续兼容的签名版本，完成后自动重启 AIsland。
 
 系统要求：macOS 14+；发布流程会构建同时支持 Apple Silicon 和 Intel 的 Universal 应用。
 
@@ -102,14 +109,16 @@ swift run OpenIslandApp
 在本机生成 AIsland 应用、ZIP 和 DMG：
 
 ```bash
-OPEN_ISLAND_VERSION=0.1.0 zsh scripts/package-aisland.sh
+OPEN_ISLAND_VERSION=0.1.1 OPEN_ISLAND_DISABLE_UPDATES=true zsh scripts/package-aisland.sh
 ```
 
 需要执行确定性冒烟验证时，运行 `zsh scripts/harness.sh smoke`。
 
 内部 executable target 继续保留 `OpenIsland` 前缀，以兼容现有 Hooks 和本地数据路径；对外应用名称为 **AIsland**。
 
-首次启动后，在“设置 → 安装”中选择需要接入的 Agent，再安装对应 Hooks。
+首次启动时自动播放欢迎动画，结束后进入“**设置 → 接入引导**”。应用会检测已安装的 Agent，并自动配置缺失的受管接入；你主动移除的接入会保持关闭。桌面来源如需启用插件，请在来源应用中启用 AIsland 插件，再正常发起一个任务验证事件。接入配置和权限可在此页面管理。
+
+本地源码打包属于开发构建。公开版本需通过 Developer ID 签名、Apple 公证和签名更新验证，详见[发布签名说明](docs/release-signing.md)。
 
 AIsland 沿用 OpenIsland 本机桥接协议。启动前请退出 Agent Island 或 Alsland；旧应用和偏好设置不会自动迁移。
 

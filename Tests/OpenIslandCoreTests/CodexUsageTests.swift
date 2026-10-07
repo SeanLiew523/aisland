@@ -147,6 +147,38 @@ struct CodexUsageTests {
         #expect(snapshot?.windows.first?.roundedUsedPercentage == 13)
     }
 
+    @Test func reservedQuotaAndRecentlyTouchedOldFileCannotReplaceCodexQuota() throws {
+        let root = temporaryRootURL(named: "codex-buckets")
+        defer { try? FileManager.default.removeItem(at: root) }
+        func line(_ timestamp: String, _ id: String, _ used: Double) -> String {
+            rolloutLine(timestamp: timestamp, type: "event_msg", payload: ["type": "token_count",
+                "rate_limits": ["limit_id": id, "primary": ["used_percent": used, "window_minutes": 10080]]])
+        }
+        let current = root.appendingPathComponent("rollout-current.jsonl")
+        let touched = root.appendingPathComponent("rollout-touched.jsonl")
+        let reserve = root.appendingPathComponent("rollout-reserve.jsonl")
+        try writeRollout([line("2026-10-06T11:00:00Z", "codex", 99),
+                          line("2026-10-06T11:01:00Z", "base_model_inference", 0)], to: current)
+        try writeRollout([line("2026-10-06T10:00:00Z", "codex", 98)], to: touched)
+        try writeRollout([line("2026-10-06T11:02:00Z", "base_model_inference", 0)], to: reserve)
+        try setModificationDate(Date(timeIntervalSince1970: 1), for: current)
+        let loaded = try CodexUsageLoader.load(fromRootURL: root)
+        let value = try #require(loaded)
+        #expect(value.limitID == "codex")
+        #expect(value.windows.first?.roundedUsedPercentage == 99)
+        #expect(resolvedPath(value.sourceFilePath) == current.resolvingSymlinksInPath().path)
+    }
+
+    @Test func onlyReservedQuotaDoesNotFabricateCodexZero() throws {
+        let root = temporaryRootURL(named: "codex-reserve-only")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeRollout([rolloutLine(timestamp: "2026-10-06T11:00:00Z", type: "event_msg", payload: [
+            "type": "token_count", "rate_limits": ["limit_id": "base_model_inference",
+            "primary": ["used_percent": 0, "window_minutes": 10080]]])],
+            to: root.appendingPathComponent("rollout-reserved.jsonl"))
+        #expect(try CodexUsageLoader.load(fromRootURL: root) == nil)
+    }
+
     @Test
     func codexUsageLoaderFormatsNonStandardWindowLengths() throws {
         let rootURL = temporaryRootURL(named: "codex-usage-labels")

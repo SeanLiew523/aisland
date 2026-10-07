@@ -8,7 +8,7 @@ This repository can now produce a local macOS app bundle from the Swift package 
 - The script creates `output/aisland/AIsland.app` by default.
 - The bundle embeds helper binaries inside `Contents/Helpers/` so the app can still locate `OpenIslandHooks` after it leaves the repository checkout.
 - The script also creates `output/aisland/AIsland.zip` and `output/aisland/AIsland.dmg` for local sharing or release upload.
-- `zsh scripts/package-aisland.sh` is the opinionated local wrapper: it uses the AIsland name, bundle ID `dev.aisland.app`, disables upstream updates, and defaults to ad-hoc signing and Universal binaries.
+- `zsh scripts/package-aisland.sh` is the opinionated local wrapper: it uses the AIsland name, bundle ID `dev.aisland.app`, enables AIsland-signed updates and defaults to Developer ID signing and Universal binaries. Use a fresh release output directory; see [releasing.md](releasing.md). CI/dev smoke packaging explicitly sets `OPEN_ISLAND_DISABLE_UPDATES=true` and may use ad-hoc signing.
 
 ## Ad-hoc First
 
@@ -65,7 +65,7 @@ The script accepts these environment variables:
 - `OPEN_ISLAND_BUNDLE_ID`
 - `OPEN_ISLAND_VERSION`
 - `OPEN_ISLAND_BUILD_NUMBER`
-- `OPEN_ISLAND_DISABLE_UPDATES` (defaults to `true`; enable only after AIsland owns and verifies its Sparkle identity)
+- `OPEN_ISLAND_DISABLE_UPDATES` (low-level packager defaults to `true`; the formal AIsland wrapper defaults to `false` with its committed and verified identity)
 - `OPEN_ISLAND_PACKAGE_ROOT`
 - `OPEN_ISLAND_BUNDLE_DIR`
 - `OPEN_ISLAND_ZIP_PATH`

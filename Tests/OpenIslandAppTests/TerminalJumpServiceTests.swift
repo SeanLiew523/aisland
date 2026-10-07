@@ -18,7 +18,7 @@ struct TerminalJumpServiceTests {
     }
 
     @Test
-    func ghosttyJumpScriptActivatesWindowAndRetriesFocusUntilItSticks() {
+    func ghosttyJumpScriptPinsTheNativeIDAcrossWindowReorderingAndRetriesFocus() {
         let target = JumpTarget(
             terminalApp: "Ghostty",
             workspaceName: "open-island",
@@ -29,21 +29,21 @@ struct TerminalJumpServiceTests {
 
         let script = TerminalJumpService().ghosttyJumpScript(for: target)
 
-        #expect(script.contains("activate"))
-        #expect(script.contains("activate window targetWindow"))
-        #expect(script.contains("select tab targetTab"))
-        #expect(script.contains("focus targetTerminal"))
+        #expect(!script.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "activate" })
+        #expect(!script.contains("activate window"))
+        #expect(!script.contains("select tab targetTab"))
+        #expect(script.contains("focus (terminal id \"448D7E28-24FB-46F1-9504-C252F97926C1\")"))
+        #expect(script.contains("every terminal whose id is \"448D7E28-24FB-46F1-9504-C252F97926C1\""))
         #expect(script.contains("repeat 3 times"))
-        #expect(script.contains("delay 0.04"))
         #expect(script.contains("delay 0.08"))
         #expect(script.contains("focused terminal of selected tab of front window"))
-        #expect(script.contains("repeat with aWindow in windows"))
-        #expect(script.contains("repeat with aTab in tabs of aWindow"))
-        #expect(script.contains("repeat with aTerminal in terminals of aTab"))
+        #expect(!script.contains("repeat with aWindow in windows"))
+        #expect(!script.contains("tabs of aWindow"))
+        #expect(!script.contains("terminals of aTab"))
     }
 
     @Test
-    func ghosttyJumpScriptFallsBackToWorkingDirectoryAndTitle() {
+    func ghosttyJumpScriptRequiresPreviouslyResolvedID() {
         let target = JumpTarget(
             terminalApp: "Ghostty",
             workspaceName: "open-island",
@@ -53,21 +53,18 @@ struct TerminalJumpServiceTests {
 
         let script = TerminalJumpService().ghosttyJumpScript(for: target)
 
-        #expect(script.contains("(working directory of aTerminal as text) is \"/Users/wangruobing/Personal/open-island\""))
-        #expect(script.contains("(name of aTerminal as text) contains \"codex ~/p/open-island\""))
-        #expect(script.contains("if \"\" is \"\" then"))
+        #expect(script.contains("if \"\" is \"\" then return \"\""))
+        #expect(!script.contains("working directory"))
+        #expect(!script.contains("contains"))
     }
 
-    @Test
+    @Test(.enabled(
+        if: ProcessInfo.processInfo.environment["OPEN_ISLAND_RUN_GHOSTTY_JUMP_INTEGRATION"] == "1",
+        "Requires explicit opt-in to live Ghostty jump verification."
+    ))
     func ghosttyJumpIntegrationMatchesFocusedTerminalForLiveSurfaces() throws {
-        guard ProcessInfo.processInfo.environment["OPEN_ISLAND_RUN_GHOSTTY_JUMP_INTEGRATION"] == "1" else {
-            try Test.cancel("Set OPEN_ISLAND_RUN_GHOSTTY_JUMP_INTEGRATION=1 to run live Ghostty jump verification.")
-        }
-
         let terminals = try liveGhosttyTerminals()
-        if terminals.isEmpty {
-            try Test.cancel("No live Ghostty terminals were found.")
-        }
+        try #require(!terminals.isEmpty, "Live verification was requested but no Ghostty terminal is available.")
 
         let service = TerminalJumpService()
         for terminal in terminals {
@@ -118,18 +115,16 @@ struct TerminalJumpServiceTests {
             appleScriptRunner: { _ in "" }
         )
 
-        let result = try service.jump(
-            to: JumpTarget(
+        #expect(throws: TerminalJumpError.self) {
+            try service.jump(to: JumpTarget(
                 terminalApp: "Ghostty",
                 workspaceName: "open-island",
                 paneTitle: "Claude open-island",
                 workingDirectory: "/Users/wangruobing/Personal/open-island",
                 terminalTTY: "/dev/ttys002"
-            )
-        )
-
-        #expect(result == "Activated Ghostty. Exact pane targeting could not find the live terminal.")
-        #expect(openedArguments.values == [["-b", "com.mitchellh.ghostty"]])
+            ))
+        }
+        #expect(openedArguments.values.isEmpty)
     }
 
     @Test
@@ -489,6 +484,7 @@ struct TerminalJumpServiceTests {
     func zcodeJumpFocusesExactConversationBeforeWorkspaceFallback() throws {
         let openedArguments = OpenedArgumentsBox()
         let focusedConversationIDs = StringValuesBox()
+        let operations = StringValuesBox()
         let service = TerminalJumpService(
             applicationResolver: { bundleIdentifier in
                 bundleIdentifier == "dev.zcode.app" ? URL(fileURLWithPath: "/Applications/ZCode.app") : nil
@@ -498,10 +494,12 @@ struct TerminalJumpServiceTests {
             },
             openAction: { arguments in
                 openedArguments.values.append(arguments)
+                operations.values.append("activate")
             },
             appleScriptRunner: { _ in "" },
             zcodeConversationFocuser: { conversationID in
                 focusedConversationIDs.values.append(conversationID)
+                operations.values.append("select-conversation")
                 return .focused
             }
         )
@@ -519,11 +517,37 @@ struct TerminalJumpServiceTests {
 
         #expect(result == "Focused the ZCode conversation.")
         #expect(focusedConversationIDs.values == ["sess_9fdf2cd9-bb33-4e38-bab1-64c6c0861743"])
-        #expect(openedArguments.values.isEmpty)
+        #expect(openedArguments.values == [["-b", "dev.zcode.app"]])
+        #expect(operations.values == ["activate", "select-conversation"])
     }
 
     @Test
-    func zcodeWithoutAccessibilityActivatesRunningAppWithoutOpeningWorkspace() throws {
+    func zcodeActivationFailureDoesNotSelectAnInvisibleConversation() throws {
+        let focusedConversationIDs = StringValuesBox()
+        let service = TerminalJumpService(
+            applicationResolver: { _ in URL(fileURLWithPath: "/Applications/ZCode.app") },
+            appRunningChecker: { _ in true },
+            openAction: { _ in throw NSError(domain: "ZCodeActivation", code: 1) },
+            zcodeConversationFocuser: { conversationID in
+                focusedConversationIDs.values.append(conversationID)
+                return .focused
+            }
+        )
+
+        #expect(throws: NSError.self) {
+            try service.jump(to: JumpTarget(
+                terminalApp: "ZCode.app",
+                workspaceName: "default",
+                paneTitle: "Standalone task",
+                appConversationID: "sess_exact"
+            ))
+        }
+        #expect(focusedConversationIDs.values.isEmpty)
+    }
+
+    @Test
+    func zcodeKnownConversationFailureCannotBecomeWorkspaceActivationSuccess() throws {
+      for reason in ["accessibility-unavailable", "sidebar-conversation-miss", "active-session-id-unverified"] {
         let openedArguments = OpenedArgumentsBox()
         let service = TerminalJumpService(
             applicationResolver: { bundleIdentifier in
@@ -537,11 +561,11 @@ struct TerminalJumpServiceTests {
             },
             appleScriptRunner: { _ in "" },
             zcodeConversationFocuser: { _ in
-                .unavailable("accessibility-unavailable")
+                .unavailable(reason)
             }
         )
 
-        let result = try service.jump(
+        #expect(throws: TerminalJumpError.self) { try service.jump(
             to: JumpTarget(
                 terminalApp: "ZCode.app",
                 workspaceName: "open-vibe-island",
@@ -550,10 +574,10 @@ struct TerminalJumpServiceTests {
                 appConversationID: "sess_legacy",
                 appDeepLinkURL: "zcode://workspace/open?path=%2FUsers%2Ftest%2Fopen-vibe-island"
             )
-        )
+        ) }
 
-        #expect(result == "Activated ZCode. Accessibility permission is required for conversation focus.")
         #expect(openedArguments.values == [["-b", "dev.zcode.app"]])
+      }
     }
 
     @Test

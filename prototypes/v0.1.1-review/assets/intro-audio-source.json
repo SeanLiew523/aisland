@@ -1,0 +1,17 @@
+{
+  "revision": 9,
+  "audio_revision": 8,
+  "approval": "2026-10-04 user: retain R9 design, restore R8 home sound, build new application and finish tests.",
+  "origin": "Exact R8 original cue source restored, byte-identical to approved V6 score; no new audio sample.",
+  "audio_base_commit": "11037b9",
+  "visual_source_commit": "810e9115978cf8e8aa496ee724fdd28a8ca998a5",
+  "duration_seconds": 22,
+  "source_files_sha256": {
+    "prototypes/v0.1.1-review/intro-audio.js": "aba59137ec55be5afa3de3e16b34890b2691c1f8776a93eb429fbe52272865d7",
+    "prototypes/v0.1.1-review/review.js": "3503e2c448a2b010457bc6f36cb3748f7fe8f309963206681619870af5243886",
+    "prototypes/v0.1.1-review/intro-scene.js": "d5fc3886999676f19841ef9b0c80259658cdaa8d8a8036a72514aa5036fb696a"
+  },
+  "native_audio": "Sources/OpenIslandApp/Resources/Onboarding/intro-v6.wav",
+  "native_audio_sha256": "49c4c3b6d6742d1ed948b60dd61ff78170d1089c2f81fa24ad87c2ab32041cc0",
+  "native_status": "Existing native WAV implements the identical R8/V6 score; preserved byte-for-byte. Native R9 visual synchronization is a separate current implementation."
+}

@@ -220,11 +220,8 @@ struct GeminiHooksTests {
     }
 
     @Test
-    func geminiGhosttyLocatorScriptSeparatesIDWorkingDirectoryAndTitle() {
-        let script = GeminiHookPayload.terminalLocatorAppleScript(for: "Ghostty")
-
-        #expect(script.contains("(id as text) & (ASCII character 31) & (working directory as text)"))
-        #expect(script.contains("(working directory as text) & (ASCII character 31) & (name as text)"))
+    func geminiGhosttyLegacyFocusedLocatorIsDisabled() {
+        #expect(GeminiHookPayload.terminalLocatorAppleScript(for: "Ghostty").isEmpty)
     }
 
     @Test

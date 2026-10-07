@@ -300,6 +300,12 @@ public final class ZCodeHookInstallationManager: @unchecked Sendable, ClaudeForm
             managedCommand: managedCommand
         )
 
+        let expected = ZCodeHookInstaller.hookCommand(for: managedHooksBinaryURL.path)
+        let normalized = try ZCodeHookInstaller.installConfigJSON(existingData: configData, hookCommand: expected)
+        let current = fileManager.isExecutableFile(atPath: managedHooksBinaryURL.path)
+            && manifest?.hookCommand == expected
+            && HookConfigurationComparison.sameJSON(configData, normalized.contents)
+
         return ClaudeHookInstallationStatus(
             claudeDirectory: configDirectory,
             settingsURL: configURL,
@@ -307,7 +313,8 @@ public final class ZCodeHookInstallationManager: @unchecked Sendable, ClaudeForm
             hooksBinaryURL: resolvedHooksBinaryURL,
             managedHooksPresent: uninstallMutation.managedHooksPresent,
             hasClaudeIslandHooks: uninstallMutation.hasClaudeIslandHooks,
-            manifest: manifest
+            manifest: manifest,
+            isCurrent: current
         )
     }
 

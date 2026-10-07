@@ -6,6 +6,82 @@ import Testing
 @MainActor
 struct HookInstallationCoordinatorTests {
     @Test
+    func setupExplainsWhyHooksAreBlockedButBundledExtensionsAreAvailable() {
+        let coordinator = HookInstallationCoordinator()
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == .missingHooksBinary)
+        #expect(coordinator.setupBlockReason(requiresBinary: false) == nil)
+        coordinator.hooksBinaryURL = URL(fileURLWithPath: "/synthetic/OpenIslandHooks")
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == nil)
+    }
+
+    @Test
+    func acceptanceSetupBlocksBothKindsEvenWhenHelperIsLocated() {
+        let coordinator = HookInstallationCoordinator(isRuntimeAcceptance: true)
+        coordinator.hooksBinaryURL = URL(fileURLWithPath: "/synthetic/OpenIslandHooks")
+        #expect(coordinator.setupBlockReason(requiresBinary: true) == .isolatedAcceptance)
+        #expect(coordinator.setupBlockReason(requiresBinary: false) == .isolatedAcceptance)
+    }
+
+    @Test
+    func acceptanceDoesNotDetectConfigureOrSuppressFreshWelcome() async throws {
+        let suite = "aisland-acceptance-auto-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let intent = AgentIntentStore(defaults: defaults)
+        let coordinator = HookInstallationCoordinator(intentStore: intent, isRuntimeAcceptance: true)
+        await coordinator.detectInstalledSources()
+        await coordinator.configureDetectedSources()
+        coordinator.migrateIntentStoreIfNeeded()
+        #expect(coordinator.detectedInstallations.isEmpty)
+        #expect(coordinator.hermesHookStatus == nil)
+        #expect(!coordinator.isAutomaticConnectionBusy)
+        #expect(intent.migrationVersion == 1)
+        #expect(!intent.firstLaunchCompleted)
+        let welcome = OnboardingPresentationStore(defaults: defaults)
+        #expect(welcome.claimAutomaticPresentation(migrationReady: intent.migrationVersion > 0, firstLaunchCompleted: intent.firstLaunchCompleted))
+        intent.firstLaunchCompleted = true
+        let secondLaunch = OnboardingPresentationStore(defaults: defaults)
+        #expect(!secondLaunch.claimAutomaticPresentation(migrationReady: intent.migrationVersion > 0, firstLaunchCompleted: intent.firstLaunchCompleted))
+        #expect(intent.intent(for: .hermes) == .untouched)
+    }
+
+    @Test
+    func detectedStaleHooksAreRepairableButExplicitRemovalWins() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("aisland-coordinator-current-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in ["claude", "codex"] {
+            let file = root.appendingPathComponent(name)
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        let suite = "aisland-coordinator-current-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let intent = AgentIntentStore(defaults: defaults)
+        let detector = AgentInstallationDetector(executableDirectories: [root], applicationDirectories: [], home: root)
+        let coordinator = HookInstallationCoordinator(intentStore: intent, installationDetector: detector)
+        let helper = root.appendingPathComponent("managed/OpenIslandHooks")
+        let claude = ClaudeHookInstallationManager(claudeDirectory: root.appendingPathComponent(".claude"), managedHooksBinaryURL: helper)
+        let codex = CodexHookInstallationManager(codexDirectory: root.appendingPathComponent(".codex"), managedHooksBinaryURL: helper, featureKeyProvider: { .legacy })
+        _ = try claude.install(hooksBinaryURL: root.appendingPathComponent("claude"))
+        _ = try codex.install(hooksBinaryURL: root.appendingPathComponent("codex"))
+        try FileManager.default.removeItem(at: helper)
+        coordinator.claudeHookStatus = try claude.status()
+        coordinator.codexHookStatus = try codex.status()
+        await coordinator.detectInstalledSources()
+        #expect(coordinator.shouldAutoInstall(.claudeCode))
+        #expect(coordinator.shouldAutoInstall(.codex))
+        intent.setIntent(.uninstalled, for: .claudeCode)
+        intent.setIntent(.uninstalled, for: .codex)
+        #expect(!coordinator.shouldAutoInstall(.claudeCode))
+        #expect(!coordinator.shouldAutoInstall(.codex))
+        intent.setIntent(.untouched, for: .claudeCode)
+        coordinator.detectedInstallations = [:]
+        #expect(!coordinator.shouldAutoInstall(.claudeCode))
+    }
+
+    @Test
     func loadPiExtensionStatusesIsolatesCorruptedPiManifest() throws {
         let roots = try makeIsolatedRoots()
         defer { roots.cleanup() }
@@ -29,6 +105,35 @@ struct HookInstallationCoordinatorTests {
         #expect(messages.values.count == 1)
         #expect(messages.values[0].contains("Failed to read Pi extension status:"))
         #expect(!messages.values[0].contains("Oh My Pi"))
+    }
+
+    @Test
+    func oldOwnedOhMyPiTemplateIsRefreshedUnlessUserRemovedConnection() async throws {
+        let roots = try makeIsolatedRoots()
+        defer { roots.cleanup() }
+        let executable = roots.omp.appendingPathComponent("omp")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let manager = PiExtensionInstallationManager(agent: .ohMyPi, agentDirectory: roots.omp)
+        _ = try manager.install(extensionSourceData: Data("// Older, owned extension __OPEN_ISLAND_PI_SOURCE__\n".utf8))
+        #expect(try manager.status().isCurrent)
+        let suite = "aisland-omp-template-refresh-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let intent = AgentIntentStore(defaults: defaults)
+        let coordinator = HookInstallationCoordinator(
+            intentStore: intent,
+            piExtensionInstallationManager: PiExtensionInstallationManager(agent: .pi, agentDirectory: roots.pi),
+            ohMyPiExtensionInstallationManager: manager,
+            installationDetector: AgentInstallationDetector(executableDirectories: [roots.omp], applicationDirectories: [])
+        )
+        await coordinator.detectInstalledSources()
+        coordinator.loadPiExtensionStatuses()
+        #expect(coordinator.ohMyPiExtensionStatus?.isInstalled == true)
+        #expect(coordinator.ohMyPiExtensionStatus?.isCurrent == false)
+        #expect(coordinator.shouldAutoInstall(.ohMyPi))
+        intent.setIntent(.uninstalled, for: .ohMyPi)
+        #expect(!coordinator.shouldAutoInstall(.ohMyPi))
     }
 
     @Test

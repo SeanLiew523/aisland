@@ -1,0 +1,6 @@
+{
+  "identity": "aisland-ed25519-v1",
+  "keychain_account": "dev.aisland.app.sparkle-v1",
+  "public_key": "Q1mw4fCAaOilATjUc7LUI7BNuGOnNF78uMkAbdJn9Jk=",
+  "feed_url": "https://github.com/SeanLiew523/aisland/releases/latest/download/appcast.xml"
+}

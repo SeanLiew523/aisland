@@ -374,14 +374,16 @@ public extension GrokHookPayload {
         withRuntimeContext(
             environment: environment,
             currentTTYProvider: { currentTTY() },
-            terminalLocatorProvider: { terminalLocator(for: $0) }
+            terminalLocatorProvider: { terminalLocator(for: $0) },
+            ghosttyBindingProvider: GhosttySourceBindingStore.production
         )
     }
 
     func withRuntimeContext(
         environment: [String: String],
         currentTTYProvider: () -> String?,
-        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?)
+        terminalLocatorProvider: (String) -> (sessionID: String?, tty: String?, title: String?),
+        ghosttyBindingProvider: GhosttySourceBindingProvider = { _, _, _, _, _ in nil }
     ) -> GrokHookPayload {
         var payload = self
 
@@ -405,7 +407,7 @@ public extension GrokHookPayload {
             }
         }
 
-        if payload.terminalTTY == nil {
+        if payload.terminalTTY == nil && !isGhosttyTerminalApp(payload.terminalApp) {
             payload.terminalTTY = currentTTYProvider()
         }
 
@@ -413,14 +415,23 @@ public extension GrokHookPayload {
         if isCmuxTerminalApp(payload.terminalApp) || isZellijTerminalApp(payload.terminalApp) {
             useLocator = false
         } else if let terminalApp = payload.terminalApp, isGhosttyTerminalApp(terminalApp) {
-            switch payload.hookEventName {
-            case .sessionStart, .userPromptSubmit, .notification:
-                useLocator = true
-            default:
-                payload.terminalSessionID = nil
-                payload.terminalTitle = nil
-                useLocator = false
-            }
+            // Only the real source TTY and a verified receipt identify this
+            // process. Payload IDs and the currently focused pane are not
+            // trustworthy evidence on background hooks.
+            payload.terminalTTY = currentTTYProvider()
+            // Grok also emits UserPromptSubmit for auto-wake/scheduler and
+            // subagent turns. It is not proof of foreground user input. Both
+            // startup and submit use the store's unique-directory policy;
+            // an existing receipt is reused without looking at current focus.
+            let allowsUniqueDirectoryCapture = payload.hookEventName == .sessionStart
+                || payload.hookEventName == .userPromptSubmit
+            let sourceEvent: GhosttySourceEvent = allowsUniqueDirectoryCapture ? .startup : .background
+            let binding = ghosttyBindingProvider(
+                "grok", payload.sessionID, payload.terminalTTY, payload.cwd, sourceEvent
+            )
+            payload.terminalSessionID = binding?.sessionID
+            payload.terminalTitle = binding?.title
+            useLocator = false
         } else {
             useLocator = shouldUseFocusedTerminalLocator(for: payload.terminalApp ?? "")
         }
@@ -557,25 +568,7 @@ public extension GrokHookPayload {
     }
 
     private func currentTTY() -> String? {
-        if let tty = commandOutput(executablePath: "/usr/bin/tty", arguments: []),
-           !tty.contains("not a tty") {
-            return tty
-        }
-        return parentProcessTTY()
-    }
-
-    private func parentProcessTTY() -> String? {
-        let ppid = getppid()
-        guard let raw = commandOutput(executablePath: "/bin/ps", arguments: ["-p", "\(ppid)", "-o", "tty="]) else {
-            return nil
-        }
-
-        let tty = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tty.isEmpty, tty != "??", tty != "-" else {
-            return nil
-        }
-
-        return tty.hasPrefix("/dev/") ? tty : "/dev/\(tty)"
+        RuntimeTTYProbe.currentTTY()
     }
 
     private func terminalLocator(for terminalApp: String) -> (sessionID: String?, tty: String?, title: String?) {
@@ -598,15 +591,9 @@ public extension GrokHookPayload {
         }
 
         if normalized.contains("ghostty") {
-            let values = osascriptValues(script: """
-            tell application "Ghostty"
-                if not (it is running) then return ""
-                tell focused terminal of selected tab of front window
-                    return (id as text) & (ASCII character 31) & (working directory as text) & (ASCII character 31) & (name as text)
-                end tell
-            end tell
-            """)
-            return (sessionID: values[safe: 0], tty: nil, title: values[safe: 2])
+            // Ghostty requires the verified source binding, never this
+            // legacy focused-only locator.
+            return (nil, nil, nil)
         }
 
         if normalized.contains("terminal") {

@@ -79,7 +79,7 @@ struct PiExtensionEventTests {
         let unrelatedCompletionEvent = agent == .ohMyPi ? "agent_settled" : "session_stop"
         #expect(!registered.contains(unrelatedCompletionEvent))
         #expect(!registered.contains("turn_end"))
-        #expect(!registered.contains("agent_end"))
+        #expect(registered.contains("agent_end") == (agent == .ohMyPi))
         #expect(!registered.contains("tool_call"))
         #expect(!registered.contains("tool_result"))
     }

@@ -89,11 +89,19 @@ public final class BridgeServer: @unchecked Sendable {
     /// state — it only contains sessions created via bridge hooks and is
     /// overwritten whenever AppModel pushes a fresh snapshot.
     private var localState = SessionState()
+    private var runtimeLifecycleReducer: RuntimeLifecycleReducer
+    private let monitorMiniMaxCode: Bool
+    private var miniMaxCodeMonitor = MiniMaxCodeLifecycleMonitor()
+    private var miniMaxCodePollTimer: DispatchSourceTimer?
 
     public init(
-        socketURL: URL = BridgeSocketLocation.defaultURL
+        socketURL: URL = BridgeSocketLocation.defaultURL,
+        runtimeLifecycleRegistryURL: URL? = nil,
+        monitorMiniMaxCode: Bool = true
     ) {
         self.socketURL = socketURL
+        self.monitorMiniMaxCode = monitorMiniMaxCode
+        self.runtimeLifecycleReducer = RuntimeLifecycleReducer(registryURL: runtimeLifecycleRegistryURL)
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -113,10 +121,28 @@ public final class BridgeServer: @unchecked Sendable {
         // Also listen on the legacy /tmp path so that older hook binaries
         // (from already-running Claude Code sessions) can still connect.
         let legacyURL = BridgeSocketLocation.legacyURL
-        if legacyURL != socketURL {
+        if socketURL == BridgeSocketLocation.defaultURL, legacyURL != socketURL {
             if let legacyListener = try? bindListener(at: legacyURL) {
                 listeners.append(legacyListener)
             }
+        }
+        queue.async { [weak self] in
+            guard let self, self.monitorMiniMaxCode, !self.listeners.isEmpty, self.miniMaxCodePollTimer == nil else { return }
+            for observation in self.runtimeLifecycleReducer.restoredMiniMaxDesktopObservations {
+                for payload in self.miniMaxCodeMonitor.restoreDesktopPresence(observation) {
+                    for event in self.runtimeLifecycleReducer.receive(payload) { self.emit(event) }
+                }
+            }
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now(), repeating: .milliseconds(250))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                for payload in self.miniMaxCodeMonitor.poll() {
+                    for event in self.runtimeLifecycleReducer.receive(payload) { self.emit(event) }
+                }
+            }
+            self.miniMaxCodePollTimer = timer
+            timer.resume()
         }
     }
 
@@ -188,6 +214,9 @@ public final class BridgeServer: @unchecked Sendable {
     }
 
     private func stopLocked() {
+        miniMaxCodePollTimer?.cancel()
+        miniMaxCodePollTimer = nil
+        miniMaxCodeMonitor = MiniMaxCodeLifecycleMonitor()
         pendingApprovals.removeAll()
         pendingClaudeInteractions.removeAll()
         pendingClaudeToolContexts.removeAll()
@@ -318,6 +347,10 @@ public final class BridgeServer: @unchecked Sendable {
             client.role = role
             clients[clientID] = client
             send(.response(.acknowledged), to: clientID)
+            for event in runtimeLifecycleReducer.restoredEvents {
+                localState.apply(event)
+                send(.event(event), to: clientID)
+            }
 
         case let .requestQuestion(sessionID, prompt):
             guard hasSession(id: sessionID) else {
@@ -480,6 +513,21 @@ public final class BridgeServer: @unchecked Sendable {
 
         case let .processGrokHook(payload):
             handleGrokHook(payload, from: clientID)
+        case let .processRuntimeLifecycleHook(payload):
+            if payload.source.isMiniMaxCode {
+                guard monitorMiniMaxCode else {
+                    // Reject before observe(), which can query the metadata DB.
+                    send(.response(.acknowledged), to: clientID)
+                    return
+                }
+                // Native hooks only admit identities. Outcomes come from committed DB facts.
+                for observed in miniMaxCodeMonitor.observe(payload) {
+                    for event in runtimeLifecycleReducer.receive(observed) { emit(event) }
+                }
+            } else {
+                for event in runtimeLifecycleReducer.receive(payload) { emit(event) }
+            }
+            send(.response(.acknowledged), to: clientID)
         case let .processPiHook(payload):
             handlePiHook(payload, from: clientID)
         }
@@ -863,6 +911,14 @@ public final class BridgeServer: @unchecked Sendable {
             ensureClaudeSessionExists(for: payload)
             synchronizeClaudeJumpTarget(for: payload)
             synchronizeClaudeMetadata(for: payload)
+
+            // The connected blocking hook owns an unresolved approval/question.
+            // Informational notifications cannot resolve it, including idle hints
+            // and notifications arriving after a delayed previous-turn snapshot.
+            if pendingClaudeInteractions[payload.sessionID] != nil {
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
 
             let currentPhase = localState.session(id: payload.sessionID)?.phase ?? .completed
             let notificationPhase: SessionPhase
@@ -2292,7 +2348,7 @@ public final class BridgeServer: @unchecked Sendable {
         let jumpTarget = Self.mergeJumpTargetPreservingExistingResolvedFields(
             incoming: payload.defaultJumpTarget,
             existing: existingSession.jumpTarget
-        )
+        ).preservingCodexDesktopIdentity(from: existingSession.jumpTarget)
 
         guard existingSession.jumpTarget != jumpTarget else {
             return

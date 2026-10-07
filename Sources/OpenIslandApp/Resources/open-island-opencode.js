@@ -3,25 +3,23 @@
 // Install: copy to ~/.config/opencode/plugins/open-island.js
 import { connect } from "net";
 import { appendFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { performance } from "perf_hooks";
 import { homedir } from "os";
 
 const DEBUG_LOG = "/tmp/open-island-opencode-debug.log";
-function debugLog(msg) {
+function productionDebugLog(msg) {
   try { appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`); } catch {}
 }
-
-const SOCKET_PATH =
-  process.env.OPEN_ISLAND_SOCKET_PATH ||
-  `${process.env.HOME || homedir()}/Library/Application Support/OpenIsland/bridge.sock`;
 
 function encodeEnvelope(command) {
   return JSON.stringify({ type: "command", command }) + "\n";
 }
 
-function sendToSocket(json) {
+function sendToSocket(json, socketPath) {
   return new Promise((resolve) => {
     try {
-      const sock = connect({ path: SOCKET_PATH }, () => {
+      const sock = connect({ path: socketPath }, () => {
         sock.end(encodeEnvelope(json));
       });
       let buf = "";
@@ -33,10 +31,10 @@ function sendToSocket(json) {
   });
 }
 
-function sendAndWaitResponse(json, timeoutMs = 300000) {
+function sendAndWaitResponse(json, socketPath, timeoutMs = 300000) {
   return new Promise((resolve) => {
     try {
-      const sock = connect({ path: SOCKET_PATH }, () => {
+      const sock = connect({ path: socketPath }, () => {
         sock.write(encodeEnvelope(json));
       });
       let buf = "";
@@ -63,20 +61,38 @@ function sendAndWaitResponse(json, timeoutMs = 300000) {
   });
 }
 
-// Terminal environment detection
-let detectedTty = null;
-try {
-  const { execSync } = require("child_process");
-  let walkPid = process.pid;
-  for (let i = 0; i < 8; i++) {
-    const info = execSync(`ps -o tty=,ppid= -p ${walkPid}`, { timeout: 1000 }).toString().trim();
-    const parts = info.split(/\s+/);
-    const tty = parts[0], ppid = parseInt(parts[1]);
-    if (tty && tty !== "??" && tty !== "?") { detectedTty = `/dev/${tty}`; break; }
-    if (!ppid || ppid <= 1) break;
-    walkPid = ppid;
+// Match RuntimeTTYProbe: self plus at most seven real ancestors, bounded in
+// total and per process. Never read inherited TTY or shell session IDs as TTY.
+function detectTTY(startPID, runProcess, now) {
+  const deadline = now() + 1500;
+  const visited = new Set();
+  let pid = startPID;
+  for (let depth = 0; depth < 8; depth++) {
+    if (!Number.isInteger(pid) || pid <= 1 || pid > 2147483647 || visited.has(pid)) return;
+    visited.add(pid);
+    const remaining = deadline - now();
+    if (remaining < 1) return;
+    let raw;
+    try {
+      raw = runProcess("/bin/ps", ["-p", String(pid), "-o", "pid=,ppid=,tty="], {
+        timeout: Math.min(200, Math.floor(remaining)), killSignal: "SIGKILL",
+        maxBuffer: 1024, stdio: ["ignore", "pipe", "ignore"],
+      }).toString();
+    } catch { return; }
+    if (now() > deadline || Buffer.byteLength(raw) > 1024) return;
+    const row = raw.trim();
+    // One complete row, numeric PID/PPID and no extra output or PID mismatch.
+    const fields = /^([0-9]+)[ \t]+([0-9]+)[ \t]+(\S+)$/.exec(row);
+    if (!fields || Number(fields[1]) !== pid) return;
+    const parent = Number(fields[2]);
+    if (!Number.isInteger(parent) || parent > 2147483647) return;
+    const tty = fields[3];
+    if (["?", "??", "-"].includes(tty)) { pid = parent; continue; }
+    const value = tty.startsWith("/dev/") ? tty.slice(5) : tty;
+    if (!/^tty[A-Za-z0-9_.-]+$/.test(value) || Buffer.byteLength(value) > 123 || value.includes("..")) return;
+    return `/dev/${value}`;
   }
-} catch {}
+}
 
 const ENV_KEYS = [
   "TERM_PROGRAM", "ITERM_SESSION_ID", "TERM_SESSION_ID",
@@ -85,14 +101,7 @@ const ENV_KEYS = [
   "ZELLIJ", "ZELLIJ_PANE_ID", "ZELLIJ_SESSION_NAME",
 ];
 
-function collectEnv() {
-  const env = {};
-  for (const k of ENV_KEYS) { if (process.env[k]) env[k] = process.env[k]; }
-  return env;
-}
-
-function terminalFields() {
-  const env = process.env;
+function terminalFields(env, detectedTty) {
   const result = {};
   if (env.ITERM_SESSION_ID) {
     result.terminal_app = "iTerm";
@@ -105,8 +114,11 @@ function terminalFields() {
     const paneID = env.ZELLIJ_PANE_ID || "";
     const sessionName = env.ZELLIJ_SESSION_NAME || "";
     if (paneID) result.terminal_session_id = `${paneID}:${sessionName}`;
-  } else if (env.GHOSTTY_RESOURCES_DIR || (env.TERM_PROGRAM || "").toLowerCase().includes("ghostty")) {
+  } else if ((env.TERM_PROGRAM || "").toLowerCase().includes("ghostty") || (!env.TERM_PROGRAM && env.GHOSTTY_RESOURCES_DIR)) {
     result.terminal_app = "Ghostty";
+    // This server plugin has no trusted native TUI session/source contract.
+    // API/session/message events cannot select a surface. Fail closed instead
+    // of consuming a startup snapshot or trusting inherited environment IDs.
   } else if (env.TERM_PROGRAM === "Apple_Terminal") {
     result.terminal_app = "Terminal";
   } else if (env.TERM_PROGRAM) {
@@ -114,19 +126,6 @@ function terminalFields() {
   }
   if (detectedTty) result.terminal_tty = detectedTty;
   return result;
-}
-
-function makePayload(hookEventName, sessionID, cwd, extra = {}) {
-  return {
-    type: "processOpenCodeHook",
-    openCodeHook: {
-      hook_event_name: hookEventName,
-      session_id: `opencode-${sessionID}`,
-      cwd: cwd || ".",
-      ...terminalFields(),
-      ...extra,
-    },
-  };
 }
 
 function normalizeQuestionOption(option) {
@@ -168,7 +167,30 @@ function normalizeQuestion(question, index) {
   };
 }
 
-export default async ({ client, serverUrl }) => {
+// Keep only the default export: OpenCode 1.1.53 loads every module export as
+// a plugin. Optional dependencies let fixtures exercise the production path.
+export default async ({ client, serverUrl }, dependencies = {}) => {
+  const environment = dependencies.environment || process.env;
+  const detectedTty = detectTTY(dependencies.pid ?? process.pid,
+    dependencies.runProcess || execFileSync, dependencies.now || (() => performance.now()));
+  const debugLog = dependencies.debugLog || productionDebugLog;
+  const socketPath = environment.OPEN_ISLAND_SOCKET_PATH ||
+    `${environment.HOME || homedir()}/Library/Application Support/OpenIsland/bridge.sock`;
+  const send = dependencies.sendCommand || (json => sendToSocket(json, socketPath));
+  const sendResponse = dependencies.sendAndWaitResponse || (json => sendAndWaitResponse(json, socketPath));
+  function makePayload(hookEventName, sessionID, cwd, extra = {}) {
+    return {
+      type: "processOpenCodeHook",
+      openCodeHook: {
+        hook_event_name: hookEventName,
+        session_id: `opencode-${sessionID}`,
+        cwd: cwd || ".",
+        ...terminalFields(environment, detectedTty),
+        ...extra,
+      },
+    };
+  }
+
   const serverPort = serverUrl ? parseInt(serverUrl.port) || 4096 : 4096;
   const internalFetch = client?._client?.getConfig?.()?.fetch || null;
   const msgRoles = new Map();
@@ -327,7 +349,7 @@ export default async ({ client, serverUrl }) => {
         // Permission request — hold connection for approval
         if (mapped.openCodeHook.hook_event_name === "PermissionRequest" && internalFetch) {
           const requestId = mapped.openCodeHook._opencode_request_id;
-          sendAndWaitResponse(mapped).then(async (response) => {
+          sendResponse(mapped).then(async (response) => {
             if (!response) return;
             const directive = response?.response?.directive;
             if (!directive) return;
@@ -347,7 +369,7 @@ export default async ({ client, serverUrl }) => {
         // Question — hold connection for answer
         if (mapped.openCodeHook.hook_event_name === "QuestionAsked" && internalFetch) {
           const requestId = mapped.openCodeHook._opencode_request_id;
-          sendAndWaitResponse(mapped).then(async (response) => {
+          sendResponse(mapped).then(async (response) => {
             if (!response) return;
             const directive = response?.response?.directive;
             if (!directive) return;
@@ -365,7 +387,7 @@ export default async ({ client, serverUrl }) => {
         }
 
         // Regular events — fire and forget
-        await sendToSocket(mapped);
+        await send(mapped);
       } catch {
         // Fail open: if Open Island is unavailable, don't block OpenCode
       }
@@ -374,7 +396,7 @@ export default async ({ client, serverUrl }) => {
     "shell.env": async (input, output) => {
       output.env.OPEN_ISLAND_ACTIVE = "1";
       for (const v of ENV_KEYS) {
-        if (process.env[v]) output.env["_OI_" + v] = process.env[v];
+        if (environment[v]) output.env["_OI_" + v] = environment[v];
       }
     },
   };

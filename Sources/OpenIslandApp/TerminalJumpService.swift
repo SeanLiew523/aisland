@@ -11,6 +11,8 @@ struct TerminalJumpService {
     typealias ProcessRunner = @Sendable (String, [String]) -> Bool
     typealias WarpFocusedPaneReader = @Sendable () -> String?
     typealias WarpTabCountReader = @Sendable () -> Int
+    typealias DeepSeekNavigator = @Sendable (JumpTarget) throws -> Void
+    typealias MiniMaxCodeConversationFocuser = @Sendable (JumpTarget) -> MiniMaxCodeConversationFocusResult
     typealias ZCodeConversationFocuser = @Sendable (String) -> ZCodeConversationFocusResult
     /// Returns true when Warp is the system's frontmost app and ready to
     /// receive the next tab-advance command. Production asks
@@ -145,6 +147,16 @@ struct TerminalJumpService {
             aliases: ["zcode", "zcode.app"]
         ),
         TerminalAppDescriptor(
+            displayName: "DeepSeek Harness.app",
+            bundleIdentifier: "com.deepseek.dsh",
+            aliases: ["deepseek harness.app", "deepseek harness"]
+        ),
+        TerminalAppDescriptor(
+            displayName: "MiniMax Code.app",
+            bundleIdentifier: "com.minimax.agent",
+            aliases: ["minimax code.app", "minimax code", "minimaxcode"]
+        ),
+        TerminalAppDescriptor(
             displayName: "WorkBuddy.app",
             bundleIdentifier: "com.tencent.workbuddy.mac",
             aliases: ["workbuddy", "workbuddy.app"]
@@ -212,7 +224,6 @@ struct TerminalJumpService {
     private static let zellijParentTerminals = knownApps.map(\.bundleIdentifier)
 
     private static let ghosttyFocusSettleDelay = 0.08
-    private static let ghosttyWindowActivationDelay = 0.04
     private static let ghosttyFocusAttempts = 3
 
     /// Maximum time to wait for Warp to become the system frontmost app after
@@ -243,7 +254,10 @@ struct TerminalJumpService {
     private let warpTabCountReader: WarpTabCountReader
     private let warpKeystroker: KeystrokeInjector
     private let warpFrontmostChecker: WarpFrontmostChecker
+    private let deepseekNavigator: DeepSeekNavigator
+    private let miniMaxCodeConversationFocuser: MiniMaxCodeConversationFocuser
     private let zcodeConversationFocuser: ZCodeConversationFocuser
+    private let jumpDiagnostics: @Sendable (String) -> Void
 
     init(
         applicationResolver: @escaping ApplicationResolver = { bundleIdentifier in
@@ -265,9 +279,14 @@ struct TerminalJumpService {
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 == "dev.warp.Warp-Stable"
         },
+        deepseekNavigator: @escaping DeepSeekNavigator = { try DeepSeekNavigationClient().dispatch(target: $0) },
+        miniMaxCodeConversationFocuser: @escaping MiniMaxCodeConversationFocuser = {
+            MiniMaxCodeConversationController().focus(target: $0)
+        },
         zcodeConversationFocuser: @escaping ZCodeConversationFocuser = { conversationID in
             ZCodeConversationJumpController().focus(conversationID: conversationID)
-        }
+        },
+        jumpDiagnostics: @escaping @Sendable (String) -> Void = Self.defaultJumpDiagnostics
     ) {
         self.applicationResolver = applicationResolver
         self.appRunningChecker = appRunningChecker
@@ -278,7 +297,10 @@ struct TerminalJumpService {
         self.warpTabCountReader = warpTabCountReader
         self.warpKeystroker = warpKeystroker
         self.warpFrontmostChecker = warpFrontmostChecker
+        self.deepseekNavigator = deepseekNavigator
+        self.miniMaxCodeConversationFocuser = miniMaxCodeConversationFocuser
         self.zcodeConversationFocuser = zcodeConversationFocuser
+        self.jumpDiagnostics = jumpDiagnostics
     }
 
     func jump(to target: JumpTarget) throws -> String {
@@ -367,6 +389,24 @@ struct TerminalJumpService {
 
         if let descriptor {
             switch resolvedBundleIdentifier ?? descriptor.bundleIdentifier {
+            case "com.deepseek.dsh":
+                try deepseekNavigator(target)
+                try openAction(["-b", "com.deepseek.dsh"])
+                let sourceFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.deepseek.dsh"
+                logJumpDiagnostics("deepseek navigation dispatched sourceFrontmost=\(sourceFrontmost)")
+                return "Sent the DeepSeek conversation navigation request. Verify the selected conversation in DeepSeek."
+            case "com.minimax.agent":
+                // The controller verifies the original native session ID and
+                // foreground after selecting an existing source sidebar row.
+                // Never open a new workspace or claim activation as success.
+                switch miniMaxCodeConversationFocuser(target) {
+                case .focused:
+                    logJumpDiagnostics("minimaxcode conversation focus ok frontmost=com.minimax.agent")
+                    return "Focused the MiniMaxCode conversation."
+                case let .unavailable(reason):
+                    logJumpDiagnostics("minimaxcode conversation focus miss reason=\(reason)")
+                    throw TerminalJumpError.conversationUnavailable("MiniMaxCode", reason)
+                }
             case "com.openai.codex":
                 // If we have a thread ID, use the codex:// URL scheme to
                 // open the specific conversation directly.  Otherwise just
@@ -403,16 +443,22 @@ struct TerminalJumpService {
                 if let conversationID = target.appConversationID?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                     !conversationID.isEmpty {
+                    // AX can select a conversation in a background Electron
+                    // window without activating its app. Ask LaunchServices
+                    // to bring the existing app forward before navigating.
+                    if appIsRunning {
+                        try openAction(["-b", "dev.zcode.app"])
+                    }
                     switch zcodeConversationFocuser(conversationID) {
                     case .focused:
-                        logJumpDiagnostics("zcode conversation focus ok")
+                        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+                        logJumpDiagnostics("zcode conversation focus ok frontmost=\(frontmost)")
                         return "Focused the ZCode conversation."
                     case let .unavailable(reason):
                         logJumpDiagnostics("zcode conversation focus miss reason=\(reason)")
-                        if reason == "accessibility-unavailable", appIsRunning {
-                            try openAction(["-b", "dev.zcode.app"])
-                            return "Activated ZCode. Accessibility permission is required for conversation focus."
-                        }
+                        // A known native conversation must not become a successful
+                        // jump merely because its workspace/app could be activated.
+                        throw TerminalJumpError.conversationUnavailable("ZCode", reason)
                     }
                 }
 
@@ -734,8 +780,19 @@ struct TerminalJumpService {
     /// so jump behavior can be diagnosed from real clicks when window matching
     /// misbehaves on a specific machine.
     private func logJumpDiagnostics(_ message: String) {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("OpenIsland", isDirectory: true)
+        jumpDiagnostics(message)
+    }
+
+    private static func defaultJumpDiagnostics(_ message: String) {
+        let directory: URL?
+        do {
+            if let acceptance = try RuntimeAcceptanceConfiguration.current() {
+                directory = acceptance.socketURL.deletingLastPathComponent()
+            } else {
+                directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                    .appendingPathComponent("OpenIsland", isDirectory: true)
+            }
+        } catch { return }
         guard let directory else { return }
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1134,127 +1191,83 @@ struct TerminalJumpService {
         return panes.first(where: { $0.id == paneID })?.tabPosition
     }
 
+    struct GhosttyTerminal: Equatable {
+        var id: String
+        var workingDirectory: String
+        var title: String
+    }
+    enum GhosttySelection: Equatable {
+        case matched(GhosttyTerminal), missing, ambiguous
+    }
+    static func selectGhosttyTerminal(_ terminals: [GhosttyTerminal], target: JumpTarget) -> GhosttySelection {
+        guard let id = target.terminalSessionID, !id.isEmpty else { return .missing }
+        // CWD/title cannot turn an unbound or stale source into another surface.
+        let matches = terminals.filter { $0.id == id }
+        if matches.count > 1 { return .ambiguous }
+        guard let terminal = matches.first, !terminal.id.isEmpty else { return .missing }
+        return .matched(terminal)
+    }
+    static func parseGhosttyInventory(_ output: String) -> [GhosttyTerminal]? {
+        guard output.utf8.count <= 1_048_576 else { return nil }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        guard lines.count <= 256 else { return nil }
+        var result: [GhosttyTerminal] = []
+        for line in lines {
+            let fields = line.components(separatedBy: String(UnicodeScalar(31)!))
+            guard fields.count == 3, !fields[0].isEmpty,
+                  !result.contains(where: { $0.id == fields[0] }) else { return nil }
+            result.append(.init(id: fields[0], workingDirectory: fields[1], title: fields[2]))
+        }
+        return result
+    }
+    private static let ghosttyInventoryScript = """
+    tell application "Ghostty"
+        if not (it is running) then return ""
+        if (count of terminals) > 256 then return ""
+        set output to ""
+        repeat with aTerminal in terminals
+            set output to output & (id of aTerminal as text) & (ASCII character 31) & (working directory of aTerminal as text) & (ASCII character 31) & (name of aTerminal as text) & linefeed
+        end repeat
+        return output
+    end tell
+    """
     private func jumpToGhosttyTerminal(_ target: JumpTarget) throws -> Bool {
-        try runAppleScript(ghosttyJumpScript(for: target)) == "matched"
+        guard let inventory = Self.parseGhosttyInventory(try runAppleScript(Self.ghosttyInventoryScript)) else {
+            throw TerminalJumpError.conversationUnavailable("Ghostty", "terminal-inventory-unavailable")
+        }
+        let terminal: GhosttyTerminal
+        switch Self.selectGhosttyTerminal(inventory, target: target) {
+        case let .matched(value): terminal = value
+        case .missing: throw TerminalJumpError.conversationUnavailable("Ghostty", "terminal-id-or-unique-target-missing")
+        case .ambiguous: throw TerminalJumpError.conversationUnavailable("Ghostty", "ambiguous-terminal")
+        }
+        var resolved = target
+        resolved.terminalSessionID = terminal.id
+        guard try runAppleScript(ghosttyJumpScript(for: resolved)) == terminal.id else {
+            throw TerminalJumpError.conversationUnavailable("Ghostty", "focused-terminal-id-unverified")
+        }
+        return true
     }
 
+    /// Selection happens against a read-only inventory first. This script focuses
+    /// only the source-owned resolved ID and returns the observed focused ID.
     func ghosttyJumpScript(for target: JumpTarget) -> String {
         let terminalSessionID = escapeAppleScript(target.terminalSessionID)
-        let workingDirectory = escapeAppleScript(target.workingDirectory)
-        let paneTitle = escapeAppleScript(target.paneTitle)
-
         return """
         tell application "Ghostty"
             if not (it is running) then return ""
-            activate
-
-            set targetWindow to missing value
-            set targetTab to missing value
-            set targetTerminal to missing value
-
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
-                    repeat with aTerminal in terminals of aTab
-                        if "\(terminalSessionID)" is not "" and (id of aTerminal as text) is "\(terminalSessionID)" then
-                            set targetWindow to aWindow
-                            set targetTab to aTab
-                            set targetTerminal to aTerminal
-                            exit repeat
-                        end if
-                    end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
-                end repeat
-
-                if targetTerminal is not missing value then
-                    exit repeat
-                end if
-            end repeat
-
-            if targetTerminal is missing value and "\(workingDirectory)" is not "" then
-                repeat with aWindow in windows
-                    repeat with aTab in tabs of aWindow
-                        repeat with aTerminal in terminals of aTab
-                            if (working directory of aTerminal as text) is "\(workingDirectory)" then
-                                set targetWindow to aWindow
-                                set targetTab to aTab
-                                set targetTerminal to aTerminal
-                                exit repeat
-                            end if
-                        end repeat
-
-                        if targetTerminal is not missing value then
-                            exit repeat
-                        end if
-                    end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
-                end repeat
-            end if
-
-            if targetTerminal is missing value and "\(paneTitle)" is not "" then
-                repeat with aWindow in windows
-                    repeat with aTab in tabs of aWindow
-                        repeat with aTerminal in terminals of aTab
-                            if (name of aTerminal as text) contains "\(paneTitle)" then
-                                set targetWindow to aWindow
-                                set targetTab to aTab
-                                set targetTerminal to aTerminal
-                                exit repeat
-                            end if
-                        end repeat
-
-                        if targetTerminal is not missing value then
-                            exit repeat
-                        end if
-                    end repeat
-
-                    if targetTerminal is not missing value then
-                        exit repeat
-                    end if
-                end repeat
-            end if
-
-            if targetTerminal is missing value then return ""
-
-            if "\(terminalSessionID)" is "" then
-                if targetWindow is not missing value then
-                    activate window targetWindow
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                if targetTab is not missing value then
-                    select tab targetTab
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                focus targetTerminal
-                delay \(Self.ghosttyFocusSettleDelay)
-                return "matched"
-            end if
-
+            if "\(terminalSessionID)" is "" then return ""
+            if (count of (every terminal whose id is "\(terminalSessionID)")) is not 1 then return ""
+            -- Window indexes are front-to-back and change when a window is raised.
+            -- Never retain enumeration references across activation/tab selection.
+            -- Native focus resolves this surface ID and raises its own window/tab.
             repeat \(Self.ghosttyFocusAttempts) times
-                if targetWindow is not missing value then
-                    activate window targetWindow
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                if targetTab is not missing value then
-                    select tab targetTab
-                    delay \(Self.ghosttyWindowActivationDelay)
-                end if
-
-                focus targetTerminal
+                focus (terminal id "\(terminalSessionID)")
                 -- Ghostty updates the focused split asynchronously after focus returns.
                 delay \(Self.ghosttyFocusSettleDelay)
-
                 try
-                    if (id of focused terminal of selected tab of front window as text) is "\(terminalSessionID)" then
-                        return "matched"
+                    if frontmost and (id of focused terminal of selected tab of front window as text) is "\(terminalSessionID)" then
+                        return (id of focused terminal of selected tab of front window as text)
                     end if
                 end try
             end repeat
@@ -1650,6 +1663,7 @@ enum TerminalJumpError: Error, LocalizedError {
     case unsupportedTerminal(String)
     case openFailed([String])
     case appleScriptFailed(String)
+    case conversationUnavailable(String, String)
 
     var errorDescription: String? {
         switch self {
@@ -1659,6 +1673,12 @@ enum TerminalJumpError: Error, LocalizedError {
             "Failed to launch terminal with arguments: \(arguments.joined(separator: " "))"
         case let .appleScriptFailed(message):
             "Terminal automation failed: \(message)"
+        case let .conversationUnavailable(app, reason):
+            if ["MiniMaxCode", "ZCode"].contains(app), reason == "accessibility-unavailable" {
+                "Enable Accessibility for this AIsland app in System Settings → Privacy & Security to return to the \(app) conversation."
+            } else {
+                "Could not verify the \(app) conversation (\(reason))."
+            }
         }
     }
 }

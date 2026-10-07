@@ -38,6 +38,10 @@ This index is the repository map for humans and coding agents. Read these files 
 - [docs/exec-plans/active/v0.1.1-deepseek-live-verification.md](./exec-plans/active/v0.1.1-deepseek-live-verification.md) for actual Desktop plugin loading, success and interruption evidence
 - [docs/exec-plans/active/v0.1.1-hermes-implementation.md](./exec-plans/active/v0.1.1-hermes-implementation.md) for Hermes lifecycle, shared metadata bridge, restoration and DeepSeek navigation
 - [docs/exec-plans/active/v0.1.1-custom-sounds-implementation.md](./exec-plans/active/v0.1.1-custom-sounds-implementation.md) for managed MP3 storage, playback and native acceptance boundaries
+- [docs/plans/v011-startup-recognition.md](./plans/v011-startup-recognition.md) for incremental startup discovery and isolated verification boundaries
+- [docs/reference/opencode-ghostty-binding.md](./reference/opencode-ghostty-binding.md) for OpenCode source identity and Ghostty binding
+- [docs/reference/zcode-3.14.4-navigation-contract.md](./reference/zcode-3.14.4-navigation-contract.md) for the current ZCode navigation contract
+- [docs/references/zcode-active-content-verification.md](./references/zcode-active-content-verification.md) for active-content verification evidence
 - [docs/references/README.md](./references/README.md) for pinned reference material and external behavior baselines
 - [docs/references/aisland-v0.1.1-discovery.md](./references/aisland-v0.1.1-discovery.md) for integration capability evidence, Dia and related audiovisual research, and prototype cue boundaries
 - [docs/references/aisland-v0.1.1-mcode-comparison.md](./references/aisland-v0.1.1-mcode-comparison.md) for the installed mcode version, desktop/CLI comparison and scope decision boundary

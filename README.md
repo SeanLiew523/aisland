@@ -93,7 +93,7 @@ Download the latest DMG from [GitHub Releases](https://github.com/SeanLiew523/ai
 
 **v0.1.1 (build 88)** is signed with Developer ID and notarized by Apple. The DMG contains the notarized Universal app. Download it from the [v0.1.1 release](https://github.com/SeanLiew523/aisland/releases/tag/v0.1.1); checksums and signed update assets are included.
 
-If you are upgrading from **v0.1.0**, quit AIsland and replace it in Applications using this DMG. v0.1.0 cannot download its first upgrade in-app. From v0.1.1 onward, **Settings → About → Check for Updates → Download and Install** installs compatible signed releases and restarts AIsland automatically.
+If you are upgrading from **v0.1.0**, quit AIsland and replace it in Applications using this DMG. v0.1.0 cannot download its first upgrade in-app. Local v0.1.1 preview builds with the same display version also need this manual replacement. From v0.1.1 onward, **Settings → About → Check for Updates → Download and Install** installs compatible signed releases and restarts AIsland automatically.
 
 Requirements: macOS 14+; release automation builds a Universal app for Apple Silicon and Intel.
 

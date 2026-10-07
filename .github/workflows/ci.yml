@@ -15,9 +15,6 @@ on:
 jobs:
   harness:
     runs-on: macos-26
-    env:
-      OPEN_ISLAND_HERMES_PYTHON: ${{ runner.temp }}/aisland-hermes-test-python/bin/python
-      AISLAND_TEST_HOOKS_BINARY: ${{ github.workspace }}/.build/debug/OpenIslandHooks
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +27,8 @@ jobs:
           python-version: '3.12'
 
       - name: Prepare isolated Hermes test interpreter
+        env:
+          OPEN_ISLAND_HERMES_PYTHON: ${{ runner.temp }}/aisland-hermes-test-python/bin/python
         run: |
           python -m venv "${{ runner.temp }}/aisland-hermes-test-python"
           "$OPEN_ISLAND_HERMES_PYTHON" -m pip install PyYAML==6.0.2
@@ -38,6 +37,9 @@ jobs:
         run: swift build --product OpenIslandHooks
 
       - name: Run CI checks
+        env:
+          OPEN_ISLAND_HERMES_PYTHON: ${{ runner.temp }}/aisland-hermes-test-python/bin/python
+          AISLAND_TEST_HOOKS_BINARY: ${{ github.workspace }}/.build/debug/OpenIslandHooks
         run: zsh scripts/harness.sh ci
 
   package-verify:

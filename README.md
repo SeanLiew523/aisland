@@ -76,17 +76,24 @@ A quiet pulse while thinking. A soft blink while waiting. These are the app’s 
 
 Works with Claude Code, Codex CLI and Desktop, ZCode, WorkBuddy, Cursor, Gemini CLI, OpenCode and more. Events and interactive actions vary by integration; see [Product Scope](docs/product.md) and [Hook Contracts](docs/hooks.md). Managed agents keep running if AIsland is unavailable.
 
+## New in v0.1.1
+
+- Fullscreen welcome animation with Chinese and English support.
+- Custom MP3 sounds for notifications.
+- Signed update download, installation and automatic restart from Settings.
+- Hermes CLI, DeepSeek Harness Desktop and MiniMaxCode Desktop integrations.
+- More precise Ghostty and desktop session navigation; completion callback and notification fixes.
+- Codex main-quota selection and active-session priority in the collapsed agent grid.
+
 ## Quick Start
 
 ### Download
 
 Download the latest DMG from [GitHub Releases](https://github.com/SeanLiew523/aisland/releases), open it, and drag **AIsland** into **Applications**.
 
-The initial releases are development builds and are not Apple-notarized. If macOS blocks the app, open **System Settings → Privacy & Security → Open Anyway** for AIsland. For a quarantined local build, you can also run:
+**v0.1.1 (build 88)** is signed with Developer ID and notarized by Apple. The DMG contains the notarized Universal app. Download it from the [v0.1.1 release](https://github.com/SeanLiew523/aisland/releases/tag/v0.1.1); checksums and signed update assets are included.
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/AIsland.app"
-```
+If you are upgrading from **v0.1.0**, quit AIsland and replace it in Applications using this DMG. v0.1.0 cannot download its first upgrade in-app. From v0.1.1 onward, **Settings → About → Check for Updates → Download and Install** installs compatible signed releases and restarts AIsland automatically.
 
 Requirements: macOS 14+; release automation builds a Universal app for Apple Silicon and Intel.
 
@@ -102,14 +109,16 @@ swift run OpenIslandApp
 To build the AIsland app, ZIP, and DMG locally:
 
 ```bash
-OPEN_ISLAND_VERSION=0.1.0 zsh scripts/package-aisland.sh
+OPEN_ISLAND_VERSION=0.1.1 OPEN_ISLAND_DISABLE_UPDATES=true zsh scripts/package-aisland.sh
 ```
 
 Run the deterministic smoke harness with `zsh scripts/harness.sh smoke`.
 
 The executable target names retain the `OpenIsland` prefix for compatibility with existing hooks and local data paths. The shipped app name is **AIsland**.
 
-On first launch, use **Settings → Setup** to select the agents you want to connect. Hook installation happens only when requested there.
+On first launch, AIsland plays its welcome animation and then opens **Settings → Setup**. Installed agents are detected and missing managed connections are configured automatically; connections you deliberately remove stay disabled. Enable the AIsland plugin in desktop sources where required, then run a normal task to verify events. Manage connections and permissions in Setup.
+
+Local source packages are development builds. Public releases go through Developer ID signing, Apple notarization and signed-update verification; see [Release signing](docs/release-signing.md).
 
 AIsland uses the compatible OpenIsland local bridge. Quit Agent Island or Alsland before launching AIsland. Their app files and preferences are not migrated automatically.
 

@@ -1,62 +1,65 @@
 # AIsland website
 
-GitHub Pages at https://seanliew523.github.io/aisland/ serves the same reviewed
-product homepage as https://aisland.brianliew.chatgpt.site/. It stays on the
-GitHub Pages address rather than redirecting or embedding the other host.
+The approved Deep Ink homepage is served at both
+https://aisland.brianliew.chatgpt.site/ and
+https://seanliew523.github.io/aisland/. GitHub Pages keeps its own address;
+it does not redirect or embed the other host.
 
-## Published source
+## Published direction
 
-This snapshot matches Sites version 2, published from commit
-`51812cf5dc08f8cb9ee8fcb22e7a83655e150537`. `site-source.json` records that
-source and the SHA-256 of every imported file. The static output is copied
-unchanged; all asset paths are relative, including fonts, native video, status
-previews and the bundled animation runtimes, so they resolve under `/aisland/`.
+Deep Ink is the only production design. Its graphite background, pale jade
+headlines, paper content planes, technical meshes and native MacBook framing
+match the approved `467eb00` preview. The comparison menu, other palettes,
+preview-only copy and unused alternate artwork are excluded from production.
+The `data-design="ink"` attribute is fixed; URL parameters cannot select
+another direction. `site-source.json` records the matching Sites source
+version and SHA-256 hashes of the published static files.
 
-The page uses the single cobalt direction with warm paper feature sections,
-light Barlow Condensed typography and GitHub icon links. Chinese and English
-page copy share the genuine English native recording. The native demo moves
-and enlarges toward the center on desktop scroll, without changing its
-playback time. The brand chapter loops scattered agents → orbit → one island
-at the approved 1.5× rate, beginning when it enters view and pausing offscreen.
-There are no theme selectors or pricing sections. Reduced Motion disables
-scroll pinning and decorative animation, and uses static status previews.
+The first viewport presents the idle character in a sharp native notch
+close-up. Scrolling starts the separate native demo immediately and pulls
+back to the whole MacBook. Its sequence is Running → Answer → Approval →
+Sessions → Done, played at 1.2×. The brand chapter loops scattered agents →
+orbit → one island at the approved 1.5× rate. Background meshes stay in the
+colored page shells and gutters, behind opaque content planes. Chinese and
+English copy share the genuine English native recording. Reduced Motion
+disables scroll pinning and decorative animation and uses static status images.
 
-GitHub Pages and Sites are separate deployments. This repository's workflow
-publishes `dist` whenever its files change on `main`. Future Sites changes
-need a new reviewed snapshot here; this update does not create an automatic
-cross-host sync or alter the Sites deployment.
+All asset paths are relative, so the same static output works at the Sites
+root and beneath `/aisland/`. These are separate deployments: the GitHub
+workflow publishes `dist` when its files change on `main`; Sites publishes
+an identical archive. Future updates must keep both outputs in sync.
 
 ## Product and media
 
-The C1 logo, native status previews, 20-second English video, three English
-feature images and their provenance match the accepted Site. The recording
-uses production AppKit/SwiftUI views at pinned app commit
-`111b21950f2319213432e4464c3f6ee6862ff95b`, with example sessions supplied by
-the existing debug snapshot API. Apple’s original Ventura wallpaper is
-composited behind native pixels. The footage does not represent live
-permissions or session jumps. See `dist/assets/capture-provenance.json` and
-`dist/assets/status-provenance.json`.
+The high-density, alpha-native reveal recording retains the production
+AppKit/SwiftUI views at pinned app commit
+`111b21950f2319213432e4464c3f6ee6862ff95b`, with English example sessions
+supplied by the existing debug snapshot API. Compact vector layers were
+captured at 8×, with a separate 2× take for expanded native text. Apple's
+original Ventura wallpaper is composited behind the native pixels.
+The footage does not represent live permissions or session jumps.
+See `dist/assets/reveal-capture-provenance.json`, `capture-provenance.json`
+and `status-provenance.json` for source and media hashes.
 
-The three original Chinese `native-*.png` captures are retained only for
-`README.zh-CN.md`; the website uses the imported English `native-*-en.png`
-files. The repository READMEs retain their separate English and Chinese
-recordings and complete 960 × 612 GIFs. Their masters and exports are
-documented in [README visual assets](../docs/images/readme/README.md).
+The older English master and three original Chinese `native-*.png` captures
+remain for the repository READMEs; their language-specific masters and GIFs
+are documented in [README visual assets](../docs/images/readme/README.md).
+Their content is independent of the website's high-density reveal footage.
 
 The native status character and brand chapter adapt
 [bloub](https://github.com/jeremy-prt/bloub) under the retained MIT license.
-The brand engine's source and original attribution are in `src/vendor/bloub/`.
-Fonts and GSAP / ScrollTrigger keep their original licenses and source notices
-in `dist/assets/fonts/` and `dist/assets/vendor/`.
+Original source and attribution remain in `src/vendor/bloub/`.
+Barlow Condensed and GSAP / ScrollTrigger retain their licenses and source
+notices in `dist/assets/fonts/` and `dist/assets/vendor/`.
 
-Every download button points to the current AIsland release asset:
+Every download button uses the latest stable AIsland release asset:
 
 https://github.com/SeanLiew523/aisland/releases/latest/download/AIsland.dmg
 
-The project icon links open https://github.com/SeanLiew523/aisland. The app
-requires macOS 14+, supports Apple Silicon and Intel, and the initial
-development release is not Apple-notarized. Binary packages are served from
-GitHub Releases rather than embedded in the website.
+At publication, this resolves to v0.1.1's `AIsland.dmg` (42,471,002 bytes),
+SHA-256 `ad3a83651994d5c31d4aaf010bb5a708a397f4bf2a76c9b5bed3a9d6c0ea7986`.
+The package is Developer ID signed and Apple notarized, requires macOS 14+,
+and supports Apple Silicon and Intel. Installers are served by GitHub Releases.
 
 ## Preview and build
 
@@ -66,9 +69,8 @@ The checked-in page needs no build to preview:
 python3 aisland-website/media/preview.py --port 4327
 ```
 
-Open http://127.0.0.1:4327/. The preview server supports video byte ranges.
-
-To rebuild the brand chapter from its included TypeScript source:
+Open http://127.0.0.1:4327/. The server supports video byte ranges.
+To rebuild the included brand animation source:
 
 ```sh
 cd aisland-website
@@ -76,8 +78,7 @@ npm ci
 npm run build
 ```
 
-The historical native capture scripts in `media/` are retained as capture
-reference; they do not rebuild the currently published English master.
-To regenerate the README GIFs from their committed, language-specific masters,
-run `sh scripts/export-readme-demo.sh en` and
-`sh scripts/export-readme-demo.sh zh` from the repository root.
+After changing static CSS or JavaScript, refresh its content fingerprint in
+`dist/index.html` so returning visitors receive the new entrypoints.
+`media/compose-reveal.py` and `media/reveal-edit.json` document the native
+reveal edit; the raw native frame takes are not included in this repository.

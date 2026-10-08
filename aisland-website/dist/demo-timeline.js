@@ -1,58 +1,48 @@
-// Generated from media/demo-edit.json by media/compose.py.
+// Generated from the genuine native capture by media/compose-reveal.py.
 const DEMO_TIMELINE = Object.freeze({
-  "duration": 20.0,
+  "duration": 16.6,
   "chapters": [
-    1.9,
-    4.6,
-    9.5,
-    14.4,
-    16.9
+    0.5,
+    4.1,
+    8.6,
+    11.6,
+    14.2
   ],
   "segments": [
     {
       "start": 0,
-      "end": 1.4,
-      "chapter": -1
-    },
-    {
-      "start": 1.4,
-      "end": 4.1,
+      "end": 2.0,
       "chapter": 0
     },
     {
-      "start": 4.1,
-      "end": 6.5,
+      "start": 2.0,
+      "end": 3.6,
       "chapter": 1
     },
     {
-      "start": 6.5,
-      "end": 9.0,
+      "start": 3.6,
+      "end": 6.7,
       "chapter": 1
     },
     {
-      "start": 9.0,
-      "end": 11.4,
+      "start": 6.7,
+      "end": 8.1,
       "chapter": 2
     },
     {
-      "start": 11.4,
-      "end": 13.9,
+      "start": 8.1,
+      "end": 11.1,
       "chapter": 2
     },
     {
-      "start": 13.9,
-      "end": 16.4,
+      "start": 11.1,
+      "end": 13.7,
       "chapter": 3
     },
     {
-      "start": 16.4,
-      "end": 18.8,
+      "start": 13.7,
+      "end": 16.6,
       "chapter": 4
-    },
-    {
-      "start": 18.8,
-      "end": 20.0,
-      "chapter": -1
     }
   ]
 });

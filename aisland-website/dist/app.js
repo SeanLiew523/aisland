@@ -1,5 +1,9 @@
-/* One fixed visual direction. Playback is independent of page scrolling. */
+/* Native playback is independent of page scrolling. */
 const video = document.querySelector('#native-demo');
+video.defaultPlaybackRate = 1.2;
+video.playbackRate = 1.2;
+const idleVideo = document.querySelector('#idle-demo');
+const hero = document.querySelector('.hero-reveal');
 const playButton = document.querySelector('#play-toggle');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const chapterButtons = [...document.querySelectorAll('[data-chapter]')];
@@ -26,9 +30,24 @@ async function play() {
   updatePlayback();
 }
 function syncPlayback() {
-  if (userPaused || !inView || document.hidden) { video.pause(); updatePlayback(); }
+  const revealed = hero?.dataset.demoActive !== 'false';
+  if (idleVideo) {
+    if (revealed || !inView || document.hidden || reduced.matches) idleVideo.pause();
+    else idleVideo.play().catch(() => {});
+  }
+  if (userPaused || !inView || document.hidden || !revealed) { video.pause(); updatePlayback(); }
   else play();
 }
+document.addEventListener('aisland:demoreveal', () => {
+  if (hero.dataset.demoActive === 'false') {
+    if (video.readyState > 0) video.currentTime = 0;
+    else pendingTime = 0;
+    userPaused = reduced.matches;
+    updateTime();
+  }
+  syncPlayback();
+});
+idleVideo?.addEventListener('loadedmetadata', syncPlayback);
 video.addEventListener('loadedmetadata', () => {
   if (pendingTime !== null) { video.currentTime = Math.min(pendingTime, video.duration); pendingTime = null; }
   updateTime();
@@ -47,7 +66,9 @@ chapterButtons.forEach(button => button.addEventListener('click', () => {
   updatePlayback();
   updateTime();
 }));
-new IntersectionObserver(entries => { inView = entries[0].isIntersecting; syncPlayback(); }, { threshold: .12 }).observe(video);
+// The camera is intentionally larger than the viewport during its close-up.
+// Observe the visible stage rather than the transformed video's area ratio.
+new IntersectionObserver(entries => { inView = entries[0].isIntersecting; syncPlayback(); }, { threshold: .12 }).observe(hero || video);
 document.addEventListener('visibilitychange', syncPlayback);
 document.addEventListener('aisland:languagechange', () => { updatePlayback(); updateTime(); });
 function updateStatusPreviews() {

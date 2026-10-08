@@ -1,0 +1,51 @@
+{
+  "playback_speed": 1,
+  "intro": {
+    "start": 2,
+    "end": 12
+  },
+  "clips": [
+    {
+      "scene": "running",
+      "start": 12.4,
+      "end": 14.4,
+      "chapter": 0
+    },
+    {
+      "scene": "answer-collapsed",
+      "start": 16.4,
+      "end": 18,
+      "chapter": 1
+    },
+    {
+      "scene": "answer-expanded",
+      "start": 18.9,
+      "end": 22,
+      "chapter": 1
+    },
+    {
+      "scene": "approval-collapsed",
+      "start": 22.6,
+      "end": 24,
+      "chapter": 2
+    },
+    {
+      "scene": "approval-expanded",
+      "start": 25,
+      "end": 28,
+      "chapter": 2
+    },
+    {
+      "scene": "sessions",
+      "start": 28.9,
+      "end": 31.5,
+      "chapter": 3
+    },
+    {
+      "scene": "done",
+      "start": 32.6,
+      "end": 35.5,
+      "chapter": 4
+    }
+  ]
+}

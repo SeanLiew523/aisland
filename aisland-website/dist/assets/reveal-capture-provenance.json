@@ -1,0 +1,169 @@
+{
+  "source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+  "configuration": {
+    "compact_pass": {
+      "bundle_name": "AIsland",
+      "live_bloub_style": true,
+      "bridge_started": false,
+      "session_data": "English examples",
+      "language": "en",
+      "language_selection": "Existing production LanguageManager, volatile argument defaults only",
+      "source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+      "presentation_render_scale": {
+        "compact": 8,
+        "expanded": 2
+      },
+      "compact_capture_height_points": 64
+    },
+    "expanded_pass": {
+      "bundle_name": "AIsland",
+      "live_bloub_style": true,
+      "bridge_started": false,
+      "session_data": "English examples",
+      "language": "en",
+      "language_selection": "Existing production LanguageManager, volatile argument defaults only",
+      "source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+      "presentation_render_scale": {
+        "compact": 2,
+        "expanded": 2
+      },
+      "compact_capture_height_points": 64
+    }
+  },
+  "production_view_verification": {
+    "recorded_source_commit": "111b21950f2319213432e4464c3f6ee6862ff95b",
+    "production_views_verified": 6,
+    "changed_source": [
+      "Sources/OpenIslandApp/OpenIslandApp.swift"
+    ],
+    "changes": "Recording scheduling and volatile English language selection only",
+    "view_sha256": {
+      "Sources/OpenIslandApp/Views/V6NotchContent.swift": "b861979a4a30acb2bcb769d7edabd520fe42b84d061ce738669057daa8e82a82",
+      "Sources/OpenIslandApp/Views/SettingsView.swift": "4b2d6e7b783a4fbe89a28fb655275ea6d1cde31aebfc843467ed639956340bb4",
+      "Sources/OpenIslandApp/Views/BloubStatusGlyph.swift": "2d15238dad69f0bc492d6d4a4a473f1d50fbba27df130c9eb21d6849b2014da2",
+      "Sources/OpenIslandApp/Views/IslandPanelView.swift": "fad584f8a577f156db44a5ba9cad488dee923d2d8896dca6bdd061f4f236b392",
+      "Sources/OpenIslandApp/Views/AppearanceSettingsPane.swift": "b7040ba69fb41ca00131e69bc3acccf0d6f6ad9029f222927edc4993fc93dbe3",
+      "Sources/OpenIslandApp/Views/UnifiedBars.swift": "1eae65bd6ecc4a9a16fa8ffaa9e6133f620a9cfffcf2f00ac6521009a68c5c41"
+    }
+  },
+  "native_frames": {
+    "frames": 956,
+    "frames-compact": 870
+  },
+  "actual_capture_seconds": 37.96878504753113,
+  "edit": {
+    "playback_speed": 1,
+    "intro": {
+      "start": 2,
+      "end": 12
+    },
+    "clips": [
+      {
+        "scene": "running",
+        "start": 12.4,
+        "end": 14.4,
+        "chapter": 0
+      },
+      {
+        "scene": "answer-collapsed",
+        "start": 16.4,
+        "end": 18,
+        "chapter": 1
+      },
+      {
+        "scene": "answer-expanded",
+        "start": 18.9,
+        "end": 22,
+        "chapter": 1
+      },
+      {
+        "scene": "approval-collapsed",
+        "start": 22.6,
+        "end": 24,
+        "chapter": 2
+      },
+      {
+        "scene": "approval-expanded",
+        "start": 25,
+        "end": 28,
+        "chapter": 2
+      },
+      {
+        "scene": "sessions",
+        "start": 28.9,
+        "end": 31.5,
+        "chapter": 3
+      },
+      {
+        "scene": "done",
+        "start": 32.6,
+        "end": 35.5,
+        "chapter": 4
+      }
+    ]
+  },
+  "playback_speed": 1,
+  "output_fps": 30,
+  "timing": "Last captured native frame at each output timestamp; duplicates, no motion interpolation",
+  "presentation": "Native alpha foreground, at 576pt / 1728pt screen width; original Apple wallpaper is a separate static layer",
+  "compact_source_pixels": [
+    4608,
+    512
+  ],
+  "expanded_source_pixels": "1152 wide, native variable height",
+  "output_pixels": {
+    "intro": [
+      3072,
+      342
+    ],
+    "main": [
+      1536,
+      1308
+    ]
+  },
+  "playback_density_note": "1536-pixel native foreground exceeds the 720 CSS-pixel close-up at 2x display density; expanded UI is shown only after the camera pulls back",
+  "render_density_note": "Two native takes: compact vector layers at 8x, and a separate take entirely at unchanged 2x backing density for correct expanded text throughout native transitions",
+  "capture_timing_by_segment": {
+    "0": {
+      "frames": 359,
+      "median_interval_seconds": 0.0333
+    },
+    "1": {
+      "frames": 120,
+      "median_interval_seconds": 0.0333
+    },
+    "2": {
+      "frames": 60,
+      "median_interval_seconds": 0.0333
+    },
+    "3": {
+      "frames": 31,
+      "median_interval_seconds": 0.1333
+    },
+    "4": {
+      "frames": 49,
+      "median_interval_seconds": 0.0333
+    },
+    "5": {
+      "frames": 61,
+      "median_interval_seconds": 0.0667
+    },
+    "6": {
+      "frames": 107,
+      "median_interval_seconds": 0.0333
+    },
+    "7": {
+      "frames": 118,
+      "median_interval_seconds": 0.0333
+    },
+    "8": {
+      "frames": 51,
+      "median_interval_seconds": 0.0335
+    }
+  },
+  "assets_sha256": {
+    "native-idle-hd.webm": "3ad71ecf7493b02c6de776ab80d2ef14163f63ff9891641fde8dab80b0086c78",
+    "native-idle-hd.png": "afc50d8c1e0b74a8e5a744783f417c55d3be90e236bf49dea45117b4e9b8aaaf",
+    "native-reveal-en.webm": "c1a8bced0ee251e3cf5597cc4fed526766adc37da8c9096c98206ce4e4f06cc3"
+  }
+}
